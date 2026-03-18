@@ -37,11 +37,7 @@ class VisualizationService:
     
    def generate_radar_chart(self, dimension_scores: List[DimensionScore], avg_scores: List[float] = None) -> Dict[str, Any]:
         """
-        生成高精度的多维度能力评估对比雷达图
-        
-        Args:
-            dimension_scores: 当前学生的维度评分列表
-            avg_scores: 全体/班级平均分列表（顺序需与维度一致）。若为 None 则只显示个人数据。
+        生成现代极简科技风的多维度能力评估对比雷达图
         """
         # 1. 准备和转换基础数据
         dimensions = []
@@ -51,78 +47,102 @@ class VisualizationService:
             dimensions.append(dimension_name)
             scores.append(score.score)
 
-        # 如果没有传入均值，这里模拟一组均值数据（或者你可以设为全 0/全 5）
+        # 兜底均值数据
         if avg_scores is None:
-            avg_scores = [7.5, 7.0, 6.8, 7.2, 7.0, 6.5] # 假设总分是 10
+            # 假设总分是 10
+            avg_scores = [7.2, 7.8, 6.5, 8.0, 7.0, 6.8] 
 
-        # --- 核心优化点：闭合数据环 ---
-        # Plotly 雷达图如果不手动把第一个点加到末尾，线条不会首尾相连
+        # 核心：闭合数据环
         plot_dimensions = dimensions + [dimensions[0]]
         plot_scores = scores + [scores[0]]
         plot_avg = avg_scores + [avg_scores[0]]
 
         fig = go.Figure()
 
-        # 2. 添加【班级平均】轨迹 (作为背景基准)
+        # --------------------------------------------------
+        # 🎨 新版配色方案
+        # --------------------------------------------------
+        # 学生主色：霓虹紫
+        COLOR_STD_LINE = '#8A2BE2' # BlueViolet
+        COLOR_STD_FILL = 'rgba(138, 43, 226, 0.35)' # 半透明
+        # 均值参考色：深青灰
+        COLOR_AVG_LINE = '#4F6F6F' # Deep Slate Gray
+        COLOR_AVG_FILL = 'rgba(79, 111, 111, 0.1)' # 极淡
+        # 背景线颜色
+        COLOR_GRID = '#E0E0E0'
+
+        # 2. 添加【班级平均】轨迹 (优雅参考)
         fig.add_trace(go.Scatterpolar(
             r=plot_avg,
             theta=plot_dimensions,
             fill='toself',
-            name='班级平均水平',
-            fillcolor='rgba(200, 200, 200, 0.2)', # 浅灰色填充
-            line=dict(color='gray', width=2, dash='dash'), # 灰色虚线
-            marker=dict(size=4)
+            name='班级平均线 (基准)',
+            fillcolor=COLOR_AVG_FILL,
+            line=dict(color=COLOR_AVG_LINE, width=2.5, dash='longdash'), # 长虚线更有质感
+            marker=dict(size=4, color=COLOR_AVG_LINE),
+            hoverinfo='name+r' # 悬浮显示名称和分值
         ))
 
-        # 3. 添加【个人表现】轨迹 (高亮突出)
+        # 3. 添加【个人表现】轨迹 (霓虹突出)
         fig.add_trace(go.Scatterpolar(
             r=plot_scores,
             theta=plot_dimensions,
             fill='toself',
-            name='学生个人表现',
-            fillcolor='rgba(99, 110, 250, 0.35)', # 半透明主色
-            line=dict(color='#636EFA', width=4),     # 加粗实线
+            name=f'学生：{self.student.name if hasattr(self, "student") else "当前学生"}',
+            fillcolor=COLOR_STD_FILL,
+            line=dict(color=COLOR_STD_LINE, width=6), # 极致加粗，更具冲击力
             marker=dict(
-                size=12, 
-                symbol='circle-dot',
-                color='#636EFA'
-            )
+                size=14, 
+                symbol='circle', # 纯圆点更极简
+                color='white',   # 白色内芯
+                line=dict(color=COLOR_STD_LINE, width=3) # 紫色外圈
+            ),
+            hoverinfo='name+r'
         ))
 
-        # 4. 深度布局优化 (大字体 & 清爽背景)
+        # 4. 深度布局优化 (极简科技风)
         fig.update_layout(
             polar=dict(
                 bgcolor="white",
+                # 径向轴（圆圈）刻度
                 radialaxis=dict(
                     visible=True,
-                    range=[0, 10], # 假设分值范围 0-10
-                    gridcolor="#F0F0F0",
-                    tickfont=dict(size=14, color="#999999")
+                    range=[0, 10], 
+                    gridcolor=COLOR_GRID,
+                    gridwidth=1,
+                    tickfont=dict(size=14, color="#AAAAAA", family="Arial"),
+                    tickangle=0, # 刻度文字水平显示
+                    tickvals=[0, 2, 4, 6, 8, 10], # 明确刻度
+                    side='counterclockwise' # 刻度文字放在圆圈内侧
                 ),
+                # 角度轴（维度标签）
                 angularaxis=dict(
-                    # 关键：调大维度标签字体（3倍于默认，约18-20px）
-                    tickfont=dict(size=20, color="black", weight="bold"),
-                    gridcolor="#F0F0F0",
-                    rotation=90,
+                    # 关键优化：彻底移除蛛网状角度线，仅保留维度标签
+                    showgrid=False, 
+                    tickfont=dict(size=20, color="black", weight="bold", family="Microsoft YaHei"),
+                    rotation=90, # 保持起始点向上
                     direction="clockwise"
                 )
             ),
+            # 标题设置
             title=dict(
-                text="<b>学生综合能力评估报告</b>",
-                font=dict(size=30, color="#1A1A1A"), # 标题大字体
+                text="<b>👨‍🎓 学生综合能力画像评估报告</b>",
+                font=dict(size=32, color="#111111", family="Microsoft YaHei"),
                 x=0.5,
-                y=0.98
+                y=0.96 # 留出更多顶边距
             ),
+            # 图例设置（横向置底）
             legend=dict(
-                orientation="h", # 横向图例
+                orientation="h",
                 yanchor="bottom",
-                y=-0.2,
+                y=-0.18, # 调低图例位置
                 xanchor="center",
                 x=0.5,
-                font=dict(size=16)
+                font=dict(size=16, family="Arial")
             ),
-            margin=dict(l=100, r=100, t=120, b=100),
-            paper_bgcolor="rgba(0,0,0,0)"
+            # 边距设置
+            margin=dict(l=100, r=100, t=130, b=100),
+            paper_bgcolor="rgba(0,0,0,0)" # 透明背景，适应任何前端
         )
 
         # 转换为字典供前端解析
