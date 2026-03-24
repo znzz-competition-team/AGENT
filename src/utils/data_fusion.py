@@ -7,18 +7,32 @@ class DataFusionService:
     数据融合服务，用于整合多个维度的评分并进行加权计算
     """
     
-    # 默认权重配置
-    DEFAULT_WEIGHTS = {
-        EvaluationDimension.ACADEMIC_PERFORMANCE: 0.15,
+    # 理论课权重配置 (侧重学术、思维、沟通)
+    THEORY_WEIGHTS = {
+        EvaluationDimension.ACADEMIC_PERFORMANCE: 0.30,  # 提高
+        EvaluationDimension.CRITICAL_THINKING: 0.20,    # 提高
         EvaluationDimension.COMMUNICATION_SKILLS: 0.15,
-        EvaluationDimension.LEADERSHIP: 0.1,
-        EvaluationDimension.TEAMWORK: 0.1,
-        EvaluationDimension.CREATIVITY: 0.1,
-        EvaluationDimension.PROBLEM_SOLVING: 0.1,
-        EvaluationDimension.TIME_MANAGEMENT: 0.05,
-        EvaluationDimension.ADAPTABILITY: 0.05,
-        EvaluationDimension.TECHNICAL_SKILLS: 0.1,
-        EvaluationDimension.CRITICAL_THINKING: 0.1
+        EvaluationDimension.TECHNICAL_SKILLS: 0.05,     # 降低
+        EvaluationDimension.PROBLEM_SOLVING: 0.10,
+        EvaluationDimension.TEAMWORK: 0.05,
+        EvaluationDimension.LEADERSHIP: 0.05,
+        EvaluationDimension.CREATIVITY: 0.05,
+        EvaluationDimension.TIME_MANAGEMENT: 0.02,
+        EvaluationDimension.ADAPTABILITY: 0.03
+    }
+
+    # 实践课权重配置 (侧重技术、解决问题、团队)
+    PRACTICAL_WEIGHTS = {
+        EvaluationDimension.TECHNICAL_SKILLS: 0.30,     # 提高
+        EvaluationDimension.PROBLEM_SOLVING: 0.25,      # 提高
+        EvaluationDimension.TEAMWORK: 0.15,             # 提高
+        EvaluationDimension.ACADEMIC_PERFORMANCE: 0.10, # 降低
+        EvaluationDimension.CREATIVITY: 0.10,
+        EvaluationDimension.COMMUNICATION_SKILLS: 0.05,
+        EvaluationDimension.LEADERSHIP: 0.02,
+        EvaluationDimension.TIME_MANAGEMENT: 0.01,
+        EvaluationDimension.ADAPTABILITY: 0.01,
+        EvaluationDimension.CRITICAL_THINKING: 0.01
     }
     
     # 评分等级和对应的描述
@@ -30,18 +44,23 @@ class DataFusionService:
         (0.0, 4.0): {"level": "较差", "description": "表现较差，需要大幅改进"}
     }
     
-    def __init__(self, weights: Optional[Dict[EvaluationDimension, float]] = None):
+    def __init__(self, weights: Optional[Dict[EvaluationDimension, float]] = None, course_type: str = "theory"):
         """
-        初始化数据融合服务
-        
         Args:
-            weights: 各维度的权重配置，如果为None则使用默认权重
+            weights: 手动指定的权重
+            course_type: 课程类型 ('theory' 或 'practical')
         """
-        self.weights = weights or self.DEFAULT_WEIGHTS
-        # 验证权重总和是否为1
+        self.course_type = course_type
+        
+        if weights:
+            self.weights = weights
+        else:
+            # 根据课程类型自动选择预设权重
+            self.weights = self.PRACTICAL_WEIGHTS if course_type == "practical" else self.THEORY_WEIGHTS
+            
+        # 验证并归一化权重 (原有逻辑保留)
         total_weight = sum(self.weights.values())
         if abs(total_weight - 1.0) > 0.001:
-            # 归一化权重
             self.weights = {k: v / total_weight for k, v in self.weights.items()}
     
     def calculate_weighted_score(self, dimension_scores: List[DimensionScore]) -> float:

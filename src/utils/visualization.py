@@ -35,11 +35,28 @@ class VisualizationService:
         "dark": "#2C3E50"
     }
     
-   def generate_radar_chart(self, dimension_scores: List[DimensionScore], avg_scores: List[float] = None) -> Dict[str, Any]:
+def generate_radar_chart(self, dimension_scores: List[DimensionScore], 
+                             avg_scores: List[float] = None, 
+                             course_type: str = "theory") -> Dict[str, Any]:
         """
-        生成现代极简科技风的多维度能力评估对比雷达图
+        根据课程类型生成对应的雷达图
         """
-        # 1. 准备和转换基础数据
+        # --- [新增] 根据课程类型定制化配置 ---
+        if course_type == "practical":
+            COLOR_STD_LINE = '#00CED1'  # 科技感青色 (DarkTurquoise)
+            COLOR_STD_FILL = 'rgba(0, 206, 209, 0.35)'
+            TITLE_PREFIX = "🛠️ 实践课：技术实操能力画像"
+            # 如果没给平均分，实践课给一套不同的假数据作为基准
+            if avg_scores is None:
+                avg_scores = [6.5, 6.0, 7.0, 8.5, 8.0, 7.5] # 侧重后半部分维度
+        else:
+            COLOR_STD_LINE = '#8A2BE2'  # 霓虹紫
+            COLOR_STD_FILL = 'rgba(138, 43, 226, 0.35)'
+            TITLE_PREFIX = "👨‍🎓 理论课：学术综合能力画像"
+            if avg_scores is None:
+                avg_scores = [8.0, 7.5, 6.5, 6.0, 7.0, 8.2] # 侧重前半部分维度
+
+        # 1. 准备和转换基础数据 (原有逻辑保留)
         dimensions = []
         scores = []
         for score in dimension_scores:
@@ -47,108 +64,85 @@ class VisualizationService:
             dimensions.append(dimension_name)
             scores.append(score.score)
 
-        # 兜底均值数据
-        if avg_scores is None:
-            # 假设总分是 10
-            avg_scores = [7.2, 7.8, 6.5, 8.0, 7.0, 6.8] 
-
-        # 核心：闭合数据环
+        # 核心：闭合数据环 (原有逻辑保留)
         plot_dimensions = dimensions + [dimensions[0]]
         plot_scores = scores + [scores[0]]
         plot_avg = avg_scores + [avg_scores[0]]
 
         fig = go.Figure()
 
-        # --------------------------------------------------
-        # 🎨 新版配色方案
-        # --------------------------------------------------
-        # 学生主色：霓虹紫
-        COLOR_STD_LINE = '#8A2BE2' # BlueViolet
-        COLOR_STD_FILL = 'rgba(138, 43, 226, 0.35)' # 半透明
-        # 均值参考色：深青灰
-        COLOR_AVG_LINE = '#4F6F6F' # Deep Slate Gray
-        COLOR_AVG_FILL = 'rgba(79, 111, 111, 0.1)' # 极淡
-        # 背景线颜色
+        # 均值参考色：深青灰 (保持中立)
+        COLOR_AVG_LINE = '#4F6F6F'
+        COLOR_AVG_FILL = 'rgba(79, 111, 111, 0.1)'
         COLOR_GRID = '#E0E0E0'
 
-        # 2. 添加【班级平均】轨迹 (优雅参考)
+        # 2. 添加【班级平均】轨迹 (原有逻辑保留)
         fig.add_trace(go.Scatterpolar(
             r=plot_avg,
             theta=plot_dimensions,
             fill='toself',
             name='班级平均线 (基准)',
             fillcolor=COLOR_AVG_FILL,
-            line=dict(color=COLOR_AVG_LINE, width=2.5, dash='longdash'), # 长虚线更有质感
+            line=dict(color=COLOR_AVG_LINE, width=2.5, dash='longdash'),
             marker=dict(size=4, color=COLOR_AVG_LINE),
-            hoverinfo='name+r' # 悬浮显示名称和分值
+            hoverinfo='name+r'
         ))
 
-        # 3. 添加【个人表现】轨迹 (霓虹突出)
+        # 3. 添加【个人表现】轨迹 (使用上面定义的动态颜色)
         fig.add_trace(go.Scatterpolar(
             r=plot_scores,
             theta=plot_dimensions,
             fill='toself',
-            name=f'学生：{self.student.name if hasattr(self, "student") else "当前学生"}',
+            name=f'学生表现',
             fillcolor=COLOR_STD_FILL,
-            line=dict(color=COLOR_STD_LINE, width=6), # 极致加粗，更具冲击力
+            line=dict(color=COLOR_STD_LINE, width=6), 
             marker=dict(
                 size=14, 
-                symbol='circle', # 纯圆点更极简
-                color='white',   # 白色内芯
-                line=dict(color=COLOR_STD_LINE, width=3) # 紫色外圈
+                symbol='circle',
+                color='white',
+                line=dict(color=COLOR_STD_LINE, width=3)
             ),
             hoverinfo='name+r'
         ))
 
-        # 4. 深度布局优化 (极简科技风)
+        # 4. 深度布局优化
         fig.update_layout(
             polar=dict(
                 bgcolor="white",
-                # 径向轴（圆圈）刻度
                 radialaxis=dict(
                     visible=True,
                     range=[0, 10], 
                     gridcolor=COLOR_GRID,
-                    gridwidth=1,
-                    tickfont=dict(size=14, color="#AAAAAA", family="Arial"),
-                    tickangle=0, # 刻度文字水平显示
-                    tickvals=[0, 2, 4, 6, 8, 10], # 明确刻度
-                    side='counterclockwise' # 刻度文字放在圆圈内侧
+                    tickvals=[0, 2, 4, 6, 8, 10],
                 ),
-                # 角度轴（维度标签）
                 angularaxis=dict(
-                    # 关键优化：彻底移除蛛网状角度线，仅保留维度标签
                     showgrid=False, 
-                    tickfont=dict(size=20, color="black", weight="bold", family="Microsoft YaHei"),
-                    rotation=90, # 保持起始点向上
+                    tickfont=dict(size=16, color="black", family="Microsoft YaHei"),
+                    rotation=90,
                     direction="clockwise"
                 )
             ),
-            # 标题设置
+            # [修改] 使用动态标题
             title=dict(
-                text="<b>👨‍🎓 学生综合能力画像评估报告</b>",
-                font=dict(size=32, color="#111111", family="Microsoft YaHei"),
+                text=f"<b>{TITLE_PREFIX}</b>",
+                font=dict(size=28, color="#111111", family="Microsoft YaHei"),
                 x=0.5,
-                y=0.96 # 留出更多顶边距
+                y=0.96
             ),
-            # 图例设置（横向置底）
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=-0.18, # 调低图例位置
+                y=-0.18,
                 xanchor="center",
-                x=0.5,
-                font=dict(size=16, family="Arial")
+                x=0.5
             ),
-            # 边距设置
-            margin=dict(l=100, r=100, t=130, b=100),
-            paper_bgcolor="rgba(0,0,0,0)" # 透明背景，适应任何前端
+            margin=dict(l=80, r=80, t=120, b=80),
+            paper_bgcolor="rgba(0,0,0,0)"
         )
 
-        # 转换为字典供前端解析
         return fig.to_dict()
     
-    def generate_score_card(self, evaluation_result: EvaluationResult) -> Dict[str, Any]:
+def generate_score_card(self, evaluation_result: EvaluationResult) -> Dict[str, Any]:
         """
         生成评分卡片
         
@@ -214,7 +208,7 @@ class VisualizationService:
         # 转换为JSON格式
         return fig.to_dict()
     
-    def generate_trend_chart(self, evaluation_results: List[EvaluationResult]) -> Dict[str, Any]:
+def generate_trend_chart(self, evaluation_results: List[EvaluationResult]) -> Dict[str, Any]:
         """
         生成趋势图
         
@@ -277,7 +271,7 @@ class VisualizationService:
         # 转换为JSON格式
         return fig.to_dict()
     
-    def generate_dimension_bar_chart(self, dimension_scores: List[DimensionScore]) -> Dict[str, Any]:
+def generate_dimension_bar_chart(self, dimension_scores: List[DimensionScore]) -> Dict[str, Any]:
         """
         生成维度评分柱状图
         
@@ -332,7 +326,7 @@ class VisualizationService:
         # 转换为JSON格式
         return fig.to_dict()
     
-    def generate_heatmap(self, evaluation_results: List[EvaluationResult]) -> Dict[str, Any]:
+def generate_heatmap(self, evaluation_results: List[EvaluationResult]) -> Dict[str, Any]:
         """
         生成热力图
         
@@ -384,7 +378,7 @@ class VisualizationService:
         # 转换为JSON格式
         return fig.to_dict()
     
-    def generate_comparison_chart(self, student_results: Dict[str, List[DimensionScore]]) -> Dict[str, Any]:
+def generate_comparison_chart(self, student_results: Dict[str, List[DimensionScore]]) -> Dict[str, Any]:
         """
         生成学生能力对比图
         

@@ -8519,3 +8519,26 @@ For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/St
 2026-03-17 20:51:36,363 - httpcore.connection - DEBUG - close.complete
 2026-03-17 20:51:36,363 - httpcore.connection - DEBUG - close.started
 2026-03-17 20:51:36,363 - httpcore.connection - DEBUG - close.complete
+2026-03-24 13:06:02,109 - python_multipart.multipart - DEBUG - Calling on_part_begin with no data
+2026-03-24 13:06:02,118 - python_multipart.multipart - DEBUG - Calling on_header_field with data[36:55]
+2026-03-24 13:06:02,118 - python_multipart.multipart - DEBUG - Calling on_header_value with data[57:134]
+2026-03-24 13:06:02,118 - python_multipart.multipart - DEBUG - Calling on_header_end with no data
+2026-03-24 13:06:02,118 - python_multipart.multipart - DEBUG - Calling on_header_field with data[136:148]
+2026-03-24 13:06:02,118 - python_multipart.multipart - DEBUG - Calling on_header_value with data[150:221]
+2026-03-24 13:06:02,119 - python_multipart.multipart - DEBUG - Calling on_header_end with no data
+2026-03-24 13:06:02,119 - python_multipart.multipart - DEBUG - Calling on_headers_finished with no data
+2026-03-24 13:06:02,119 - python_multipart.multipart - DEBUG - Calling on_part_data with data[225:17396]
+2026-03-24 13:06:02,119 - python_multipart.multipart - DEBUG - Calling on_part_end with no data
+2026-03-24 13:06:02,119 - python_multipart.multipart - DEBUG - Calling on_end with no data
+2026-03-24 13:06:43,833 - src.api.main - INFO - 开始评估提交: SUB_AA3CC384, 阶段: None, 进度: 0.5
+2026-03-24 13:06:44,513 - src.api.main - INFO - 找到 1 个媒体文件
+2026-03-24 13:06:44,513 - src.api.main - INFO - 处理媒体文件: 智能制造工艺大作业2第四题.docx, 类型: document, 路径: uploads\SUB_AA3CC384_智能制造工艺大作业2第四题.docx
+2026-03-24 13:06:44,621 - src.api.main - INFO - 提取文件内容长度: 1523
+2026-03-24 13:06:44,622 - src.api.main - INFO - 成功提取 1 个文件的内容
+2026-03-24 13:06:44,622 - evaluation.llm_evaluator - INFO - AI配置: {'api_key': None, 'model': 'deepseek-chat', 'base_url': 'https://api.deepseek.com/v1', 'temperature': 0.7, 'max_tokens': 2000}
+2026-03-24 13:06:44,622 - evaluation.llm_evaluator - INFO - API密钥: None
+2026-03-24 13:06:44,622 - evaluation.llm_evaluator - ERROR - 无法初始化大模型客户端: API密钥未设置，请在配置文件中设置API密钥
+2026-03-24 13:08:02,001 - src.evaluation.llm_evaluator - INFO - AI配置: {'api_key': None, 'model': 'deepseek-chat', 'base_url': 'https://api.deepseek.com/v1', 'temperature': 0.7, 'max_tokens': 2000}
+2026-03-24 13:08:02,001 - src.evaluation.llm_evaluator - INFO - API密钥: None
+2026-03-24 13:08:02,002 - src.evaluation.llm_evaluator - ERROR - 无法初始化大模型客户端: API密钥未设置，请在配置文件中设置API密钥
+2026-03-24 13:08:02,002 - src.api.main - ERROR - 生成进度报告失败: API密钥未设置，请在配置文件中设置API密钥

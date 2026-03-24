@@ -556,6 +556,18 @@ elif page == "📁 文件上传":
         key="submission_type"
     )
     
+    # === 新增：课程类型选择 ===
+    st.markdown("---")
+    course_type = st.segmented_control(
+        "选择课程属性*",
+        options=["theory", "practical"],
+        format_func=lambda x: "📚 理论课程" if x == "theory" else "🛠️ 实践课程",
+        key="course_type_select",
+        default="theory" # 默认为理论课
+    )
+    # ========================
+
+
     with st.form("create_submission_form"):
         title = st.text_input("提交标题*", placeholder="请输入提交标题")
         

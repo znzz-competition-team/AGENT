@@ -37,12 +37,22 @@ class EvaluationAgent:
         )
 
 class AcademicPerformanceAgent(EvaluationAgent):
-    def __init__(self, llm_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, llm_config: Optional[Dict[str, Any]] = None, course_type: str = "theory"):
+        # 根据课程类型定制背景和目标
+        if course_type == "practical":
+            role = "实践操作评估专家"
+            goal = "基于实验报告、操作记录和项目成果，重点评估学生的动手实践与技术应用能力"
+            backstory = "你是一位资深工程实践导师，拥有20年实验室和项目现场评估经验。你擅长通过实验细节判断学生的操作规范性和解决实际问题的天赋。"
+        else:
+            role = "学术表现评估专家"
+            goal = "基于作业、考试和研究报告，全面评估学生的理论知识掌握深度与学术逻辑"
+            backstory = "你是一位经验丰富的资深教授，擅长分析学生的理论架构，识别其知识体系的严密性与学术优势。"
+
         super().__init__(
             name="academic_evaluator",
-            role="学术表现评估专家",
-            goal="基于学生的作业、考试、项目等材料，全面评估学生的学术表现",
-            backstory="你是一位经验丰富的教育评估专家，拥有20年的学术评估经验。你擅长分析学生的学术成果，识别其学术优势和需要改进的领域。",
+            role=role,
+            goal=goal,
+            backstory=backstory,
             llm_config=llm_config
         )
 
