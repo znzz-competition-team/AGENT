@@ -37,5 +37,6 @@ def init_db():
     # 导入所有模型，确保它们被注册到 Base.metadata
     from .models import Student, Submission, MediaFile, EvaluationResult, DimensionScore, HandwritingRecord
     
-    # 创建所有表（如果不存在）
+    # 只创建表，不删除现有表
+    # 注意：如果需要更新表结构，应该使用数据库迁移工具
     Base.metadata.create_all(bind=engine)

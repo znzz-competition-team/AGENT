@@ -130,6 +130,7 @@ class MediaFileResponse(BaseModel):
     id: int
     submission_id: int
     file_path: str
+    file_name: str
     media_type: MediaType
     duration: Optional[float] = None
     size_bytes: int
@@ -180,3 +181,4 @@ class ProgressReportResponse(BaseModel):
     time_range: dict
     key_insights: List[str]
     improvement_areas: List[str]
+    report_id: Optional[str] = None

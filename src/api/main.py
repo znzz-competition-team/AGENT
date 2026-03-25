@@ -174,7 +174,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 创建数据库表
-from database.database import Base, engine
+from src.database.database import Base, engine
 Base.metadata.create_all(bind=engine)
 
 # 依赖项
@@ -430,6 +430,18 @@ async def get_student_submissions(
         for submission in submissions
     ]
 
+@app.delete("/submissions/{submission_id}")
+async def delete_submission(
+    submission_id: str,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """删除提交记录及其相关的媒体文件和评估结果"""
+    deleted = db_service.delete_submission(submission_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="提交不存在")
+    
+    return {"message": "提交删除成功"}
+
 # 手写文字识别路由
 @app.post("/handwriting-recognize")
 async def handwriting_recognize(
@@ -628,6 +640,7 @@ async def upload_file(
         id=media_file.id,
         submission_id=media_file.submission_id,
         file_path=media_file.file_path,
+        file_name=media_file.file_name,
         media_type=media_file.media_type,
         size_bytes=media_file.size_bytes,
         duration=media_file.duration,
@@ -647,6 +660,7 @@ async def get_submission_files(
             id=file.id,
             submission_id=file.submission_id,
             file_path=file.file_path,
+            file_name=file.file_name,
             media_type=file.media_type,
             size_bytes=file.size_bytes,
             duration=file.duration,
@@ -660,32 +674,41 @@ async def get_submission_files(
 @app.put("/files/{file_id}", response_model=MediaFileResponse)
 async def update_file(
     file_id: int,
-    file_name: str = Form(...),
-    media_type: str = Form(...),
+    file_name: str = Form(..., description="文件名"),
+    media_type: str = Form(..., description="文件类型") ,
     db_service: DatabaseService = Depends(get_database_service)
 ):
+    # 验证输入
+    if not file_name or not media_type:
+        raise HTTPException(status_code=400, detail="文件名和文件类型为必填项")
+    
     # 检查文件是否存在
     media_file = db_service.get_media_file_by_id(file_id)
     if not media_file:
-        raise HTTPException(status_code=404, detail="文件不存在")
+        raise HTTPException(status_code=404, detail=f"文件ID {file_id} 不存在")
     
-    # 更新文件信息
-    updated_file = db_service.update_media_file(
-        file_id=file_id,
-        file_name=file_name,
-        media_type=media_type
-    )
-    
-    return MediaFileResponse(
-        id=updated_file.id,
-        submission_id=updated_file.submission_id,
-        file_path=updated_file.file_path,
-        media_type=updated_file.media_type,
-        size_bytes=updated_file.size_bytes,
-        duration=updated_file.duration,
-        processed=updated_file.processed,
-        uploaded_at=updated_file.created_at
-    )
+    try:
+        # 更新文件信息
+        updated_file = db_service.update_media_file(
+            file_id=file_id,
+            file_name=file_name,
+            media_type=media_type
+        )
+        
+        return MediaFileResponse(
+            id=updated_file.id,
+            submission_id=updated_file.submission_id,
+            file_path=updated_file.file_path,
+            file_name=updated_file.file_name,
+            media_type=updated_file.media_type,
+            size_bytes=updated_file.size_bytes,
+            duration=updated_file.duration,
+            processed=updated_file.processed,
+            uploaded_at=updated_file.created_at
+        )
+    except Exception as e:
+        logger.error(f"更新文件信息失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新文件信息失败: {str(e)}")
 
 # 文件删除路由
 @app.delete("/files/{file_id}")
@@ -720,7 +743,7 @@ async def evaluate_submission(
             raise HTTPException(status_code=404, detail="学生不存在")
         
         # 导入大模型评估器
-        from evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.llm_evaluator import llm_evaluator
         
         # 确定阶段进度（默认为0.5，即中期）
         stage_progress = request.stage_progress or 0.5
@@ -773,22 +796,43 @@ async def evaluate_submission(
             student_info=student_info
         )
         
+        # 记录API接收到的评估结果
+        print("=== API接收到的评估结果 ===")
+        print(f"类型: {type(evaluation_result)}")
+        print(f"内容: {evaluation_result}")
+        print(f"dimension_scores类型: {type(evaluation_result.get('dimension_scores'))}")
+        if 'dimension_scores' in evaluation_result:
+            print(f"dimension_scores内容: {evaluation_result['dimension_scores']}")
+        
         # 生成评估ID
         import uuid
         evaluation_id = f"EVAL_{uuid.uuid4().hex[:8].upper()}"
         
         # 保存评估结果到数据库
+        # 确保strengths、areas_for_improvement和recommendations是列表
+        strengths = evaluation_result.get("strengths", [])
+        if not isinstance(strengths, list):
+            strengths = [str(strengths)]
+        
+        areas_for_improvement = evaluation_result.get("areas_for_improvement", [])
+        if not isinstance(areas_for_improvement, list):
+            areas_for_improvement = [str(areas_for_improvement)]
+        
+        recommendations = evaluation_result.get("recommendations", [])
+        if not isinstance(recommendations, list):
+            recommendations = [str(recommendations)]
+        
         db_evaluation = db_service.create_evaluation_result(
             submission_id=request.submission_id,
             overall_score=evaluation_result["overall_score"],
-            strengths=", ".join(evaluation_result["strengths"]),
-            areas_for_improvement=", ".join(evaluation_result["areas_for_improvement"]),
-            recommendations=", ".join(evaluation_result["recommendations"]),
-            stage=f"progress_{stage_progress:.2f}"
+            strengths=", ".join(strengths),
+            areas_for_improvement=", ".join(areas_for_improvement),
+            recommendations=", ".join(recommendations),
+            stage=stage_progress
         )
         
         # 保存维度评分
-        from models.schemas import EvaluationDimension
+        from src.models.schemas import EvaluationDimension
         dimension_mapping = {
             "学术表现": EvaluationDimension.ACADEMIC_PERFORMANCE,
             "沟通能力": EvaluationDimension.COMMUNICATION_SKILLS,
@@ -804,48 +848,65 @@ async def evaluate_submission(
         
         # 构建维度评分响应
         dimension_scores_response = []
-        for dimension_name, score_info in evaluation_result["dimension_scores"].items():
-            dimension = dimension_mapping.get(dimension_name)
-            if dimension:
-                # 获取评分和推理
+        dimension_scores = evaluation_result["dimension_scores"]
+        
+        # 现在dimension_scores总是列表格式
+        print(f"处理dimension_scores，类型: {type(dimension_scores)}")
+        if isinstance(dimension_scores, list):
+            for score_info in dimension_scores:
                 if isinstance(score_info, dict):
-                    score = score_info.get("score", 0.0)
-                    reasoning = score_info.get("reasoning", "由大模型生成的评估结果")
-                else:
-                    score = score_info
-                    reasoning = "由大模型生成的评估结果"
-                
-                # 保存维度评分到数据库
-                db_service.create_dimension_score(
-                    evaluation_id=db_evaluation.evaluation_id,
-                    dimension=dimension.value,
-                    score=score,
-                    confidence=0.9,
-                    evidence=f"基于大模型的评估，进度值: {stage_progress:.2f}",
-                    reasoning=reasoning
-                )
-                
-                # 构建维度评分响应
-                dimension_score_response = DimensionScoreResponse(
-                    dimension=dimension,
-                    score=score,
-                    confidence=0.9,
-                    evidence=[f"基于大模型的评估，进度值: {stage_progress:.2f}"],
-                    reasoning=reasoning
-                )
-                dimension_scores_response.append(dimension_score_response)
+                    dimension_name = score_info.get("dimension")
+                    dimension = dimension_mapping.get(dimension_name)
+                    if dimension:
+                        score = score_info.get("score", 0.0)
+                        reasoning = score_info.get("reasoning", "由大模型生成的评估结果")
+                        
+                        # 保存维度评分到数据库
+                        db_service.create_dimension_score(
+                            evaluation_id=db_evaluation.evaluation_id,
+                            dimension=dimension.value,
+                            score=score,
+                            confidence=0.9,
+                            evidence=f"基于大模型的评估，进度值: {stage_progress:.2f}",
+                            reasoning=reasoning
+                        )
+                        
+                        # 构建维度评分响应
+                        dimension_score_response = DimensionScoreResponse(
+                            dimension=dimension,
+                            score=score,
+                            confidence=0.9,
+                            evidence=[f"基于大模型的评估，进度值: {stage_progress:.2f}"],
+                            reasoning=reasoning
+                        )
+                        dimension_scores_response.append(dimension_score_response)
+        else:
+            print(f"警告：dimension_scores不是列表类型！类型: {type(dimension_scores)}")
         
         # 更新提交状态
         db_service.update_submission_status(request.submission_id, SubmissionStatus.COMPLETED)
         
         # 构建响应
+        # 确保strengths、areas_for_improvement和recommendations是列表类型
+        response_strengths = evaluation_result.get("strengths", [])
+        if not isinstance(response_strengths, list):
+            response_strengths = [str(response_strengths)]
+        
+        response_areas_for_improvement = evaluation_result.get("areas_for_improvement", [])
+        if not isinstance(response_areas_for_improvement, list):
+            response_areas_for_improvement = [str(response_areas_for_improvement)]
+        
+        response_recommendations = evaluation_result.get("recommendations", [])
+        if not isinstance(response_recommendations, list):
+            response_recommendations = [str(response_recommendations)]
+        
         response = EvaluationResponse(
             evaluation_id=evaluation_id,
             student_id=student.student_id,
             overall_score=evaluation_result["overall_score"],
-            strengths=evaluation_result["strengths"],
-            areas_for_improvement=evaluation_result["areas_for_improvement"],
-            recommendations=evaluation_result["recommendations"],
+            strengths=response_strengths,
+            areas_for_improvement=response_areas_for_improvement,
+            recommendations=response_recommendations,
             dimension_scores=dimension_scores_response,
             evaluated_at=datetime.utcnow().isoformat(),
             evaluator_agent="llm_evaluator",
@@ -901,10 +962,15 @@ async def get_evaluation(
         for ds in dimension_scores
     ]
     
-    # 检查evaluation对象是否有stage属性
+    # 检查evaluation对象是否有stage和stage_progress属性
     stage = None
+    stage_progress = None
+    
     if hasattr(evaluation, 'stage'):
         stage = evaluation.stage
+    
+    if hasattr(evaluation, 'stage_progress'):
+        stage_progress = evaluation.stage_progress
     
     return EvaluationResponse(
         evaluation_id=evaluation.evaluation_id,
@@ -916,7 +982,8 @@ async def get_evaluation(
         dimension_scores=dimension_scores_response,
         evaluated_at=evaluation.evaluated_at,
         evaluator_agent=evaluation.evaluator_agent,
-        stage=stage
+        stage=stage,
+        stage_progress=stage_progress
     )
 
 @app.get("/students/{student_id}/evaluations", response_model=List[EvaluationResponse])
@@ -926,8 +993,8 @@ async def get_student_evaluations(
     limit: int = 100,
     db_service: DatabaseService = Depends(get_database_service)
 ):
-    # 获取学生的评估结果
-    evaluations = db_service.get_evaluation_results_by_student_id(student_id, skip=skip, limit=limit)
+    # 获取学生的评估结果，按时间排序
+    evaluations = db_service.get_evaluation_results_by_student_id_sorted(student_id)
     
     response = []
     for evaluation in evaluations:
@@ -946,10 +1013,15 @@ async def get_student_evaluations(
             for ds in dimension_scores
         ]
         
-        # 从stage字段中提取进度值
+        # 检查evaluation对象是否有stage和stage_progress属性
         stage = None
+        stage_progress = None
+        
         if hasattr(evaluation, 'stage'):
             stage = evaluation.stage
+        
+        if hasattr(evaluation, 'stage_progress'):
+            stage_progress = evaluation.stage_progress
         
         # 获取学生信息
         student = db_service.get_student_by_internal_id(evaluation.student_id)
@@ -966,7 +1038,8 @@ async def get_student_evaluations(
             dimension_scores=dimension_scores_response,
             evaluated_at=evaluation.evaluated_at,
             evaluator_agent=evaluation.evaluator_agent,
-            stage=stage
+            stage=stage,
+            stage_progress=stage_progress
         ))
     
     return response
@@ -982,6 +1055,62 @@ async def delete_evaluation(
         raise HTTPException(status_code=404, detail="评估记录不存在")
     
     return {"message": "评估记录已成功删除"}
+
+@app.put("/evaluations/{evaluation_id}", response_model=EvaluationResponse)
+async def update_evaluation(
+    evaluation_id: str,
+    update_data: dict,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """更新评估记录"""
+    # 更新评估结果
+    evaluation = db_service.update_evaluation_result(evaluation_id, **update_data)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+    
+    # 获取学生信息
+    student = db_service.get_student_by_internal_id(evaluation.student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    
+    # 获取维度评分
+    dimension_scores = db_service.get_dimension_scores_by_evaluation_id(evaluation_id)
+    
+    # 构建维度评分响应
+    dimension_scores_response = [
+        DimensionScoreResponse(
+            dimension=ds.dimension,
+            score=ds.score,
+            confidence=ds.confidence,
+            evidence=process_evidence(ds.evidence),
+            reasoning=ds.reasoning
+        )
+        for ds in dimension_scores
+    ]
+    
+    # 检查evaluation对象是否有stage和stage_progress属性
+    stage = None
+    stage_progress = None
+    
+    if hasattr(evaluation, 'stage'):
+        stage = evaluation.stage
+    
+    if hasattr(evaluation, 'stage_progress'):
+        stage_progress = evaluation.stage_progress
+    
+    return EvaluationResponse(
+        evaluation_id=evaluation.evaluation_id,
+        student_id=student.student_id,
+        overall_score=evaluation.overall_score,
+        strengths=process_string_list(evaluation.strengths),
+        areas_for_improvement=process_string_list(evaluation.areas_for_improvement),
+        recommendations=process_string_list(evaluation.recommendations),
+        dimension_scores=dimension_scores_response,
+        evaluated_at=evaluation.evaluated_at,
+        evaluator_agent=evaluation.evaluator_agent,
+        stage=stage,
+        stage_progress=stage_progress
+    )
 
 @app.get("/students/{student_id}/progress-report", response_model=ProgressReportResponse)
 async def generate_student_progress_report(
@@ -1121,10 +1250,86 @@ async def get_student_progress_reports(
             total_evaluations=report.total_evaluations,
             time_range=time_range,
             key_insights=key_insights,
-            improvement_areas=improvement_areas
+            improvement_areas=improvement_areas,
+            report_id=report.report_id  # 添加report_id
         ))
     
     return response
+
+# Pydantic model for updating progress report
+class ProgressReportUpdate(BaseModel):
+    generated_at: Optional[datetime] = None
+    report: Optional[str] = None
+    time_range: Optional[Dict[str, str]] = None
+    key_insights: Optional[List[str]] = None
+    improvement_areas: Optional[List[str]] = None
+
+@app.put("/progress-reports/{report_id}")
+async def update_progress_report(
+    report_id: str,
+    report_update: ProgressReportUpdate,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """
+    更新进度报告
+    """
+    # 构建更新数据
+    update_data = {}
+    if report_update.generated_at is not None:
+        update_data['generated_at'] = report_update.generated_at
+    if report_update.report is not None:
+        update_data['report'] = report_update.report
+    if report_update.time_range is not None:
+        update_data['time_range'] = report_update.time_range
+    if report_update.key_insights is not None:
+        update_data['key_insights'] = report_update.key_insights
+    if report_update.improvement_areas is not None:
+        update_data['improvement_areas'] = report_update.improvement_areas
+    
+    # 更新报告
+    updated_report = db_service.update_progress_report(report_id, **update_data)
+    
+    if not updated_report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    
+    # 构建响应
+    import json
+    time_range = {}
+    key_insights = []
+    improvement_areas = []
+    
+    try:
+        if updated_report.time_range:
+            time_range = json.loads(updated_report.time_range)
+        if updated_report.key_insights:
+            key_insights = json.loads(updated_report.key_insights)
+        if updated_report.improvement_areas:
+            improvement_areas = json.loads(updated_report.improvement_areas)
+    except:
+        pass
+    
+    return ProgressReportResponse(
+        student_id="",  # 这里需要从报告中获取学生ID，但当前模型没有直接关联
+        report=updated_report.report,
+        generated_at=updated_report.generated_at,
+        total_evaluations=updated_report.total_evaluations,
+        time_range=time_range,
+        key_insights=key_insights,
+        improvement_areas=improvement_areas,
+        report_id=updated_report.report_id
+    )
+
+@app.delete("/progress-reports/{report_id}")
+async def delete_progress_report(
+    report_id: str,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """删除进度报告"""
+    deleted = db_service.delete_progress_report(report_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="进度报告不存在")
+    
+    return {"message": "进度报告删除成功"}
 
 @app.get("/submissions/{submission_id}/evaluation", response_model=EvaluationResponse)
 async def get_submission_evaluation(
@@ -1433,6 +1638,24 @@ async def test_ai_connection():
         )
 
 # 主入口
+@app.delete("/evaluations/{evaluation_id}")
+async def delete_evaluation(
+    evaluation_id: str,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """
+    删除评估记录
+    """
+    try:
+        # 删除评估记录
+        if db_service.delete_evaluation_result(evaluation_id):
+            return {"message": "评估记录删除成功"}
+        else:
+            raise HTTPException(status_code=404, detail="评估记录不存在")
+    except Exception as e:
+        logger.error(f"删除评估记录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除评估记录失败: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

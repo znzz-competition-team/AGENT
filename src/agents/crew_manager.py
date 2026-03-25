@@ -88,9 +88,14 @@ class StudentEvaluationCrew:
         return agents
     
     def evaluate_student(self, student_id: str, student_data: Dict[str, Any], 
-                        media_data: Dict[str, Any]) -> EvaluationResult:
+                        media_data: Any) -> EvaluationResult:
         evaluation_id = str(uuid.uuid4())
-        """
+        
+        # 确保输入参数是字典类型
+        if not isinstance(student_data, dict):
+            student_data = {}
+        # 不再强制转换media_data为字典，保留原始类型
+        
         # 如果CrewAI不可用，返回模拟评估结果
         if not CREWAI_AVAILABLE:
             print(f"Generating mock evaluation for student {student_id}")
@@ -131,7 +136,7 @@ class StudentEvaluationCrew:
             
             print(f"Mock evaluation generated for student {student_id}")
             return result
-        """
+        
         try:
             dimension_scores = self._evaluate_dimensions(student_id, student_data, media_data)
             
@@ -161,7 +166,7 @@ class StudentEvaluationCrew:
             raise
 
     def _evaluate_dimensions(self, student_id: str, student_data: Dict[str, Any], 
-                           media_data: Dict[str, Any]) -> List[DimensionScore]:
+                           media_data: Any) -> List[DimensionScore]:
         dimension_scores = []
         
         for dimension in self.dimensions:
@@ -207,7 +212,7 @@ class StudentEvaluationCrew:
         return dimension_scores
     
     def _evaluate_with_agent(self, agent, dimension: EvaluationDimension,
-                           student_data: Dict[str, Any], media_data: Dict[str, Any]) -> Dict[str, Any]:
+                           student_data: Dict[str, Any], media_data: Any) -> Dict[str, Any]:
         # 准备格式化后的上下文信息用于任务描述
         context_info = {
             "student_info": student_data,
@@ -229,83 +234,77 @@ class StudentEvaluationCrew:
             EvaluationDimension.CRITICAL_THINKING: "批判性思维"
         }.get(dimension, dimension.value)
         
+        # 获取媒体内容，不再强制转换为字典
+        media_content = context_info['media_content']
+        
+        # 确保student_data是字典类型
+        if not isinstance(student_data, dict):
+            student_data = {}
+        
+        # 确保所有值都是字符串类型
+        student_name = str(student_data.get('name', '未知'))
+        student_grade = str(student_data.get('grade', '未知'))
+        student_major = str(student_data.get('major', '未知'))
+        
         # 针对技术能力的特殊评估提示
         if dimension == EvaluationDimension.TECHNICAL_SKILLS:
-            description = f"""
-            请基于以下信息，评估学生在{dimension_name}维度的表现：
-            
-            学生信息：
-            - 姓名：{context_info['student_info'].get('name', '未知')}
-            - 年级：{context_info['student_info'].get('grade', '未知')}
-            - 专业：{context_info['student_info'].get('major', '未知')}
-            
-            媒体内容：
-            {self._format_media_data(context_info['media_content'])}
-            
-            请从以下方面评估技术能力：
-            1. 代码质量和规范性
-            2. 算法设计和效率
-            3. 技术实现的创新性
-            4. 问题解决的技术方案
-            5. 技术文档的完整性
-            
-            请给出：
-            1. 0-10分的评分
-            2. 评分的置信度（0-1）
-            3. 支撑评分的证据
-            4. 评分的详细理由
-            """
+            description = ("请基于以下信息，评估学生在" + str(dimension_name) + "维度的表现：\n\n" +
+                         "学生信息：\n" +
+                         "- 姓名：" + student_name + "\n" +
+                         "- 年级：" + student_grade + "\n" +
+                         "- 专业：" + student_major + "\n\n" +
+                         "媒体内容：\n" +
+                         self._format_media_data(media_content) + "\n\n" +
+                         "请从以下方面评估技术能力：\n" +
+                         "1. 代码质量和规范性\n" +
+                         "2. 算法设计和效率\n" +
+                         "3. 技术实现的创新性\n" +
+                         "4. 问题解决的技术方案\n" +
+                         "5. 技术文档的完整性\n\n" +
+                         "请给出：\n" +
+                         "1. 0-10分的评分\n" +
+                         "2. 评分的置信度（0-1）\n" +
+                         "3. 支撑评分的证据\n" +
+                         "4. 评分的详细理由")
         # 针对批判性思维的特殊评估提示
         elif dimension == EvaluationDimension.CRITICAL_THINKING:
-            description = f"""
-            请基于以下信息，评估学生在{dimension_name}维度的表现：
-            
-            学生信息：
-            - 姓名：{context_info['student_info'].get('name', '未知')}
-            - 年级：{context_info['student_info'].get('grade', '未知')}
-            - 专业：{context_info['student_info'].get('major', '未知')}
-            
-            媒体内容：
-            {self._format_media_data(context_info['media_content'])}
-            
-            请从以下方面评估批判性思维：
-            1. 论证结构的逻辑性
-            2. 证据的充分性和可靠性
-            3. 对不同观点的考虑
-            4. 分析问题的深度和广度
-            5. 结论的合理性
-            
-            请给出：
-            1. 0-10分的评分
-            2. 评分的置信度（0-1）
-            3. 支撑评分的证据
-            4. 评分的详细理由
-            """
+            description = ("请基于以下信息，评估学生在" + str(dimension_name) + "维度的表现：\n\n" +
+                         "学生信息：\n" +
+                         "- 姓名：" + student_name + "\n" +
+                         "- 年级：" + student_grade + "\n" +
+                         "- 专业：" + student_major + "\n\n" +
+                         "媒体内容：\n" +
+                         self._format_media_data(media_content) + "\n\n" +
+                         "请从以下方面评估批判性思维：\n" +
+                         "1. 论证结构的逻辑性\n" +
+                         "2. 证据的充分性和可靠性\n" +
+                         "3. 对不同观点的考虑\n" +
+                         "4. 分析问题的深度和广度\n" +
+                         "5. 结论的合理性\n\n" +
+                         "请给出：\n" +
+                         "1. 0-10分的评分\n" +
+                         "2. 评分的置信度（0-1）\n" +
+                         "3. 支撑评分的证据\n" +
+                         "4. 评分的详细理由")
         # 其他维度的通用评估提示
         else:
-            description = f"""
-            请基于以下信息，评估学生在{dimension_name}维度的表现：
-            
-            学生信息：
-            - 姓名：{context_info['student_info'].get('name', '未知')}
-            - 年级：{context_info['student_info'].get('grade', '未知')}
-            - 专业：{context_info['student_info'].get('major', '未知')}
-            
-            媒体内容：
-            {self._format_media_data(context_info['media_content'])}
-            
-            请从以下方面进行评估：
-            1. 能力水平
-            2. 表现一致性
-            3. 发展潜力
-            4. 实际应用能力
-            
-            请给出：
-            1. 0-10分的评分
-            2. 评分的置信度（0-1）
-            3. 支撑评分的证据
-            4. 评分的详细理由
-            """
+            description = ("请基于以下信息，评估学生在" + str(dimension_name) + "维度的表现：\n\n" +
+                         "学生信息：\n" +
+                         "- 姓名：" + student_name + "\n" +
+                         "- 年级：" + student_grade + "\n" +
+                         "- 专业：" + student_major + "\n\n" +
+                         "媒体内容：\n" +
+                         self._format_media_data(media_content) + "\n\n" +
+                         "请从以下方面进行评估：\n" +
+                         "1. 能力水平\n" +
+                         "2. 表现一致性\n" +
+                         "3. 发展潜力\n" +
+                         "4. 实际应用能力\n\n" +
+                         "请给出：\n" +
+                         "1. 0-10分的评分\n" +
+                         "2. 评分的置信度（0-1）\n" +
+                         "3. 支撑评分的证据\n" +
+                         "4. 评分的详细理由")
         
         expected_output = """
         请以JSON格式返回评估结果：
@@ -361,51 +360,103 @@ class StudentEvaluationCrew:
                 "score": 5.0,
                 "confidence": 0.3,
                 "evidence": [],
-                "reasoning": f"评估过程中出现错误: {str(e)}"
+                "reasoning": "评估过程中出现错误: " + str(e)
             }
     
-    def _format_media_data(self, media_data: Dict[str, Any]) -> str:
+    def _format_media_data(self, media_data: Any) -> str:
         formatted = []
         
-        for media_name, data in media_data.items():
-            if isinstance(data, dict):
-                # 处理媒体处理结果字典
-                media_type = data.get("media_type", "unknown")
-                status = data.get("status", "unknown")
-                
-                if status == "processed" or status == "success":
-                    if media_type == "video":
-                        duration = data.get("duration", 0)
-                        formatted.append(f"视频文件: {media_name} (时长: {duration:.2f}秒)")
-                    elif media_type == "audio":
-                        duration = data.get("duration", 0)
-                        transcript = data.get("transcript", "")
-                        formatted.append(f"音频文件: {media_name} (时长: {duration:.2f}秒)")
-                        if transcript:
-                            formatted.append(f"转录文本: {transcript[:200]}...")
-                    elif media_type == "document":
-                        content = data.get("content", "")
-                        pages = data.get("pages", 0)
-                        formatted.append(f"文档文件: {media_name} (页数: {pages})")
-                        if content:
-                            # 提取文档内容的前200个字符
-                            if isinstance(content, dict):
-                                full_text = content.get("full_text", "")
-                                if full_text:
-                                    formatted.append(f"文档内容: {full_text[:200]}...")
+        try:
+            if isinstance(media_data, dict):
+                # 处理字典类型的媒体数据
+                for media_name, data in media_data.items():
+                    # 确保media_name是字符串
+                    media_name_str = str(media_name)
+                    if isinstance(data, dict):
+                        # 处理媒体处理结果字典
+                        media_type = data.get("media_type", "unknown")
+                        status = data.get("status", "unknown")
+                        
+                        if status == "processed" or status == "success":
+                            if media_type == "video":
+                                duration = data.get("duration", 0)
+                                try:
+                                    # 安全格式化
+                                    formatted.append("视频文件: " + media_name_str + " (时长: " + str(round(float(duration), 2)) + "秒)")
+                                except (ValueError, TypeError):
+                                    formatted.append("视频文件: " + media_name_str)
+                            elif media_type == "audio":
+                                duration = data.get("duration", 0)
+                                transcript = data.get("transcript", "")
+                                try:
+                                    # 安全格式化
+                                    formatted.append("音频文件: " + media_name_str + " (时长: " + str(round(float(duration), 2)) + "秒)")
+                                except (ValueError, TypeError):
+                                    formatted.append("音频文件: " + media_name_str)
+                                if transcript:
+                                    try:
+                                        # 安全格式化
+                                        formatted.append("转录文本: " + str(transcript)[:200] + "...")
+                                    except:
+                                        formatted.append("转录文本: [无法显示]")
+                            elif media_type == "document":
+                                content = data.get("content", "")
+                                pages = data.get("pages", 0)
+                                try:
+                                    # 安全格式化
+                                    formatted.append("文档文件: " + media_name_str + " (页数: " + str(int(pages)) + ")")
+                                except (ValueError, TypeError):
+                                    formatted.append("文档文件: " + media_name_str)
+                                if content:
+                                    # 提取文档内容的前200个字符
+                                    try:
+                                        if isinstance(content, dict):
+                                            full_text = content.get("full_text", "")
+                                            if full_text:
+                                                # 安全格式化
+                                                formatted.append("文档内容: " + str(full_text)[:200] + "...")
+                                        else:
+                                            # 安全格式化
+                                            formatted.append("文档内容: " + str(content)[:200] + "...")
+                                    except:
+                                        formatted.append("文档内容: [无法显示]")
+                    else:
+                        # 处理直接的文本内容（如文字提交）
+                        try:
+                            if str(media_name).startswith("text_"):
+                                # 安全格式化
+                                formatted.append("文字提交: " + str(media_name).replace('text_', ''))
+                                if isinstance(data, str) and data:
+                                    # 安全格式化
+                                    formatted.append("内容: " + str(data)[:200] + "...")
                             else:
-                                formatted.append(f"文档内容: {content[:200]}...")
+                                # 其他类型的内容
+                                formatted.append("其他内容: " + media_name_str)
+                                if isinstance(data, str) and data:
+                                    # 安全格式化
+                                    formatted.append("内容: " + str(data)[:200] + "...")
+                        except:
+                            formatted.append("其他内容: " + media_name_str)
+            elif isinstance(media_data, list):
+                # 处理列表类型的媒体数据
+                for i, item in enumerate(media_data):
+                    try:
+                        if isinstance(item, dict):
+                            # 处理列表中的字典项
+                            file_name = item.get('file_name', f'文件{i+1}')
+                            media_type = item.get('media_type', 'unknown')
+                            formatted.append(f"{media_type}文件: {file_name}")
+                        else:
+                            # 处理其他类型的列表项
+                            formatted.append(f"其他内容: {str(item)}")
+                    except:
+                        formatted.append(f"文件{i+1}: [无法显示]")
             else:
-                # 处理直接的文本内容（如文字提交）
-                if media_name.startswith("text_"):
-                    formatted.append(f"文字提交: {media_name.replace('text_', '')}")
-                    if isinstance(data, str) and data:
-                        formatted.append(f"内容: {data[:200]}...")
-                else:
-                    # 其他类型的内容
-                    formatted.append(f"其他内容: {media_name}")
-                    if isinstance(data, str) and data:
-                        formatted.append(f"内容: {data[:200]}...")
+                # 处理其他类型的媒体数据
+                formatted.append("媒体数据: " + str(media_data))
+        except Exception as e:
+            # 如果整个处理过程出错，返回错误信息
+            return "媒体数据处理出错: " + str(e)
         
         return "\n".join(formatted) if formatted else "无媒体内容"
     
@@ -418,23 +469,27 @@ class StudentEvaluationCrew:
             for ds in dimension_scores
         ])
         
-        description = f"""
-        请基于以下各维度的评估结果，为学生{student_data.get('name', '未知')}提供综合评估：
+        # 确保student_data是字典类型
+        if not isinstance(student_data, dict):
+            student_data = {}
         
-        学生信息：
-        - 学号：{student_id}
-        - 姓名：{student_data.get('name', '未知')}
-        - 年级：{student_data.get('grade', '未知')}
-        - 专业：{student_data.get('major', '未知')}
+        # 确保所有值都是字符串类型
+        student_name = str(student_data.get('name', '未知'))
+        student_grade = str(student_data.get('grade', '未知'))
+        student_major = str(student_data.get('major', '未知'))
         
-        各维度评分：
-        {scores_summary}
-        
-        请提供：
-        1. 学生的主要优势（3-5条）
-        2. 需要改进的方面（3-5条）
-        3. 具体的改进建议（5-8条）
-        """
+        description = ("请基于以下各维度的评估结果，为学生" + student_name + "提供综合评估：\n\n" +
+                     "学生信息：\n" +
+                     "- 学号：" + str(student_id) + "\n" +
+                     "- 姓名：" + student_name + "\n" +
+                     "- 年级：" + student_grade + "\n" +
+                     "- 专业：" + student_major + "\n\n" +
+                     "各维度评分：\n" +
+                     scores_summary + "\n\n" +
+                     "请提供：\n" +
+                     "1. 学生的主要优势（3-5条）\n" +
+                     "2. 需要改进的方面（3-5条）\n" +
+                     "3. 具体的改进建议（5-8条）")
         
         expected_output = """
         请以JSON格式返回综合评估结果：

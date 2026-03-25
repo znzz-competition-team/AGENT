@@ -65,7 +65,7 @@ class EvaluationResult(Base):
     areas_for_improvement = Column(Text, nullable=True)
     recommendations = Column(Text, nullable=True)
     evaluator_agent = Column(String(100), nullable=False)
-    # stage = Column(String(20), nullable=True)  # initial, mid, final 暂时注释掉，因为数据库表中没有这个列
+    stage_progress = Column(Float, nullable=True)  # 0.0-1.0
     evaluated_at = Column(DateTime, default=datetime.utcnow)
     
     student = relationship("Student", back_populates="evaluation_results")
