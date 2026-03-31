@@ -3,8 +3,6 @@ import requests
 import json
 import pandas as pd
 from datetime import datetime
-import plotly.graph_objects as go
-import plotly.express as px
 import os
 
 # API 基础 URL
@@ -126,6 +124,7 @@ st.sidebar.markdown("### 📋 功能导航")
 # 定义页面列表
 pages = [
     ("🏠", "系统首页"),
+    ("📋", "大纲管理"),
     ("👥", "学生管理"),
     ("📁", "文件上传"),
     ("📂", "文件管理"),
@@ -296,6 +295,172 @@ if page == "🏠 系统首页":
         **计划使用**
         - Whisper (语音识别)
         """)
+
+# ==================== 大纲管理 ====================
+elif page == "📋 大纲管理":
+    st.title("📋 大纲管理")
+    
+    # 大纲管理功能
+    st.subheader("📚 课程大纲管理")
+    
+    # 获取项目根目录
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    
+    # 大纲文件夹路径（使用绝对路径）
+    syllabus_folder = os.path.join(project_root, "评价大纲")
+    
+    # 检查大纲文件夹是否存在
+    if not os.path.exists(syllabus_folder):
+        st.error(f"❌ 大纲文件夹 '{syllabus_folder}' 不存在，请创建该文件夹并放入课程大纲文件")
+    else:
+        # 获取大纲文件列表
+        syllabus_files = [f for f in os.listdir(syllabus_folder) if f.endswith('.docx')]
+        
+        if not syllabus_files:
+            st.warning(f"⚠️ 大纲文件夹 '{syllabus_folder}' 中没有找到 .docx 文件")
+        else:
+            # 选择大纲文件
+            selected_syllabus = st.selectbox("选择课程大纲", syllabus_files)
+            
+            # 显示大纲信息
+            st.subheader(f"📄 {selected_syllabus}")
+            
+            # 检查是否已有大纲分析结果
+            analysis_dir = os.path.join(project_root, "analysis_results")
+            analysis_file = os.path.join(analysis_dir, f"{selected_syllabus.replace('.docx', '')}.json")
+            
+            existing_analysis = None
+            if os.path.exists(analysis_file):
+                try:
+                    with open(analysis_file, 'r', encoding='utf-8') as f:
+                        existing_analysis = json.load(f)
+                    st.info(f"ℹ️ 已有大纲分析结果（最后更新时间：{os.path.getmtime(analysis_file)}）")
+                except Exception as e:
+                    st.warning(f"⚠️ 读取已有分析结果失败: {str(e)}")
+            
+            # 分析大纲按钮
+            if st.button("🔍 分析大纲", use_container_width=True):
+                # 直接使用后端API分析大纲
+                try:
+                    # 读取大纲文件内容
+                    syllabus_path = os.path.join(project_root, "评价大纲", selected_syllabus)
+                    st.info(f"大纲文件路径: {syllabus_path}")
+                    
+                    try:
+                        if selected_syllabus.endswith('.docx'):
+                            # 读取docx文件
+                            from docx import Document
+                            doc = Document(syllabus_path)
+                            syllabus_content = '\n'.join([para.text for para in doc.paragraphs])
+                        elif selected_syllabus.endswith('.txt'):
+                            # 读取txt文件
+                            with open(syllabus_path, 'r', encoding='utf-8') as f:
+                                syllabus_content = f.read()
+                        else:
+                            syllabus_content = ""
+                        
+                        st.info(f"大纲内容长度: {len(syllabus_content)}")
+                        st.info(f"大纲内容前100个字符: {syllabus_content[:100]}...")
+                    except Exception as e:
+                        st.error(f"读取大纲文件失败: {str(e)}")
+                        st.stop()
+                    
+                    # 构建API请求
+                    api_url = "http://localhost:8000/analyze_syllabus"
+                    payload = {
+                        "syllabus_content": syllabus_content,
+                        "syllabus_name": selected_syllabus
+                    }
+                    
+                    st.info(f"API请求URL: {api_url}")
+                    st.info(f"API请求数据长度: {len(str(payload))}")
+                    st.info("⏳ 正在分析大纲，这可能需要1-2分钟，请耐心等待...")
+                    
+                    # 发送API请求（增加超时时间到180秒）
+                    response = requests.post(api_url, json=payload, timeout=180)
+                    
+                    if response.status_code == 200:
+                        analysis_result = response.json()
+                        
+                        # 检查分析结果是否为空
+                        if not analysis_result or (not analysis_result.get('ability_points') and not analysis_result.get('evaluation_criteria')):
+                            st.error("❌ 大纲分析失败：未获取到有效的分析结果")
+                            st.stop()
+                        
+                        # 保存分析结果
+                        # 保存到分析结果目录
+                        os.makedirs(analysis_dir, exist_ok=True)
+                        with open(analysis_file, 'w', encoding='utf-8') as f:
+                            json.dump(analysis_result, f, ensure_ascii=False, indent=2)
+                        
+                        # 保存到能力矩阵文件
+                        ability_matrix_path = os.path.join(project_root, "ability_matrix.json")
+                        if os.path.exists(ability_matrix_path):
+                            with open(ability_matrix_path, 'r', encoding='utf-8') as f:
+                                ability_matrix = json.load(f)
+                        else:
+                            ability_matrix = {}
+                        
+                        ability_matrix[selected_syllabus] = analysis_result
+                        with open(ability_matrix_path, 'w', encoding='utf-8') as f:
+                            json.dump(ability_matrix, f, ensure_ascii=False, indent=2)
+                        
+                        st.success("✅ 大纲分析完成并已保存！")
+                        
+                        # 更新已有分析结果
+                        existing_analysis = analysis_result
+                        
+                    else:
+                        st.error(f"❌ 大纲分析失败: {response.status_code}")
+                except Exception as e:
+                    st.error(f"❌ 运行大纲分析器时出错: {str(e)}")
+            
+            # 显示大纲分析结果框
+            st.markdown("---")
+            st.subheader("📊 大纲分析结果")
+            
+            if existing_analysis:
+                # 创建选项卡显示不同内容
+                result_tab1, result_tab2, result_tab3 = st.tabs(["🎯 能力点", "📏 评价标准", "📋 完整结果"])
+                
+                with result_tab1:
+                    if existing_analysis.get('ability_points'):
+                        st.markdown("### 提取的能力点")
+                        for i, point in enumerate(existing_analysis['ability_points'], 1):
+                            if isinstance(point, dict):
+                                st.markdown(f"**{i}. {point.get('name', '未知')}**")
+                                if point.get('description'):
+                                    st.markdown(f"   - 描述: {point.get('description')}")
+                                if point.get('level'):
+                                    st.markdown(f"   - 掌握程度: {point.get('level')}")
+                                st.markdown("")
+                            else:
+                                st.markdown(f"{i}. {point}")
+                    else:
+                        st.info("ℹ️ 未提取到能力点")
+                
+                with result_tab2:
+                    if existing_analysis.get('evaluation_criteria'):
+                        st.markdown("### 提取的评价标准")
+                        for i, criterion in enumerate(existing_analysis['evaluation_criteria'], 1):
+                            if isinstance(criterion, dict):
+                                st.markdown(f"**{i}. {criterion.get('name', '未知')}** ({criterion.get('weight', '未知权重')})")
+                                if criterion.get('description'):
+                                    st.markdown(f"   - 描述: {criterion.get('description')}")
+                                if criterion.get('standard'):
+                                    st.markdown(f"   - 评分标准: {criterion.get('standard')}")
+                                st.markdown("")
+                            else:
+                                st.markdown(f"{i}. {criterion}")
+                    else:
+                        st.info("ℹ️ 未提取到评价标准")
+                
+                with result_tab3:
+                    st.markdown("### 完整分析结果（JSON格式）")
+                    st.json(existing_analysis)
+            else:
+                st.info("ℹ️ 暂无大纲分析结果，请点击\"分析大纲\"按钮进行分析")
 
 # ==================== 学生管理 ====================
 elif page == "👥 学生管理":
@@ -818,10 +983,23 @@ elif page == "🤖 评估管理":
                             if files:
                                 for file in files:
                                     file_name = file.get('file_name', '未知文件')
-                                    # 使用提交ID+文件ID作为唯一键
-                                    option_key = f"{submission_id}_{file.get('id', '')}"
+                                    file_id = file.get('id', '')
+                                    # 使用提交ID+文件ID作为唯一键，如果文件ID为空则使用索引
+                                    if file_id:
+                                        option_key = f"{submission_id}_{file_id}"
+                                    else:
+                                        option_key = f"{submission_id}_file_{len(submission_options)}"
                                     submission_options[option_key] = f"{title} - {file_name} (学生ID: {student_id})"
-                        # 只添加有文件的提交，跳过无文件的情况
+                            else:
+                                # 如果没有文件，也显示提交记录（使用文字提交）
+                                text_content = sub.get('text_content', '')
+                                if text_content:
+                                    option_key = f"{submission_id}_text"
+                                    submission_options[option_key] = f"{title} - 文字提交 (学生ID: {student_id})"
+                        else:
+                            # 如果获取文件失败，也显示提交记录
+                            option_key = f"{submission_id}_unknown"
+                            submission_options[option_key] = f"{title} - 未知文件类型 (学生ID: {student_id})"
                     
                     selected_submission_id = None
                     if submission_options:
@@ -845,6 +1023,9 @@ elif page == "🤖 评估管理":
                                 selected_submission_id = selected_option
                         else:
                             selected_submission_id = selected_option
+                    else:
+                        st.warning("⚠️ 暂无提交记录，请先在提交管理页面创建提交")
+                    
                     if selected_submission_id:
                         # 学生工作时期设置
                         st.markdown("---")
@@ -875,110 +1056,125 @@ elif page == "🤖 评估管理":
                         else:
                             st.info("🎯 最终阶段 - 评分相对严格，重点关注成果质量和专业性")
                         
-                        if st.button("▶️ 启动阶段评估", use_container_width=True):
-                            # 准备评估请求
-                            eval_payload = {
-                                "submission_id": selected_submission_id,
-                                "stage_progress": stage_progress
-                            }
+                        # 编辑提示词功能
+                        with st.expander("📝 编辑大模型提示词"):
+                            # 构建默认提示词
+                            stage_description = "初期阶段" if stage_progress < 0.33 else ("中期阶段" if stage_progress < 0.66 else "最终阶段")
                             
-                            st.info(f"📊 将使用工作时期进度 {stage_progress:.2f} 进行评估")
-                            
-                            # 启动评估
-                            with st.spinner("🤖 AI正在评估中，请稍候..."):
-                                progress_bar = st.progress(0)
-                                
-                                # 模拟评估进度
-                                import time
-                                for i in range(100):
-                                    time.sleep(0.05)
-                                    progress_bar.progress(i + 1)
-                                
-                                response = requests.post(
-                                    f"{API_BASE_URL}/evaluate",
-                                    json=eval_payload
-                                )
-                                
-                                if response.status_code == 200:
-                                    evaluation_result = response.json()
-                                    st.session_state.evaluation_result = evaluation_result
-                                    st.success("✅ 评估完成！")
-                                    
-                                    # 显示评估结果摘要
-                                    st.subheader("📊 评估结果摘要")
-                                    
-                                    result_col1, result_col2, result_col3, result_col4 = st.columns(4)
-                                    with result_col1:
-                                        st.metric("综合评分", f"{evaluation_result['overall_score']}/10")
-                                    with result_col2:
-                                        st.metric("评估维度", len(evaluation_result['dimension_scores']))
-                                    with result_col3:
-                                        st.metric("评估时间", evaluation_result['evaluated_at'][:10])
-                                    with result_col4:
-                                        # 显示阶段进度信息
-                                        stage_progress = evaluation_result.get('stage_progress', 0.5)
-                                        progress_percent = int(stage_progress * 100)
-                                        st.metric("工作时期进度", f"{progress_percent}%")
-                                    
-                                    # 显示阶段评估说明
-                                    stage_progress = evaluation_result.get('stage_progress', 0.5)
-                                    if stage_progress < 0.33:
-                                        st.info("💡 初期阶段评估 - 评分相对宽松，重点关注学习态度和基础掌握")
-                                    elif stage_progress < 0.66:
-                                        st.info("⚖️ 中期阶段评估 - 评分适中，平衡考察进展和协作能力")
-                                    else:
-                                        st.info("🎯 最终阶段评估 - 评分相对严格，重点关注成果质量和专业性")
-                                    
-                                    # 显示详细结果
-                                    with st.expander("查看详细结果"):
-                                        st.json(evaluation_result)
-                                else:
-                                    try:
-                                        error_detail = response.json().get('detail', '未知错误')
-                                    except:
-                                        error_detail = f"HTTP {response.status_code}"
-                                    st.error(f"❌ 评估失败: {error_detail}")
-                else:
-                    st.info("📭 暂无提交记录")
-            else:
-                st.error("❌ 获取提交记录失败")
-        except Exception as e:
-            st.error(f"❌ 加载提交记录失败: {str(e)}")
-    
-    elif eval_type == "整体评估":
-        st.subheader("🎯 整体评估")
-        st.markdown("对学生的所有提交进行综合评估，给出整体表现评价")
-        
-        # 获取所有学生
-        try:
-            response = requests.get(f"{API_BASE_URL}/students")
-            if response.status_code == 200:
-                students = response.json()
-                if students:
-                    # 构建学生选项
-                    student_options = {student['student_id']: f"{student['student_id']} - {student['name']}" for student in students}
-                    selected_student_id = st.selectbox(
-                        "选择学生",
-                        options=list(student_options.keys()),
-                        format_func=lambda x: student_options[x]
-                    )
-                    
-                    if st.button("▶️ 启动整体评估", use_container_width=True):
-                        # 检查学生是否有提交记录
-                        response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/submissions")
-                        if response.status_code == 200:
-                            submissions = response.json()
-                            if not submissions:
-                                st.error("❌ 该学生暂无提交记录")
+                            # 评分标准说明
+                            if stage_progress < 0.33:
+                                scoring_guidance = """评分标准（宽松）：
+- 重点关注学习态度和基础知识掌握
+- 鼓励为主，关注潜力和进步空间
+- 对创新能力和专业深度要求较低
+- 综合评分需基于实际表现，客观反映学生的当前水平"""
+                            elif stage_progress < 0.66:
+                                scoring_guidance = """评分标准（适中）：
+- 平衡考察进展和能力发展
+- 关注执行能力和团队协作
+- 对各维度要求均衡
+- 综合评分应客观公正，反映学生的真实水平"""
                             else:
-                                # 准备评估请求（使用第一个提交作为基础，实际会评估所有提交）
-                                selected_submission_id = submissions[0]['submission_id']
+                                scoring_guidance = """评分标准（严格）：
+- 重点关注成果质量和专业性
+- 对创新能力和深度要求较高
+- 关注综合能力的全面发展
+- 评分应严格按照专业标准，客观反映学生的实际表现"""
+                            
+                            # 系统提示词
+                            system_prompt = st.text_area(
+                                "系统提示词",
+                                value="你是一位资深的教育评估专家，拥有10年以上的学生能力评估经验。请以专业、客观、严谨的态度对学生提交的内容进行全面评估。评估过程中需注意：\n1. 严格按照给定的评分标准和评估维度进行评估\n2. 评估结果需基于提交内容的实际表现，避免主观臆断\n3. 优势分析和改进建议需具体、可操作，具有实际指导意义\n4. 综合评分需反映学生的整体表现，与各维度评分保持一致\n5. 评估结果需以JSON格式返回，确保格式正确、内容完整",
+                                height=150
+                            )
+                            
+                            # 评估原则
+                            evaluation_principles = """# 评估原则
+1. 客观性：基于提交内容的实际表现进行评估，避免主观偏见
+2. 全面性：覆盖所有评估维度，确保评估结果全面反映学生能力
+3. 建设性：提供具体、可操作的改进建议，帮助学生提升能力
+4. 一致性：综合评分需与各维度评分保持一致，反映学生的整体表现"""
+                            
+                            # 评估维度及评分要点
+                            dimension_guidelines = """# 评估维度及评分要点
+1. 学术表现：知识掌握程度、理论应用能力、研究方法科学性
+2. 沟通能力：表达清晰度、逻辑条理性、信息传递有效性
+3. 领导力：团队组织能力、决策能力、激励能力
+4. 团队协作：合作意识、贡献程度、沟通协调能力
+5. 创新能力：思维创新性、解决方案独特性、技术应用创新性
+6. 问题解决：问题分析能力、解决方案有效性、决策合理性
+7. 时间管理：任务规划能力、进度控制能力、效率提升措施
+8. 适应能力：环境适应能力、学习能力、压力应对能力
+9. 技术能力：工具使用能力、技术掌握程度、技术应用效果
+10. 批判性思维：信息分析能力、观点客观性、论证逻辑性"""
+                            
+                            # 评估示例
+                            evaluation_examples = """# 评估示例
+示例1：学生提交的内容显示出扎实的基础知识和积极的学习态度，但创新能力和专业深度有待提高。
+评分建议：学术表现（85分）、创新能力（60分）、综合评分（75分）
+
+示例2：学生提交的内容显示出较强的创新能力和专业深度，但学习态度和基础知识掌握有待提高。
+评分建议：学术表现（70分）、创新能力（85分）、综合评分（78分）"""
+                            
+                            # 用户提示词
+                            user_prompt = st.text_area(
+                                "用户提示词",
+                                value=f"# 评估任务\n" +
+                                "请对以下学生提交的内容进行全面、客观的评估，为学生提供有价值的反馈和建议。\n\n" +
+                                evaluation_principles + "\n\n" +
+                                "# 学生信息\n" +
+                                "{student_info}\n\n" +
+                                "# 提交内容\n" +
+                                "{submission_content}\n\n" +
+                                "# 评估阶段\n" +
+                                f"当前处于项目{stage_description}，进度值: {stage_progress:.2f}\n\n" +
+                                "# 评分标准\n" +
+                                scoring_guidance + "\n\n" +
+                                dimension_guidelines + "\n\n" +
+                                "# 评估要求\n" +
+                                "1. 每个维度评分范围：0-100分，评分需精确到整数\n" +
+                                "2. 优势分析：至少列出3个学生的主要优势，每个优势需结合提交内容进行说明\n" +
+                                "3. 改进建议：至少列出3个需要改进的方面，每个建议需具体、可操作\n" +
+                                "4. 综合评分：0-100分，需基于各维度评分的加权平均，反映学生的整体表现\n" +
+                                "5. 评估结果必须以JSON格式返回，结构如下：\n\n" +
+                                '{"overall_score": 85,\n' +
+                                '    "dimension_scores": [\n' +
+                                '        {"dimension": "学术表现", "score": 80, "reasoning": "详细的评估理由"},\n' +
+                                '        {"dimension": "沟通能力", "score": 75, "reasoning": "详细的评估理由"},\n' +
+                                '        {"dimension": "领导力", "score": 70, "reasoning": "详细的评估理由"}\n' +
+                                '    ],\n' +
+                                '    "strengths": ["学习态度积极", "基础知识扎实"],\n' +
+                                '    "areas_for_improvement": ["创新能力需要加强", "团队协作能力有待提高"],\n' +
+                                '    "recommendations": ["多参与团队项目", "培养创新思维"]\n' +
+                                '}\n\n' +
+                                evaluation_examples,
+                                height=500
+                            )
+                            
+                            # 保存提示词
+                            if st.button("💾 保存提示词", use_container_width=True):
+                                # 保存到session state
+                                st.session_state.custom_prompts = {
+                                    "system_prompt": system_prompt,
+                                    "user_prompt": user_prompt
+                                }
+                                st.success("✅ 提示词保存成功！")
+                        
+                        # 启动评估按钮
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("▶️ 启动阶段评估", use_container_width=True):
+                                # 准备评估请求
                                 eval_payload = {
                                     "submission_id": selected_submission_id,
-                                    "stage_progress": 1.0  # 整体评估使用最终阶段标准
+                                    "stage_progress": stage_progress
                                 }
                                 
-                                st.info("📊 将对学生的所有提交进行综合评估")
+                                # 添加自定义提示词（如果有）
+                                if 'custom_prompts' in st.session_state:
+                                    eval_payload['custom_prompts'] = st.session_state.custom_prompts
+                                
+                                st.info(f"📊 将使用工作时期进度 {stage_progress:.2f} 进行评估")
                                 
                                 # 启动评估
                                 with st.spinner("🤖 AI正在评估中，请稍候..."):
@@ -1003,27 +1199,251 @@ elif page == "🤖 评估管理":
                                         # 显示评估结果摘要
                                         st.subheader("📊 评估结果摘要")
                                         
-                                        result_col1, result_col2, result_col3 = st.columns(3)
+                                        result_col1, result_col2, result_col3, result_col4 = st.columns(4)
                                         with result_col1:
-                                            st.metric("综合评分", f"{evaluation_result['overall_score']}/10")
+                                            st.metric("综合评分", f"{evaluation_result['overall_score']}/100")
                                         with result_col2:
                                             st.metric("评估维度", len(evaluation_result['dimension_scores']))
                                         with result_col3:
                                             st.metric("评估时间", evaluation_result['evaluated_at'][:10])
+                                        with result_col4:
+                                            # 显示阶段进度信息
+                                            stage_progress = evaluation_result.get('stage_progress', 0.5)
+                                            progress_percent = int(stage_progress * 100)
+                                            st.metric("工作时期进度", f"{progress_percent}%")
                                         
-                                        st.info("🎯 整体评估 - 基于学生的所有提交进行综合评价")
+                                        # 显示阶段评估说明
+                                        stage_progress = evaluation_result.get('stage_progress', 0.5)
+                                        if stage_progress < 0.33:
+                                            st.info("💡 初期阶段评估 - 评分相对宽松，重点关注学习态度和基础掌握")
+                                        elif stage_progress < 0.66:
+                                            st.info("⚖️ 中期阶段评估 - 评分适中，平衡考察进展和协作能力")
+                                        else:
+                                            st.info("🎯 最终阶段评估 - 评分相对严格，重点关注成果质量和专业性")
                                         
                                         # 显示详细结果
                                         with st.expander("查看详细结果"):
                                             st.json(evaluation_result)
+                                        
+                                        # 显示能力评分
+                                        if 'ability_scores' in evaluation_result and evaluation_result['ability_scores']:
+                                            st.subheader("📋 能力评分")
+                                            ability_data = []
+                                            for ability_score in evaluation_result['ability_scores']:
+                                                ability_data.append({
+                                                    '能力点': ability_score.get('ability', '未知'),
+                                                    '评分': ability_score.get('score', 0),
+                                                    '评分理由': ability_score.get('reasoning', '')
+                                                })
+                                            df = pd.DataFrame(ability_data)
+                                            st.dataframe(df, use_container_width=True)
                                     else:
                                         try:
                                             error_detail = response.json().get('detail', '未知错误')
                                         except:
                                             error_detail = f"HTTP {response.status_code}"
                                         st.error(f"❌ 评估失败: {error_detail}")
+                else:
+                    st.info("📭 暂无提交记录")
+            else:
+                st.error("❌ 获取提交记录失败")
+        except Exception as e:
+            st.error(f"❌ 加载提交记录失败: {str(e)}")
+    
+    elif eval_type == "整体评估":
+        st.subheader("🎯 整体评估")
+        st.markdown("根据大纲总结对单个报告文件进行评估")
+        
+        # 获取所有学生
+        try:
+            response = requests.get(f"{API_BASE_URL}/students")
+            if response.status_code == 200:
+                students = response.json()
+                if students:
+                    # 构建学生选项
+                    student_options = {student['student_id']: f"{student['student_id']} - {student['name']}" for student in students}
+                    selected_student_id = st.selectbox(
+                        "选择学生",
+                        options=list(student_options.keys()),
+                        format_func=lambda x: student_options[x]
+                    )
+                    
+                    # 获取可用的大纲总结
+                    try:
+                        analysis_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "analysis_results")
+                        if os.path.exists(analysis_dir):
+                            syllabus_files = [f for f in os.listdir(analysis_dir) if f.endswith('.json')]
+                            if syllabus_files:
+                                selected_syllabus = st.selectbox(
+                                    "选择课程大纲",
+                                    options=syllabus_files
+                                )
+                            else:
+                                st.warning("⚠️ 暂无大纲分析结果，请先在大纲管理页面分析课程大纲")
+                                st.stop()
                         else:
-                            st.error("❌ 获取学生提交记录失败")
+                            st.warning("⚠️ 暂无大纲分析结果，请先在大纲管理页面分析课程大纲")
+                            st.stop()
+                    except Exception as e:
+                        st.error(f"❌ 加载大纲分析结果失败: {str(e)}")
+                        st.stop()
+                    
+                    # 检查学生是否有提交记录
+                    response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/submissions")
+                    if response.status_code == 200:
+                        submissions = response.json()
+                        if not submissions:
+                            st.error("❌ 该学生暂无提交记录，无法进行整体评估")
+                            st.stop()
+                        else:
+                            # 构建提交选项
+                            submission_options = {submission['submission_id']: f"{submission['submission_id']} - {submission['title']}" for submission in submissions}
+                            selected_submission_id = st.selectbox(
+                                "选择报告文件",
+                                options=list(submission_options.keys()),
+                                format_func=lambda x: submission_options[x]
+                            )
+                            
+                            # 检查选中的提交是否有内容
+                            selected_submission = next((s for s in submissions if s['submission_id'] == selected_submission_id), None)
+                            if selected_submission:
+                                # 检查是否有文字内容
+                                has_text_content = selected_submission.get('text_content') and selected_submission.get('text_content').strip()
+                                
+                                # 检查是否有文件
+                                files_response = requests.get(f"{API_BASE_URL}/submissions/{selected_submission_id}/files")
+                                has_files = False
+                                if files_response.status_code == 200:
+                                    files = files_response.json()
+                                    has_files = len(files) > 0
+                                
+                                # 如果既没有文字内容也没有文件，显示警告
+                                if not has_text_content and not has_files:
+                                    st.warning("⚠️ 该提交没有内容（无文字且无文件），评估可能会失败")
+                    else:
+                        st.error("❌ 获取提交记录失败")
+                        st.stop()
+                    
+                    if st.button("▶️ 启动整体评估", use_container_width=True):
+                        # 准备评估请求
+                        eval_payload = {
+                            "submission_id": selected_submission_id,
+                            "stage_progress": 1.0  # 整体评估使用最终阶段标准
+                        }
+                        
+                        # 添加大纲分析结果
+                        try:
+                            analysis_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "analysis_results")
+                            syllabus_file = os.path.join(analysis_dir, selected_syllabus)
+                            with open(syllabus_file, 'r', encoding='utf-8') as f:
+                                syllabus_analysis = json.load(f)
+                            eval_payload["syllabus_analysis"] = syllabus_analysis
+                            st.info(f"📚 将使用 {selected_syllabus} 的大纲分析结果进行评估")
+                        except Exception as e:
+                            st.error(f"❌ 加载大纲分析结果失败: {str(e)}")
+                            st.stop()
+                        
+                        st.info("📊 将对选定的报告文件进行评估")
+                        
+                        # 启动评估
+                        with st.spinner("🤖 AI正在评估中，请稍候..."):
+                            progress_bar = st.progress(0)
+                            
+                            # 模拟评估进度
+                            import time
+                            for i in range(100):
+                                time.sleep(0.05)
+                                progress_bar.progress(i + 1)
+                            
+                            response = requests.post(
+                                f"{API_BASE_URL}/evaluate",
+                                json=eval_payload
+                            )
+                            
+                            if response.status_code == 200:
+                                evaluation_result = response.json()
+                                st.session_state.evaluation_result = evaluation_result
+                                st.success("✅ 评估完成！")
+                                
+                                # 显示评估结果摘要
+                                st.subheader("📊 评估结果摘要")
+                                
+                                result_col1, result_col2, result_col3 = st.columns(3)
+                                with result_col1:
+                                    st.metric("综合评分", f"{evaluation_result['overall_score']}/100")
+                                with result_col2:
+                                    st.metric("评估维度", len(evaluation_result['dimension_scores']))
+                                with result_col3:
+                                    st.metric("提交数量", 1)  # 现在只评估一个提交
+                                
+                                st.info("🎯 整体评估 - 基于大纲总结对单个报告文件进行评估")
+                                
+                                # 显示能力点评分
+                                st.subheader("🎯 能力点评分")
+                                dimension_scores = evaluation_result.get('dimension_scores', [])
+                                if dimension_scores:
+                                    for score in dimension_scores:
+                                        with st.expander(f"**{score.get('dimension', '未知')}** - {score.get('score', 0):.1f}分"):
+                                            if score.get('evidence'):
+                                                st.markdown("**证据：**")
+                                                for evidence in score.get('evidence', []):
+                                                    st.markdown(f"- {evidence}")
+                                            if score.get('reasoning'):
+                                                st.markdown(f"**理由：** {score.get('reasoning')}")
+                                else:
+                                    st.info("ℹ️ 无能力点评分")
+                                
+                                # 优势和劣势
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.subheader("✅ 优势")
+                                    strengths = evaluation_result.get('strengths', [])
+                                    if strengths:
+                                        for strength in strengths:
+                                            st.markdown(f"- {strength}")
+                                    else:
+                                        st.info("无优势记录")
+                                
+                                with col2:
+                                    st.subheader("❌ 劣势")
+                                    weaknesses = evaluation_result.get('weaknesses', evaluation_result.get('areas_for_improvement', []))
+                                    if weaknesses:
+                                        for weakness in weaknesses:
+                                            st.markdown(f"- {weakness}")
+                                    else:
+                                        st.info("无劣势记录")
+                                
+                                # 任务完成情况
+                                task_completion = evaluation_result.get('task_completion', {})
+                                if task_completion:
+                                    st.subheader("📋 任务完成情况")
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.markdown("**已完成任务：**")
+                                        for task in task_completion.get('completed_tasks', []):
+                                            st.markdown(f"- ✅ {task}")
+                                    with col2:
+                                        st.markdown("**未完成任务：**")
+                                        for task in task_completion.get('incomplete_tasks', []):
+                                            st.markdown(f"- ❌ {task}")
+                                    if task_completion.get('completion_details'):
+                                        st.markdown(f"**完成详情：** {task_completion.get('completion_details')}")
+                                
+                                # 总体评价
+                                overall_eval = evaluation_result.get('overall_evaluation', '')
+                                if overall_eval:
+                                    st.subheader("📝 总体评价")
+                                    st.markdown(overall_eval)
+                                
+                                # 显示详细结果
+                                with st.expander("查看完整JSON结果"):
+                                    st.json(evaluation_result)
+                            else:
+                                try:
+                                    error_detail = response.json().get('detail', '未知错误')
+                                except:
+                                    error_detail = f"HTTP {response.status_code}"
+                                st.error(f"❌ 评估失败: {error_detail}")
                 else:
                     st.info("📭 暂无学生记录")
             else:
@@ -1155,7 +1575,7 @@ elif page == "📊 结果查询":
                             
 
                             
-                            st.metric("综合评分", f"{result['overall_score']}/10")
+                            st.metric("综合评分", f"{result['overall_score']}/100")
                             
                             # 显示阶段进度信息
                             if 'stage_progress' in result and result['stage_progress'] is not None:
@@ -1234,7 +1654,7 @@ elif page == "📊 结果查询":
                                             # 显示报告详细内容
                                             if 'overall_score' in report_detail:
                                                 st.subheader("📊 综合评分")
-                                                st.metric("综合评分", f"{report_detail['overall_score']}/10")
+                                                st.metric("综合评分", f"{report_detail['overall_score']}/100")
                                             
                                             if 'dimension_trends' in report_detail:
                                                 st.subheader("📈 维度趋势")
@@ -1462,9 +1882,9 @@ if st.session_state.get('show_edit_evaluation_form', False):
         new_overall_score = st.slider(
             "综合评分",
             min_value=0.0,
-            max_value=10.0,
-            value=float(edit_evaluation.get('overall_score', 5.0)),
-            step=0.1
+            max_value=100.0,
+            value=float(edit_evaluation.get('overall_score', 50.0)),
+            step=1.0
         )
         
         # 维度评分修改
@@ -1476,9 +1896,9 @@ if st.session_state.get('show_edit_evaluation_form', False):
                     new_score = st.slider(
                         f"{ds.get('dimension', '未知维度')} 评分",
                         min_value=0.0,
-                        max_value=10.0,
-                        value=float(ds.get('score', 5.0)),
-                        step=0.1
+                        max_value=100.0,
+                        value=float(ds.get('score', 50.0)),
+                        step=1.0
                     )
                     new_reasoning = st.text_area(
                         f"{ds.get('dimension', '未知维度')} 评价理由",

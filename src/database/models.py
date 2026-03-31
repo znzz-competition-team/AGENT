@@ -65,7 +65,8 @@ class EvaluationResult(Base):
     areas_for_improvement = Column(Text, nullable=True)
     recommendations = Column(Text, nullable=True)
     evaluator_agent = Column(String(100), nullable=False)
-    stage_progress = Column(Float, nullable=True)  # 0.0-1.0
+    stage = Column(String(100), nullable=True)
+    stage_progress = Column(Float, nullable=True)
     evaluated_at = Column(DateTime, default=datetime.utcnow)
     
     student = relationship("Student", back_populates="evaluation_results")

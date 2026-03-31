@@ -10,13 +10,13 @@ class Settings(BaseSettings):
     ai_model: str = "deepseek-chat"
     ai_base_url: Optional[str] = None  # 自定义 API 基础 URL
     ai_temperature: float = 0.7
-    ai_max_tokens: int = 2000
+    ai_max_tokens: int = 8000  # 增加默认max_tokens以支持详细的评估结果
     
     # 兼容旧版 OpenAI 配置
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o"
     openai_temperature: float = 0.7
-    openai_max_tokens: int = 2000
+    openai_max_tokens: int = 8000  # 增加默认max_tokens以支持详细的评估结果
     
     # DeepSeek 配置
     deepseek_api_key: Optional[str] = None
@@ -36,7 +36,15 @@ class Settings(BaseSettings):
     crewai_verbose: bool = True
     
     # Database Settings
-    database_url: str = "sqlite:///./student_profiler_new.db"
+    database_url: str = "sqlite:///./syllabus_evaluation.db"
+    
+    @property
+    def database_absolute_path(self) -> str:
+        """获取数据库文件的绝对路径"""
+        db_path = self.database_url.replace("sqlite:///", "")
+        if not os.path.isabs(db_path):
+            db_path = os.path.abspath(os.path.join(get_project_root(), db_path))
+        return f"sqlite:///{db_path}"
     
     # API Settings
     api_host: str = "0.0.0.0"
@@ -117,16 +125,25 @@ def get_ai_config():
     import os
     from dotenv import load_dotenv
     
-    # 加载 .env 文件
-    load_dotenv()
-    
-    # 首先尝试读取环境变量中的配置
-    provider = os.getenv("AI_PROVIDER", settings.ai_provider)
-    api_key = os.getenv("AI_API_KEY", settings.ai_api_key)
-    model = os.getenv("AI_MODEL", settings.ai_model)
-    base_url = os.getenv("AI_BASE_URL", settings.ai_base_url)
-    temperature = float(os.getenv("AI_TEMPERATURE", str(settings.ai_temperature)))
-    max_tokens = int(os.getenv("AI_MAX_TOKENS", str(settings.ai_max_tokens)))
+    # 首先检查环境变量是否已经设置（由后端API设置）
+    if os.getenv("AI_API_KEY"):
+        # 如果环境变量已经设置，直接使用环境变量
+        provider = os.getenv("AI_PROVIDER", settings.ai_provider)
+        api_key = os.getenv("AI_API_KEY")
+        model = os.getenv("AI_MODEL", settings.ai_model)
+        base_url = os.getenv("AI_BASE_URL", settings.ai_base_url)
+        temperature = float(os.getenv("AI_TEMPERATURE", str(settings.ai_temperature)))
+        max_tokens = int(os.getenv("AI_MAX_TOKENS", str(settings.ai_max_tokens)))
+    else:
+        # 否则加载 .env 文件
+        load_dotenv()
+        # 从环境变量中读取配置
+        provider = os.getenv("AI_PROVIDER", settings.ai_provider)
+        api_key = os.getenv("AI_API_KEY", settings.ai_api_key)
+        model = os.getenv("AI_MODEL", settings.ai_model)
+        base_url = os.getenv("AI_BASE_URL", settings.ai_base_url)
+        temperature = float(os.getenv("AI_TEMPERATURE", str(settings.ai_temperature)))
+        max_tokens = int(os.getenv("AI_MAX_TOKENS", str(settings.ai_max_tokens)))
     
     # 根据提供商获取配置
     if provider == "openai":

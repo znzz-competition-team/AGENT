@@ -8,28 +8,23 @@ import os
 # 添加项目根目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 尝试导入crewai和ChatOpenAI，如果不可用则使用模拟评估
-try:
-    from crewai import Crew, Process
-    from langchain_openai import ChatOpenAI
-    from agents.evaluation_agents import (
-        EvaluationAgent,
-        AcademicPerformanceAgent,
-        CommunicationSkillsAgent,
-        LeadershipAgent,
-        TeamworkAgent,
-        CreativityAgent,
-        ProblemSolvingAgent,
-        TimeManagementAgent,
-        AdaptabilityAgent,
-        TechnicalSkillsAgent,
-        CriticalThinkingAgent,
-        ComprehensiveEvaluator
-    )
-    CREWAI_AVAILABLE = True
-except ImportError as e:
-    CREWAI_AVAILABLE = False
-    print(f"CrewAI not available, using mock evaluation: {str(e)}")
+# 导入crewai和ChatOpenAI
+from crewai import Crew, Process
+from langchain_openai import ChatOpenAI
+from agents.evaluation_agents import (
+    EvaluationAgent,
+    AcademicPerformanceAgent,
+    CommunicationSkillsAgent,
+    LeadershipAgent,
+    TeamworkAgent,
+    CreativityAgent,
+    ProblemSolvingAgent,
+    TimeManagementAgent,
+    AdaptabilityAgent,
+    TechnicalSkillsAgent,
+    CriticalThinkingAgent,
+    ComprehensiveEvaluator
+)
 
 from models.schemas import EvaluationResult, DimensionScore, EvaluationDimension
 from config import settings
@@ -95,47 +90,6 @@ class StudentEvaluationCrew:
         if not isinstance(student_data, dict):
             student_data = {}
         # 不再强制转换media_data为字典，保留原始类型
-        
-        # 如果CrewAI不可用，返回模拟评估结果
-        if not CREWAI_AVAILABLE:
-            print(f"Generating mock evaluation for student {student_id}")
-            
-            # 生成模拟的维度评分
-            dimension_scores = []
-            for dimension in self.dimensions:
-                dimension_score = DimensionScore(
-                    dimension=dimension,
-                    score=7.5,  # 模拟评分
-                    confidence=0.8,  # 模拟置信度
-                    evidence=[f"模拟评估证据: {dimension.value}"],
-                    reasoning=f"这是{dimension.value}维度的模拟评估理由"
-                )
-                dimension_scores.append(dimension_score)
-            
-            # 生成模拟的综合评估结果
-            comprehensive_result = {
-                "strengths": ["学习能力强", "团队协作能力好", "创新思维活跃"],
-                "areas_for_improvement": ["时间管理需要加强", "沟通表达能力待提高"],
-                "recommendations": ["制定合理的学习计划", "多参与团队项目", "提高语言表达能力"]
-            }
-            
-            # 计算综合评分
-            overall_score = 7.8
-            
-            result = EvaluationResult(
-                student_id=student_id,
-                evaluation_id=evaluation_id,
-                dimension_scores=dimension_scores,
-                overall_score=overall_score,
-                strengths=comprehensive_result.get("strengths", []),
-                areas_for_improvement=comprehensive_result.get("areas_for_improvement", []),
-                recommendations=comprehensive_result.get("recommendations", []),
-                evaluated_at=datetime.now(),
-                evaluator_agent="mock_evaluator"
-            )
-            
-            print(f"Mock evaluation generated for student {student_id}")
-            return result
         
         try:
             dimension_scores = self._evaluate_dimensions(student_id, student_data, media_data)

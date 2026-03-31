@@ -47,12 +47,15 @@ class DatabaseService:
         student = self.get_student_by_id(student_id)
         if student:
             # 先删除与该学生关联的所有相关记录
-            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore
+            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore, ProgressReport
             
             # 1. 删除与学生关联的手写识别记录
             self.db.query(HandwritingRecord).filter(HandwritingRecord.student_id == student.id).delete()
             
-            # 2. 删除与学生关联的评估结果及其维度评分
+            # 2. 删除与学生关联的进度报告
+            self.db.query(ProgressReport).filter(ProgressReport.student_id == student.id).delete()
+            
+            # 3. 删除与学生关联的评估结果及其维度评分
             evaluation_results = self.db.query(EvaluationResult).filter(EvaluationResult.student_id == student.id).all()
             for evaluation_result in evaluation_results:
                 # 删除维度评分
@@ -60,7 +63,7 @@ class DatabaseService:
                 # 删除评估结果
                 self.db.delete(evaluation_result)
             
-            # 3. 删除与学生关联的提交记录及其相关内容
+            # 4. 删除与学生关联的提交记录及其相关内容
             submissions = self.db.query(Submission).filter(Submission.student_id == student.id).all()
             for submission in submissions:
                 # 删除与提交关联的媒体文件
@@ -69,7 +72,7 @@ class DatabaseService:
                 # 删除提交记录
                 self.db.delete(submission)
             
-            # 4. 再删除学生
+            # 5. 最后删除学生
             self.db.delete(student)
             self.db.commit()
             return True
@@ -223,7 +226,8 @@ class DatabaseService:
                                 areas_for_improvement: Optional[str] = None, 
                                 recommendations: Optional[str] = None, 
                                 evaluator_agent: str = "comprehensive_evaluator",
-                                stage: Optional[str] = None) -> EvaluationResult:
+                                stage: Optional[str] = None,
+                                stage_progress: Optional[float] = None) -> EvaluationResult:
         submission = self.get_submission_by_id(submission_id)
         if not submission:
             raise ValueError(f"Submission with ID {submission_id} not found")
@@ -254,7 +258,8 @@ class DatabaseService:
             areas_for_improvement=areas_for_improvement_str,
             recommendations=recommendations_str,
             evaluator_agent=evaluator_agent,
-            stage_progress=stage
+            stage=stage,
+            stage_progress=stage_progress
         )
         self.db.add(evaluation_result)
         self.db.commit()

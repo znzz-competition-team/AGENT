@@ -39,7 +39,7 @@ class EvaluationDimension(str, Enum):
 
 class DimensionScore(BaseModel):
     dimension: EvaluationDimension
-    score: float = Field(ge=0, le=10)
+    score: float = Field(ge=0, le=100)
     confidence: float = Field(ge=0, le=1)
     evidence: List[str] = []
     reasoning: str
@@ -48,7 +48,7 @@ class EvaluationResult(BaseModel):
     student_id: str
     evaluation_id: str
     dimension_scores: List[DimensionScore]
-    overall_score: float = Field(ge=0, le=10)
+    overall_score: float = Field(ge=0, le=100)
     strengths: List[str] = []
     areas_for_improvement: List[str] = []
     recommendations: List[str] = []
@@ -138,7 +138,7 @@ class MediaFileResponse(BaseModel):
     uploaded_at: datetime
 
 class DimensionScoreResponse(BaseModel):
-    dimension: EvaluationDimension
+    dimension: str  # 改为字符串类型，支持大纲提取的能力点名称
     score: float
     confidence: float
     evidence: List[str]
@@ -159,6 +159,8 @@ class EvaluationRequest(BaseModel):
     submission_id: str
     stage: Optional[str] = None
     stage_progress: Optional[float] = None  # 0.0-1.0 之间的进度值
+    custom_prompts: Optional[Dict[str, str]] = None  # 自定义提示词
+    syllabus_analysis: Optional[Dict] = None  # 大纲分析结果
 
 class EvaluationResponse(BaseModel):
     evaluation_id: str
