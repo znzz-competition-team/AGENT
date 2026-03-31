@@ -180,3 +180,29 @@ class ProgressReportResponse(BaseModel):
     time_range: dict
     key_insights: List[str]
     improvement_areas: List[str]
+
+
+class ExamQuestionResult(BaseModel):
+    question_number: str
+    max_score: float
+    score: float
+    recognized_answer: str
+    reference_answer: Optional[str] = None
+    reasoning: str
+    strengths: List[str] = []
+    mistakes: List[str] = []
+
+
+class HandwritingExamGradeResponse(BaseModel):
+    success: bool
+    exam_type: str = "handwritten_exam"
+    student_id: Optional[str] = None
+    subject: Optional[str] = None
+    recognized_text: str
+    total_score: float
+    max_score: float
+    overall_comment: str
+    strengths: List[str] = []
+    areas_for_improvement: List[str] = []
+    question_results: List[ExamQuestionResult] = []
+    model: str

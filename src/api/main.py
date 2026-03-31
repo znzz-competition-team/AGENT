@@ -39,7 +39,7 @@ from src.models.schemas import (
     MediaFileResponse,
     EvaluationResultResponse, DimensionScoreResponse,
     EvaluationRequest, EvaluationResponse, ProgressReportResponse,
-    EvaluationDimension
+    EvaluationDimension, HandwritingExamGradeResponse
 )
 from src.models.schemas import EvaluationResult as SchemaEvaluationResult
 # 移除对CrewAI和MediaProcessor的依赖，避免CV2依赖
@@ -147,6 +147,16 @@ def extract_txt_content(file_path: str) -> str:
     except Exception as e:
         logger.error(f"提取TXT内容失败: {str(e)}")
         return ""
+
+
+def parse_float_form(value: Optional[str]) -> Optional[float]:
+    """将 Form 中的可选数字安全转换为 float。"""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"数值格式错误: {value}") from exc
 
 # 初始化数据库
 init_db()
@@ -583,6 +593,84 @@ async def handwriting_recognize(
                 os.remove(file_path)
             except:
                 pass
+
+
+@app.post("/agent/grade-handwriting-exam", response_model=HandwritingExamGradeResponse)
+async def grade_handwriting_exam(
+    answer_key: str = Form(...),
+    rubric: Optional[str] = Form(None),
+    subject: Optional[str] = Form(None),
+    student_id: Optional[str] = Form(None),
+    total_score: Optional[str] = Form(None),
+    extra_requirements: Optional[str] = Form(None),
+    files: List[UploadFile] = File(...),
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """使用多模态 agent 识别并批改手写试卷。"""
+    if student_id:
+        student = db_service.get_student_by_id(student_id)
+        if not student:
+            raise HTTPException(status_code=404, detail="学生不存在")
+
+    if not files:
+        raise HTTPException(status_code=400, detail="请至少上传一张试卷图片")
+
+    parsed_total_score = parse_float_form(total_score)
+    allowed_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+    temp_paths: List[str] = []
+
+    try:
+        for file in files:
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            if file_ext not in allowed_exts:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"不支持的试卷图片类型: {file.filename}"
+                )
+
+            safe_name = f"exam_{int(time.time() * 1000)}_{file.filename}"
+            file_path = os.path.join(UPLOAD_DIR, safe_name)
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            temp_paths.append(file_path)
+
+        from src.agents.exam_grading_agent import HandwritingExamGradingAgent
+
+        grading_agent = HandwritingExamGradingAgent(ai_config=get_current_ai_config())
+        result = grading_agent.grade_exam(
+            image_paths=temp_paths,
+            answer_key=answer_key,
+            rubric=rubric,
+            subject=subject,
+            total_score=parsed_total_score,
+            extra_requirements=extra_requirements,
+        )
+
+        return HandwritingExamGradeResponse(
+            success=True,
+            student_id=student_id,
+            subject=subject,
+            recognized_text=result["recognized_text"],
+            total_score=result["total_score"],
+            max_score=result["max_score"],
+            overall_comment=result["overall_comment"],
+            strengths=result["strengths"],
+            areas_for_improvement=result["areas_for_improvement"],
+            question_results=result["question_results"],
+            model=result["model"],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"试卷批改失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"试卷批改失败: {str(e)}")
+    finally:
+        for temp_path in temp_paths:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
 
 # 文件上传路由
 @app.post("/submissions/{submission_id}/files", response_model=MediaFileResponse)
