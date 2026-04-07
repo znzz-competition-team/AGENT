@@ -4,6 +4,9 @@ import json
 import pandas as pd
 from datetime import datetime
 import os
+import plotly.graph_objects as go
+import plotly.express as px
+import streamlit as st
 
 # API 基础 URL
 API_BASE_URL = "http://localhost:8000"
@@ -412,6 +415,30 @@ elif page == "📋 大纲管理":
                 st.subheader("📊 大纲分析结果")
                 
                 if existing_analysis:
+                    # ==================== 新增：课程分类与动态权重展示区 ====================
+                    # 尝试从分析结果中获取课程类型，如果没有则默认显示为"理论课"
+                    course_type = existing_analysis.get("course_type", "理论课")
+                    
+                    # 1. 顶部显眼提示
+                    if "实践" in course_type:
+                        st.success(f"🛠️ **系统自动识别：当前为【{course_type}】模式**。评价权重已切换至“工程落地与实践能力”侧重。")
+                    else:
+                        st.info(f"📚 **系统自动识别：当前为【{course_type}】模式**。评价权重已切换至“理论推导与基础知识”侧重。")
+                        
+                    # 2. 可展开的权重配比面板
+                    with st.expander("⚖️ 查看当前评分权重配比"):
+                        import pandas as pd
+                        if "实践" in course_type:
+                            weight_data = {
+                                "评价维度": ["技术能力 (实操)", "问题解决", "团队协作", "创新能力", "适应能力", "其他综合"],
+                                "权重占比": ["20%", "20%", "15%", "10%", "10%", "25%"]
+                            }
+                        else:
+                            weight_data = {
+                                "评价维度": ["学术表现 (理论)", "批判性思维", "沟通表达", "问题解决", "创新能力", "其他综合"],
+                                "权重占比": ["20%", "20%", "15%", "10%", "10%", "25%"]
+                            }
+                        st.table(pd.DataFrame(weight_data))
                     result_tab1, result_tab2, result_tab3 = st.tabs(["🎯 能力点", "📏 评价标准", "📋 完整结果"])
                     
                     with result_tab1:

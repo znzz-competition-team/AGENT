@@ -7,6 +7,7 @@ from datetime import datetime
 import sys
 import time
 import logging
+from src.course_classifier import classify_course_type
 
 # 配置日志
 logging.basicConfig(
@@ -607,11 +608,19 @@ async def handwriting_recognize(
 
 # 文件上传路由
 @app.post("/submissions/{submission_id}/files", response_model=MediaFileResponse)
-async def upload_file(
-    submission_id: str,
-    file: UploadFile = File(...),
-    db_service: DatabaseService = Depends(get_database_service)
-):
+async def upload_file(submission_id: int, file: UploadFile, db: Session = Depends(get_db)):
+    # ... 之前原有的保存文件、提取 text_content 的代码 ...
+    # 假设你已经把大纲内容提取到了变量 extracted_text 中
+
+    # [新增逻辑] 自动分析课程类型
+    detected_type = classify_course_type(extracted_text)
+
+    # [新增逻辑] 将分类结果更新到数据库中
+    submission = db.query(Submission).filter(Submission.id == submission_id).first()
+    if submission:
+        submission.course_type = detected_type
+        db.commit()
+        
     # 检查提交是否存在
     submission = db_service.get_submission_by_id(submission_id)
     if not submission:
