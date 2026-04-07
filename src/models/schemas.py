@@ -101,6 +101,10 @@ class SubmissionType(str, Enum):
     FILE = "file"
     TEXT = "text"
 
+class SubmissionPurpose(str, Enum):
+    NORMAL = "normal"
+    GRADUATION = "graduation"
+
 class SubmissionStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -112,6 +116,7 @@ class SubmissionCreate(BaseModel):
     title: str
     description: Optional[str] = None
     submission_type: SubmissionType = SubmissionType.FILE
+    submission_purpose: SubmissionPurpose = SubmissionPurpose.NORMAL
     text_content: Optional[str] = None
 
 class SubmissionResponse(BaseModel):
@@ -121,6 +126,7 @@ class SubmissionResponse(BaseModel):
     title: str
     description: Optional[str] = None
     submission_type: SubmissionType
+    submission_purpose: SubmissionPurpose = SubmissionPurpose.NORMAL
     text_content: Optional[str] = None
     status: SubmissionStatus
     created_at: datetime

@@ -44,6 +44,7 @@ class Submission(Base):
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     submission_type = Column(String(20), default="file")  # file, text
+    submission_purpose = Column(String(20), default="normal")  # normal, graduation
     text_content = Column(Text, nullable=True)  # 文字提交内容
     status = Column(String(20), default="pending")  # pending, processing, completed, failed
     created_at = Column(DateTime, default=datetime.utcnow)

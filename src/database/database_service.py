@@ -80,7 +80,8 @@ class DatabaseService:
     
     # Submission operations
     def create_submission(self, title: str, description: Optional[str] = None, student_id: Optional[str] = None,
-                         submission_type: str = "file", text_content: Optional[str] = None) -> Submission:
+                         submission_type: str = "file", submission_purpose: str = "normal", 
+                         text_content: Optional[str] = None) -> Submission:
         student_id_int = None
         if student_id:
             student = self.get_student_by_id(student_id)
@@ -94,6 +95,7 @@ class DatabaseService:
             title=title,
             description=description,
             submission_type=submission_type,
+            submission_purpose=submission_purpose,
             text_content=text_content
         )
         self.db.add(submission)

@@ -199,54 +199,389 @@ class SyllabusAnalyzer:
         except Exception as e:
             print(f"保存分析结果时出错: {str(e)}")
     
-    def generate_evaluation_prompt(self):
+    def detect_document_type(self, content: str) -> str:
         """
-        生成大模型评估提示词
+        检测文档类型
+        
+        Args:
+            content: 文档内容
+            
+        Returns:
+            文档类型: 'graduation_requirements' 或 'course_evaluation' 或 'unknown'
         """
-        # 构建能力点列表
-        ability_points = []
-        for syllabus_name, data in self.ability_matrix.items():
-            ability_points.extend(data.get('ability_points', []))
+        graduation_keywords = ['毕业要求', '指标点', '支撑', '毕业指标', '达成度', '毕业要求指标点']
+        evaluation_keywords = ['课程评价', '考核方式', '评分标准', '成绩评定', '课程目标', '评价方式', '考核标准']
         
-        # 去重
-        unique_ability_points = list(set(ability_points))
+        graduation_count = sum(1 for keyword in graduation_keywords if keyword in content)
+        evaluation_count = sum(1 for keyword in evaluation_keywords if keyword in content)
         
-        # 构建评价标准列表
-        evaluation_criteria = []
-        for syllabus_name, data in self.ability_matrix.items():
-            evaluation_criteria.extend(data.get('evaluation_criteria', []))
+        if graduation_count > evaluation_count:
+            return 'graduation_requirements'
+        elif evaluation_count > graduation_count:
+            return 'course_evaluation'
+        else:
+            if graduation_count > 0:
+                return 'graduation_requirements'
+            return 'unknown'
+    
+    def build_course_evaluation_prompt(self, content: str) -> str:
+        """
+        构建课程评价标准分析提示词
         
-        # 生成提示词
-        prompt = f"""
-        # 评估任务
-       请根据以下课程大纲中的能力点和评价标准，对学生的表现进行全面、客观的评估。
-        
-        # 课程大纲能力点
-        {chr(10).join([f"- {point}" for point in unique_ability_points])}
-        
-        # 评价标准
-        {chr(10).join([f"- {criterion}" for criterion in evaluation_criteria])}
-        
-        # 评估要求
-        1. 对每个能力点进行评分，评分范围为0-100分
-        2. 提供详细的评分理由，基于学生的实际表现
-        3. 给出综合评分和整体建议
-        4. 评估结果必须以JSON格式返回，结构如下：
+        Args:
+            content: 文档内容
+            
+        Returns:
+            大模型提示词
+        """
+        prompt = f"""# 课程评价标准分析任务
+
+请对以下课程评价相关文档进行详细、深入的分析，提取出：
+
+1. **能力点**：课程要求学生掌握的具体知识和技能，每个能力点需要详细描述，包括具体的知识点、技能要求和掌握程度
+2. **评价标准**：课程的详细评分标准和考核方式，包括各项考核的具体内容、评分权重、评分方法和标准
+
+# 文档内容
+
+{content}
+
+# 输出要求
+
+- 分析结果必须详细、具体，避免泛泛而谈
+- 能力点需要具体到知识点和技能点，每个能力点应有详细描述
+- 评价标准需要详细到具体的考核内容、评分标准和权重
+- 如果文档中没有相关信息，对应字段返回空数组
+
+# 输出格式
+
+请以JSON格式返回分析结果，结构如下：
+{{
+    "ability_points": [
         {{
-            "overall_score": 85,
-            "ability_scores": [
-                {{"ability": "表述与表达", "score": 80, "reasoning": "详细的评分理由"}},
-                {{"ability": "建模知识", "score": 75, "reasoning": "详细的评分理由"}},
-                {{"ability": "分析知识", "score": 90, "reasoning": "详细的评分理由"}},
-                {{"ability": "设计与开发", "score": 85, "reasoning": "详细的评分理由"}},
-                {{"ability": "模因分析", "score": 70, "reasoning": "详细的评分理由"}}
-            ],
-            "strengths": ["学习态度积极", "基础知识扎实"],
-            "areas_for_improvement": ["创新能力需要加强", "团队协作能力有待提高"],
-            "recommendations": ["多参与团队项目", "培养创新思维"]
+            "name": "能力点名称",
+            "description": "详细描述",
+            "level": "掌握程度（如：了解、理解、掌握、应用）"
         }}
+    ],
+    "evaluation_criteria": [
+        {{
+            "name": "评价项目",
+            "weight": "权重（如：20%）",
+            "description": "详细描述",
+            "standard": "评分标准"
+        }}
+    ]
+}}
+"""
+        return prompt
+    
+    def build_graduation_requirements_prompt(self, content: str) -> str:
         """
+        构建毕业要求指标点分析提示词
         
+        Args:
+            content: 文档内容
+            
+        Returns:
+            大模型提示词
+        """
+        prompt = f"""# 毕业要求指标点分析任务
+
+请对以下毕业要求相关文档进行详细、深入的分析，提取出：
+
+1. **毕业要求指标点**：课程支撑的具体毕业要求指标点，包括指标点编号、具体要求和支撑关系
+2. **支撑强度**：每个指标点的支撑程度和支撑方式
+
+# 文档内容
+
+{content}
+
+# 输出要求
+
+- 分析结果必须详细、具体，避免泛泛而谈
+- 毕业要求指标点需要具体到指标点编号和具体要求
+- 支撑关系需要明确说明课程如何支撑该指标点
+- 如果文档中没有相关信息，对应字段返回空数组
+
+# 输出格式
+
+请以JSON格式返回分析结果，结构如下：
+{{
+    "graduation_requirements": [
+        {{
+            "id": "指标点编号",
+            "description": "详细描述",
+            "support_level": "支撑程度（如：强支撑、中等支撑、弱支撑）",
+            "support_method": "支撑方式（如：课程教学、实验实践、课程设计）"
+        }}
+    ]
+}}
+"""
+        return prompt
+    
+    def build_syllabus_analysis_prompt(self, syllabus_content: str) -> str:
+        """
+        构建大纲分析提示词（通用版本，用于未知类型文档）
+        
+        Args:
+            syllabus_content: 课程大纲内容
+            
+        Returns:
+            大模型提示词
+        """
+        prompt = f"""# 课程大纲分析任务
+
+请对以下课程大纲进行详细、深入的分析，提取出：
+
+1. **能力点**：课程要求学生掌握的具体知识和技能，每个能力点需要详细描述，包括具体的知识点、技能要求和掌握程度
+2. **评价标准**：课程的详细评分标准和考核方式，包括各项考核的具体内容、评分权重、评分方法和标准
+3. **毕业要求指标点**：课程支撑的具体毕业要求指标点，包括指标点编号、具体要求和支撑关系
+
+# 课程大纲内容
+
+{syllabus_content}
+
+# 输出要求
+
+- 分析结果必须详细、具体，避免泛泛而谈
+- 能力点需要具体到知识点和技能点，每个能力点应有详细描述
+- 评价标准需要详细到具体的考核内容、评分标准和权重
+- 毕业要求指标点需要具体到指标点编号和具体要求
+
+# 输出格式
+
+请以JSON格式返回分析结果，结构如下：
+{{
+    "ability_points": [
+        {{
+            "name": "能力点名称",
+            "description": "详细描述",
+            "level": "掌握程度（如：了解、理解、掌握、应用）"
+        }}
+    ],
+    "evaluation_criteria": [
+        {{
+            "name": "评价项目",
+            "weight": "权重（如：20%）",
+            "description": "详细描述",
+            "standard": "评分标准"
+        }}
+    ],
+    "graduation_requirements": [
+        {{
+            "id": "指标点编号",
+            "description": "详细描述",
+            "support_level": "支撑程度（如：强支撑、中等支撑、弱支撑）"
+        }}
+    ]
+}}
+"""
+        return prompt
+    
+    def build_graduation_project_initial_analysis_prompt(self, content: str) -> str:
+        """
+        第一轮：毕业设计大纲初步分析
+        
+        Args:
+            content: 文档内容
+            
+        Returns:
+            大模型提示词
+        """
+        prompt = f"""# 毕业设计大纲初步分析（第一轮）
+
+请对以下毕业设计大纲进行初步分析，识别出：
+
+1. **文档结构**：大纲的主要章节和内容组织方式
+2. **核心要求**：毕业设计的主要任务和要求
+3. **评价维度**：大纲中隐含或明确的评价维度
+4. **关键指标**：需要重点关注的质量指标
+
+# 文档内容
+
+{content}
+
+# 输出要求
+
+- 简要概括文档的主要内容
+- 识别出最重要的评价维度
+- 为后续详细分析提供方向
+
+# 输出格式
+
+请以JSON格式返回分析结果，结构如下：
+{{
+    "document_structure": ["章节1", "章节2", "..."],
+    "core_requirements": ["要求1", "要求2", "..."],
+    "evaluation_dimensions": ["维度1", "维度2", "..."],
+    "key_indicators": ["指标1", "指标2", "..."],
+    "initial_summary": "对文档内容的简要概括（100-200字）"
+}}
+"""
+        return prompt
+    
+    def build_graduation_project_detailed_analysis_prompt(self, content: str, initial_result: Dict) -> str:
+        """
+        第二轮：毕业设计大纲详细分析
+        
+        Args:
+            content: 文档内容
+            initial_result: 第一轮分析结果
+            
+        Returns:
+            大模型提示词
+        """
+        initial_summary = initial_result.get('initial_summary', '')
+        evaluation_dimensions = initial_result.get('evaluation_dimensions', [])
+        key_indicators = initial_result.get('key_indicators', [])
+        
+        prompt = f"""# 毕业设计大纲详细分析（第二轮）
+
+基于第一轮的初步分析，请对毕业设计大纲进行详细分析。
+
+## 第一轮分析结果
+
+- **文档概括**：{initial_summary}
+- **评价维度**：{', '.join(evaluation_dimensions) if evaluation_dimensions else '无'}
+- **关键指标**：{', '.join(key_indicators) if key_indicators else '无'}
+
+## 原始文档内容
+
+{content}
+
+## 详细分析任务
+
+请针对每个评价维度，提取具体的评价标准和评分要求：
+
+1. **能力点**：毕业设计要求学生掌握的具体能力
+2. **评价标准**：每个能力点的具体评分标准
+3. **评分等级**：不同分数段的具体要求
+4. **权重分配**：各部分的评分权重
+
+# 输出格式
+
+请以JSON格式返回分析结果，结构如下：
+{{
+    "ability_points": [
+        {{
+            "name": "能力点名称",
+            "description": "详细描述",
+            "level": "掌握程度",
+            "indicators": ["具体指标1", "具体指标2"]
+        }}
+    ],
+    "evaluation_criteria": [
+        {{
+            "name": "评价项目",
+            "weight": "权重",
+            "description": "详细描述",
+            "standard": "评分标准",
+            "grade_levels": {{
+                "excellent": "优秀（90-100分）的具体要求",
+                "good": "良好（80-89分）的具体要求",
+                "medium": "中等（70-79分）的具体要求",
+                "pass": "及格（60-69分）的具体要求",
+                "fail": "不及格（60分以下）的具体要求"
+            }}
+        }}
+    ],
+    "scoring_rubric": "整体评分细则说明"
+}}
+"""
+        return prompt
+    
+    def build_graduation_project_prompt_refinement_prompt(self, content: str, detailed_result: Dict) -> str:
+        """
+        第三轮：提示词优化与完善
+        
+        Args:
+            content: 文档内容
+            detailed_result: 第二轮详细分析结果
+            
+        Returns:
+            大模型提示词
+        """
+        ability_points = detailed_result.get('ability_points', [])
+        evaluation_criteria = detailed_result.get('evaluation_criteria', [])
+        
+        ability_points_str = json.dumps(ability_points, ensure_ascii=False, indent=2)
+        evaluation_criteria_str = json.dumps(evaluation_criteria, ensure_ascii=False, indent=2)
+        
+        prompt = f"""# 毕业设计评价提示词优化（第三轮）
+
+请对前两轮的分析结果进行审查和优化，生成最终的评价提示词模板。
+
+## 已提取的能力点
+
+{ability_points_str}
+
+## 已提取的评价标准
+
+{evaluation_criteria_str}
+
+## 原始文档内容
+
+{content}
+
+## 优化任务
+
+1. **完整性检查**：确保所有重要的评价维度都已覆盖
+2. **一致性检查**：确保评价标准之间没有矛盾
+3. **可操作性优化**：使评价标准更加具体、可量化
+4. **提示词生成**：生成可直接用于学生作业评价的提示词
+
+## 原始文档内容
+
+{content}
+
+## 第二轮分析结果
+
+### 能力点
+{ability_points_str}
+
+### 评价标准
+{evaluation_criteria_str}
+
+## 优化任务
+
+1. 审查分析结果是否完整、准确
+2. 补充遗漏的评价维度
+3. 优化评分标准的可操作性
+4. 生成最终的评价提示词模板
+
+# 输出格式
+
+请以JSON格式返回优化后的结果，结构如下：
+{{
+    "optimized_ability_points": [
+        {{
+            "name": "能力点名称",
+            "description": "详细描述",
+            "level": "掌握程度",
+            "indicators": ["具体指标1", "具体指标2"],
+            "evaluation_hints": "评价提示"
+        }}
+    ],
+    "optimized_evaluation_criteria": [
+        {{
+            "name": "评价项目",
+            "weight": "权重",
+            "description": "详细描述",
+            "standard": "评分标准",
+            "grade_levels": {{
+                "excellent": "优秀的具体要求",
+                "good": "良好的具体要求",
+                "medium": "中等的具体要求",
+                "pass": "及格的具体要求",
+                "fail": "不及格的具体要求"
+            }},
+            "evaluation_hints": "评价提示"
+        }}
+    ],
+    "evaluation_prompt_template": "可直接用于评价学生作业的提示词模板（包含所有评价维度和标准）",
+    "optimization_notes": "优化说明，描述做了哪些改进"
+}}
+"""
         return prompt
     
     def analyze(self):
@@ -305,11 +640,4 @@ if __name__ == "__main__":
     with open(ability_matrix_path, 'w', encoding='utf-8') as f:
         json.dump(ability_matrix, f, ensure_ascii=False, indent=2)
     
-    # 生成评估提示词
-    prompt = analyzer.generate_evaluation_prompt()
-    prompt_path = os.path.join(project_root, 'evaluation_prompt.txt')
-    with open(prompt_path, 'w', encoding='utf-8') as f:
-        f.write(prompt)
-    
     print(f"分析完成，能力矩阵已保存到 {ability_matrix_path}")
-    print(f"评估提示词已保存到 {prompt_path}")

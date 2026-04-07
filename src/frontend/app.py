@@ -300,9 +300,6 @@ if page == "🏠 系统首页":
 elif page == "📋 大纲管理":
     st.title("📋 大纲管理")
     
-    # 大纲管理功能
-    st.subheader("📚 课程大纲管理")
-    
     # 获取项目根目录
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(current_dir))
@@ -314,153 +311,597 @@ elif page == "📋 大纲管理":
     if not os.path.exists(syllabus_folder):
         st.error(f"❌ 大纲文件夹 '{syllabus_folder}' 不存在，请创建该文件夹并放入课程大纲文件")
     else:
-        # 获取大纲文件列表
-        syllabus_files = [f for f in os.listdir(syllabus_folder) if f.endswith('.docx')]
+        # 文件类型选择
+        st.subheader("📁 文件类型选择")
+        file_type = st.radio(
+            "选择文件类型",
+            options=["课程大纲", "毕业设计评价指标"],
+            horizontal=True,
+            help="课程大纲：用于分析课程能力点；毕业设计评价指标：用于毕业设计评价"
+        )
         
-        if not syllabus_files:
-            st.warning(f"⚠️ 大纲文件夹 '{syllabus_folder}' 中没有找到 .docx 文件")
-        else:
-            # 选择大纲文件
-            selected_syllabus = st.selectbox("选择课程大纲", syllabus_files)
+        st.markdown("---")
+        
+        if file_type == "课程大纲":
+            # ========== 课程大纲管理 ==========
+            st.subheader("📚 课程大纲管理")
             
-            # 显示大纲信息
-            st.subheader(f"📄 {selected_syllabus}")
+            # 获取课程大纲文件列表（排除毕业设计相关文件）
+            all_files = [f for f in os.listdir(syllabus_folder) if f.endswith('.docx') or f.endswith('.txt')]
+            graduation_keywords = ["毕业设计", "评价指标", "评价标准", "毕设", "graduation"]
+            syllabus_files = [f for f in all_files if not any(kw in f for kw in graduation_keywords)]
             
-            # 检查是否已有大纲分析结果
-            analysis_dir = os.path.join(project_root, "analysis_results")
-            analysis_file = os.path.join(analysis_dir, f"{selected_syllabus.replace('.docx', '')}.json")
-            
-            existing_analysis = None
-            if os.path.exists(analysis_file):
-                try:
-                    with open(analysis_file, 'r', encoding='utf-8') as f:
-                        existing_analysis = json.load(f)
-                    st.info(f"ℹ️ 已有大纲分析结果（最后更新时间：{os.path.getmtime(analysis_file)}）")
-                except Exception as e:
-                    st.warning(f"⚠️ 读取已有分析结果失败: {str(e)}")
-            
-            # 分析大纲按钮
-            if st.button("🔍 分析大纲", use_container_width=True):
-                # 直接使用后端API分析大纲
-                try:
-                    # 读取大纲文件内容
-                    syllabus_path = os.path.join(project_root, "评价大纲", selected_syllabus)
-                    st.info(f"大纲文件路径: {syllabus_path}")
-                    
+            if not syllabus_files:
+                st.warning(f"⚠️ 没有找到课程大纲文件（已排除毕业设计相关文件）")
+            else:
+                # 选择大纲文件
+                selected_syllabus = st.selectbox("选择课程大纲", syllabus_files)
+                
+                # 显示大纲信息
+                st.subheader(f"📄 {selected_syllabus}")
+                
+                # 检查是否已有大纲分析结果
+                analysis_dir = os.path.join(project_root, "analysis_results")
+                analysis_file = os.path.join(analysis_dir, f"{selected_syllabus.replace('.docx', '').replace('.txt', '')}.json")
+                
+                existing_analysis = None
+                if os.path.exists(analysis_file):
                     try:
+                        with open(analysis_file, 'r', encoding='utf-8') as f:
+                            existing_analysis = json.load(f)
+                        st.info(f"ℹ️ 已有大纲分析结果")
+                    except Exception as e:
+                        st.warning(f"⚠️ 读取已有分析结果失败: {str(e)}")
+                
+                # 分析大纲按钮
+                if st.button("🔍 分析大纲", use_container_width=True):
+                    try:
+                        syllabus_path = os.path.join(syllabus_folder, selected_syllabus)
+                        
                         if selected_syllabus.endswith('.docx'):
-                            # 读取docx文件
                             from docx import Document
                             doc = Document(syllabus_path)
                             syllabus_content = '\n'.join([para.text for para in doc.paragraphs])
                         elif selected_syllabus.endswith('.txt'):
-                            # 读取txt文件
                             with open(syllabus_path, 'r', encoding='utf-8') as f:
                                 syllabus_content = f.read()
                         else:
                             syllabus_content = ""
                         
-                        st.info(f"大纲内容长度: {len(syllabus_content)}")
-                        st.info(f"大纲内容前100个字符: {syllabus_content[:100]}...")
-                    except Exception as e:
-                        st.error(f"读取大纲文件失败: {str(e)}")
-                        st.stop()
-                    
-                    # 构建API请求
-                    api_url = "http://localhost:8000/analyze_syllabus"
-                    payload = {
-                        "syllabus_content": syllabus_content,
-                        "syllabus_name": selected_syllabus
-                    }
-                    
-                    st.info(f"API请求URL: {api_url}")
-                    st.info(f"API请求数据长度: {len(str(payload))}")
-                    st.info("⏳ 正在分析大纲，这可能需要1-2分钟，请耐心等待...")
-                    
-                    # 发送API请求（增加超时时间到180秒）
-                    response = requests.post(api_url, json=payload, timeout=180)
-                    
-                    if response.status_code == 200:
-                        analysis_result = response.json()
+                        st.info("⏳ 正在分析大纲，这可能需要1-2分钟，请耐心等待...")
                         
-                        # 检查分析结果是否为空
-                        if not analysis_result or (not analysis_result.get('ability_points') and not analysis_result.get('evaluation_criteria')):
-                            st.error("❌ 大纲分析失败：未获取到有效的分析结果")
-                            st.stop()
+                        response = requests.post(
+                            f"{API_BASE_URL}/analyze_syllabus",
+                            json={
+                                "syllabus_content": syllabus_content,
+                                "syllabus_name": selected_syllabus
+                            },
+                            timeout=180
+                        )
                         
-                        # 保存分析结果
-                        # 保存到分析结果目录
-                        os.makedirs(analysis_dir, exist_ok=True)
-                        with open(analysis_file, 'w', encoding='utf-8') as f:
-                            json.dump(analysis_result, f, ensure_ascii=False, indent=2)
-                        
-                        # 保存到能力矩阵文件
-                        ability_matrix_path = os.path.join(project_root, "ability_matrix.json")
-                        if os.path.exists(ability_matrix_path):
-                            with open(ability_matrix_path, 'r', encoding='utf-8') as f:
-                                ability_matrix = json.load(f)
+                        if response.status_code == 200:
+                            analysis_result = response.json()
+                            
+                            if not analysis_result or (not analysis_result.get('ability_points') and not analysis_result.get('evaluation_criteria')):
+                                st.error("❌ 大纲分析失败：未获取到有效的分析结果")
+                            else:
+                                os.makedirs(analysis_dir, exist_ok=True)
+                                with open(analysis_file, 'w', encoding='utf-8') as f:
+                                    json.dump(analysis_result, f, ensure_ascii=False, indent=2)
+                                
+                                ability_matrix_path = os.path.join(project_root, "ability_matrix.json")
+                                if os.path.exists(ability_matrix_path):
+                                    with open(ability_matrix_path, 'r', encoding='utf-8') as f:
+                                        ability_matrix = json.load(f)
+                                else:
+                                    ability_matrix = {}
+                                
+                                ability_matrix[selected_syllabus] = analysis_result
+                                with open(ability_matrix_path, 'w', encoding='utf-8') as f:
+                                    json.dump(ability_matrix, f, ensure_ascii=False, indent=2)
+                                
+                                st.success("✅ 大纲分析完成并已保存！")
+                                existing_analysis = analysis_result
                         else:
-                            ability_matrix = {}
-                        
-                        ability_matrix[selected_syllabus] = analysis_result
-                        with open(ability_matrix_path, 'w', encoding='utf-8') as f:
-                            json.dump(ability_matrix, f, ensure_ascii=False, indent=2)
-                        
-                        st.success("✅ 大纲分析完成并已保存！")
-                        
-                        # 更新已有分析结果
-                        existing_analysis = analysis_result
-                        
-                    else:
-                        st.error(f"❌ 大纲分析失败: {response.status_code}")
-                except Exception as e:
-                    st.error(f"❌ 运行大纲分析器时出错: {str(e)}")
+                            st.error(f"❌ 大纲分析失败: {response.status_code}")
+                    except Exception as e:
+                        st.error(f"❌ 运行大纲分析器时出错: {str(e)}")
+                
+                # 显示大纲分析结果框
+                st.markdown("---")
+                st.subheader("📊 大纲分析结果")
+                
+                if existing_analysis:
+                    result_tab1, result_tab2, result_tab3 = st.tabs(["🎯 能力点", "📏 评价标准", "📋 完整结果"])
+                    
+                    with result_tab1:
+                        if existing_analysis.get('ability_points'):
+                            st.markdown("### 提取的能力点")
+                            for i, point in enumerate(existing_analysis['ability_points'], 1):
+                                if isinstance(point, dict):
+                                    st.markdown(f"**{i}. {point.get('name', '未知')}**")
+                                    if point.get('description'):
+                                        st.markdown(f"   - 描述: {point.get('description')}")
+                                    if point.get('level'):
+                                        st.markdown(f"   - 掌握程度: {point.get('level')}")
+                                    st.markdown("")
+                                else:
+                                    st.markdown(f"{i}. {point}")
+                        else:
+                            st.info("ℹ️ 未提取到能力点")
+                    
+                    with result_tab2:
+                        if existing_analysis.get('evaluation_criteria'):
+                            st.markdown("### 提取的评价标准")
+                            for i, criterion in enumerate(existing_analysis['evaluation_criteria'], 1):
+                                if isinstance(criterion, dict):
+                                    st.markdown(f"**{i}. {criterion.get('name', '未知')}** ({criterion.get('weight', '未知权重')})")
+                                    if criterion.get('description'):
+                                        st.markdown(f"   - 描述: {criterion.get('description')}")
+                                    if criterion.get('standard'):
+                                        st.markdown(f"   - 评分标准: {criterion.get('standard')}")
+                                    st.markdown("")
+                                else:
+                                    st.markdown(f"{i}. {criterion}")
+                        else:
+                            st.info("ℹ️ 未提取到评价标准")
+                    
+                    with result_tab3:
+                        st.markdown("### 完整分析结果（JSON格式）")
+                        st.json(existing_analysis)
+                else:
+                    st.info("ℹ️ 暂无大纲分析结果，请点击\"分析大纲\"按钮进行分析")
+        
+        else:
+            # ========== 毕业设计评价指标管理 ==========
+            st.subheader("🎓 毕业设计评价指标管理")
             
-            # 显示大纲分析结果框
-            st.markdown("---")
-            st.subheader("📊 大纲分析结果")
+            # 获取毕业设计评价指标文件（仅读取包含特定关键词的文件）
+            all_files = [f for f in os.listdir(syllabus_folder) if f.endswith('.docx') or f.endswith('.txt') or f.endswith('.json')]
+            graduation_keywords = ["毕业设计", "评价指标", "评价标准", "毕设", "graduation", "指标"]
+            graduation_files = [f for f in all_files if any(kw in f for kw in graduation_keywords)]
             
-            if existing_analysis:
-                # 创建选项卡显示不同内容
-                result_tab1, result_tab2, result_tab3 = st.tabs(["🎯 能力点", "📏 评价标准", "📋 完整结果"])
-                
-                with result_tab1:
-                    if existing_analysis.get('ability_points'):
-                        st.markdown("### 提取的能力点")
-                        for i, point in enumerate(existing_analysis['ability_points'], 1):
-                            if isinstance(point, dict):
-                                st.markdown(f"**{i}. {point.get('name', '未知')}**")
-                                if point.get('description'):
-                                    st.markdown(f"   - 描述: {point.get('description')}")
-                                if point.get('level'):
-                                    st.markdown(f"   - 掌握程度: {point.get('level')}")
-                                st.markdown("")
-                            else:
-                                st.markdown(f"{i}. {point}")
-                    else:
-                        st.info("ℹ️ 未提取到能力点")
-                
-                with result_tab2:
-                    if existing_analysis.get('evaluation_criteria'):
-                        st.markdown("### 提取的评价标准")
-                        for i, criterion in enumerate(existing_analysis['evaluation_criteria'], 1):
-                            if isinstance(criterion, dict):
-                                st.markdown(f"**{i}. {criterion.get('name', '未知')}** ({criterion.get('weight', '未知权重')})")
-                                if criterion.get('description'):
-                                    st.markdown(f"   - 描述: {criterion.get('description')}")
-                                if criterion.get('standard'):
-                                    st.markdown(f"   - 评分标准: {criterion.get('standard')}")
-                                st.markdown("")
-                            else:
-                                st.markdown(f"{i}. {criterion}")
-                    else:
-                        st.info("ℹ️ 未提取到评价标准")
-                
-                with result_tab3:
-                    st.markdown("### 完整分析结果（JSON格式）")
-                    st.json(existing_analysis)
+            if not graduation_files:
+                st.warning("⚠️ 没有找到毕业设计评价指标文件")
+                st.info("💡 提示：文件名需包含'毕业设计'、'评价指标'、'评价标准'、'毕设'等关键词")
             else:
-                st.info("ℹ️ 暂无大纲分析结果，请点击\"分析大纲\"按钮进行分析")
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    selected_graduation_file = st.selectbox("选择毕业设计评价指标文件", graduation_files)
+                with col2:
+                    st.write("")
+                    st.write("")
+                    extract_button = st.button("🔍 提炼指标", type="primary", use_container_width=True)
+                
+                # 检查是否已有提炼结果
+                indicators_dir = os.path.join(project_root, "extracted_indicators")
+                indicator_file = os.path.join(
+                    indicators_dir,
+                    f"{selected_graduation_file.replace('.docx', '').replace('.txt', '').replace('.json', '')}_extracted.json"
+                )
+                
+                existing_indicators = None
+                if os.path.exists(indicator_file):
+                    try:
+                        with open(indicator_file, 'r', encoding='utf-8') as f:
+                            existing_indicators = json.load(f)
+                        st.info(f"ℹ️ 已有提炼结果（可重新提炼覆盖）")
+                    except Exception as e:
+                        st.warning(f"⚠️ 读取已有提炼结果失败: {str(e)}")
+                
+                # 提炼后的指标存储
+                extracted_indicators = existing_indicators
+                
+                if extract_button and selected_graduation_file:
+                    with st.spinner("正在提炼评价指标..."):
+                        try:
+                            file_path = os.path.join(syllabus_folder, selected_graduation_file)
+                            
+                            if selected_graduation_file.endswith('.json'):
+                                with open(file_path, 'r', encoding='utf-8') as f:
+                                    extracted_indicators = json.load(f)
+                            else:
+                                if selected_graduation_file.endswith('.docx'):
+                                    from docx import Document
+                                    doc = Document(file_path)
+                                    file_content = '\n'.join([para.text for para in doc.paragraphs])
+                                elif selected_graduation_file.endswith('.txt'):
+                                    with open(file_path, 'r', encoding='utf-8') as f:
+                                        file_content = f.read()
+                                else:
+                                    file_content = ""
+                                
+                                extract_response = requests.post(
+                                    f"{API_BASE_URL}/extract_guidance_content",
+                                    json={
+                                        "file_content": file_content,
+                                        "file_name": selected_graduation_file
+                                    },
+                                    timeout=120
+                                )
+                                
+                                if extract_response.status_code == 200:
+                                    extracted_indicators = extract_response.json()
+                                else:
+                                    st.error(f"❌ 提炼失败: {extract_response.json().get('detail', '未知错误')}")
+                            
+                            if extracted_indicators:
+                                # 保存提炼结果
+                                os.makedirs(indicators_dir, exist_ok=True)
+                                with open(indicator_file, 'w', encoding='utf-8') as f:
+                                    json.dump(extracted_indicators, f, ensure_ascii=False, indent=2)
+                                
+                                st.session_state["extracted_indicators"] = extracted_indicators
+                                st.session_state["extracted_indicators_file"] = selected_graduation_file
+                                st.success(f"✅ 已提炼并保存评价指标！")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 提炼失败: {str(e)}")
+                
+                # 显示提炼结果框
+                st.markdown("---")
+                st.subheader("📊 评价指标提炼结果")
+                
+                if existing_indicators or ("extracted_indicators" in st.session_state):
+                    extracted_indicators = existing_indicators or st.session_state.get("extracted_indicators", {})
+                    
+                    st.info(f"📄 来源文件: {selected_graduation_file}")
+                    
+                    # 使用更多标签页展示不同内容
+                    result_tab1, result_tab2, result_tab3, result_tab4, result_tab5 = st.tabs([
+                        "📋 原始指标", 
+                        "📝 扩展指标", 
+                        "📊 评价表格", 
+                        "🔄 评价流程", 
+                        "📄 完整结果"
+                    ])
+                    
+                    with result_tab1:
+                        original_indicators = extracted_indicators.get('original_indicators', [])
+                        if not original_indicators:
+                            original_indicators = extracted_indicators.get('indicators', [])
+                        
+                        if original_indicators:
+                            st.markdown("### 📋 原始评价指标（从文件提取）")
+                            for idx, ind in enumerate(original_indicators, 1):
+                                indicator_id = ind.get('indicator_id', ind.get('id', f'{idx}'))
+                                name = ind.get('name', '未知指标')
+                                weight = ind.get('weight', '未知')
+                                max_score = ind.get('max_score', 100)
+                                description = ind.get('description', '')
+                                graduation_req = ind.get('graduation_requirement', '')
+                                
+                                with st.expander(f"**{indicator_id} {name}** (权重: {weight}%, 满分: {max_score})", expanded=False):
+                                    if graduation_req:
+                                        st.markdown(f"**对应毕业要求指标点**: {graduation_req}")
+                                    if description:
+                                        st.markdown(f"**描述**: {description}")
+                                    if ind.get('grading_criteria'):
+                                        st.markdown(f"**评分标准**: {ind.get('grading_criteria')}")
+                        else:
+                            st.info("暂无原始评价指标")
+                    
+                    with result_tab2:
+                        indicators = extracted_indicators.get('indicators', [])
+                        if indicators:
+                            st.markdown("### 📝 扩展评价指标（大模型生成）")
+                            for idx, ind in enumerate(indicators, 1):
+                                indicator_id = ind.get('indicator_id', ind.get('id', f'{idx}'))
+                                name = ind.get('name', '未知指标')
+                                weight = ind.get('weight', 10)
+                                max_score = ind.get('max_score', 100)
+                                description = ind.get('description', '')
+                                evaluation_points = ind.get('evaluation_points', [])
+                                evaluation_method = ind.get('evaluation_method', '')
+                                
+                                with st.expander(f"**{indicator_id} {name}** (权重: {weight}%, 满分: {max_score})", expanded=False):
+                                    if description:
+                                        st.markdown(f"**描述**: {description}")
+                                    if evaluation_method:
+                                        st.markdown(f"**评价方式**: {evaluation_method}")
+                                    
+                                    if evaluation_points:
+                                        st.markdown("#### 📌 评价要点")
+                                        for point in evaluation_points:
+                                            point_name = point.get('point_name', '')
+                                            point_weight = point.get('weight', '')
+                                            grade_criteria = point.get('grade_criteria', {})
+                                            
+                                            st.markdown(f"**{point_name}** (权重: {point_weight})")
+                                            
+                                            if grade_criteria:
+                                                grade_names = {
+                                                    "excellent": "优秀(90-100)",
+                                                    "good": "良好(80-89)",
+                                                    "medium": "中等(70-79)",
+                                                    "pass": "及格(60-69)",
+                                                    "fail": "不及格(0-59)"
+                                                }
+                                                for level, criteria in grade_criteria.items():
+                                                    st.markdown(f"- {grade_names.get(level, level)}: {criteria}")
+                                            st.markdown("")
+                        else:
+                            st.info("暂无扩展评价指标")
+                    
+                    with result_tab3:
+                        evaluation_table = extracted_indicators.get('evaluation_table', {})
+                        if evaluation_table:
+                            st.markdown(f"### 📊 {evaluation_table.get('title', '评价表格')}")
+                            
+                            columns = evaluation_table.get('columns', ["序号", "指标编号", "指标名称", "满分", "得分", "评价等级"])
+                            rows = evaluation_table.get('rows', [])
+                            
+                            if rows:
+                                import pandas as pd
+                                df = pd.DataFrame(rows)
+                                st.dataframe(df, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("暂无评价表格数据")
+                            
+                            st.markdown("#### 📝 使用说明")
+                            st.markdown("此表格可用于实际评分，每行对应一个评价指标。评分时填写得分和评价等级。")
+                        else:
+                            st.info("暂无评价表格，请重新提炼评价指标")
+                    
+                    with result_tab4:
+                        evaluation_flow = extracted_indicators.get('evaluation_flow', {})
+                        if evaluation_flow:
+                            st.markdown("### 🔄 评价流程")
+                            
+                            steps = evaluation_flow.get('steps', [])
+                            if steps:
+                                for step in steps:
+                                    step_num = step.get('step', '')
+                                    step_name = step.get('name', '')
+                                    step_weight = step.get('weight', 0)
+                                    step_desc = step.get('description', '')
+                                    
+                                    st.markdown(f"**步骤{step_num}: {step_name}** (权重: {step_weight*100:.0f}%)")
+                                    st.markdown(f"- {step_desc}")
+                                    st.markdown("")
+                            
+                            formula = evaluation_flow.get('final_score_formula', '')
+                            if formula:
+                                st.markdown("#### 📐 成绩计算公式")
+                                st.code(formula, language=None)
+                        else:
+                            st.info("暂无评价流程信息")
+                        
+                        grading_levels = extracted_indicators.get('grading_levels', {})
+                        if grading_levels:
+                            st.markdown("### 📊 评分等级标准")
+                            level_names = {
+                                "excellent": "优秀",
+                                "good": "良好",
+                                "medium": "中等",
+                                "pass": "及格",
+                                "fail": "不及格"
+                            }
+                            for level, info in grading_levels.items():
+                                if isinstance(info, dict):
+                                    min_score = info.get('min', 0)
+                                    max_score = info.get('max', 100)
+                                    desc = info.get('description', '')
+                                    st.markdown(f"**{level_names.get(level, level)}** ({min_score}-{max_score}分): {desc}")
+                                else:
+                                    st.markdown(f"**{level_names.get(level, level)}**: {info}")
+                    
+                    with result_tab5:
+                        st.markdown("### 完整提炼结果（JSON格式）")
+                        st.json(extracted_indicators)
+                    
+                    # ========== 衍生评价指标 ==========
+                    st.markdown("---")
+                    st.subheader("🔄 衍生评价指标")
+                    st.markdown("根据当前评价指标，生成特定项目类型的评价指标")
+                    
+                    # 检查是否已有衍生指标
+                    derived_dir = os.path.join(project_root, "derived_standards")
+                    existing_derived = []
+                    if os.path.exists(derived_dir):
+                        existing_derived = [f for f in os.listdir(derived_dir) if f.endswith('.json')]
+                    
+                    if existing_derived:
+                        with st.expander(f"📚 已有衍生指标 ({len(existing_derived)} 个)", expanded=False):
+                            for df in existing_derived:
+                                df_path = os.path.join(derived_dir, df)
+                                try:
+                                    with open(df_path, 'r', encoding='utf-8') as f:
+                                        derived_data = json.load(f)
+                                    st.markdown(f"**{df}** - {derived_data.get('name', '未知类型')}")
+                                except:
+                                    st.markdown(f"**{df}**")
+                    
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        derive_project_type = st.selectbox(
+                            "选择目标项目类型",
+                            options=[
+                                ("算法类", "algorithm"),
+                                ("仿真类", "simulation"),
+                                ("实物类", "physical"),
+                                ("传统机械类", "traditional_mechanical"),
+                                ("混合类", "mixed")
+                            ],
+                            format_func=lambda x: x[0]
+                        )
+                    with col2:
+                        st.write("")
+                        st.write("")
+                        derive_button = st.button("🚀 生成衍生指标", type="primary", use_container_width=True)
+                    
+                    if derive_button:
+                        with st.spinner("正在生成衍生评价指标..."):
+                            try:
+                                derive_response = requests.post(
+                                    f"{API_BASE_URL}/generate_evaluation_standards",
+                                    json={
+                                        "file_content": json.dumps(extracted_indicators, ensure_ascii=False),
+                                        "file_name": selected_graduation_file,
+                                        "project_type": derive_project_type[1]
+                                    },
+                                    timeout=180
+                                )
+                                
+                                if derive_response.status_code == 200:
+                                    derived_standards = derive_response.json()
+                                    
+                                    # 保存衍生指标
+                                    os.makedirs(derived_dir, exist_ok=True)
+                                    derived_file = os.path.join(
+                                        derived_dir,
+                                        f"{derive_project_type[1]}_derived.json"
+                                    )
+                                    with open(derived_file, 'w', encoding='utf-8') as f:
+                                        json.dump(derived_standards, f, ensure_ascii=False, indent=2)
+                                    
+                                    st.success(f"✅ 已生成 {derive_project_type[0]} 衍生评价指标！")
+                                    st.info(f"📁 已保存至: {derived_file}")
+                                    
+                                    # 使用标签页展示详细内容
+                                    derive_tab1, derive_tab2, derive_tab3, derive_tab4, derive_tab5 = st.tabs([
+                                        "📋 评价指标", 
+                                        "📝 评价要点", 
+                                        "📊 评价表格", 
+                                        "🔄 评价流程", 
+                                        "📄 完整结果"
+                                    ])
+                                    
+                                    with derive_tab1:
+                                        st.markdown(f"**项目类型**: {derived_standards.get('name', '')}")
+                                        st.markdown(f"**描述**: {derived_standards.get('description', '')}")
+                                        
+                                        st.markdown("### 📊 评价指标列表")
+                                        for ind in derived_standards.get('indicators', []):
+                                            indicator_id = ind.get('indicator_id', ind.get('id', ''))
+                                            name = ind.get('name', '')
+                                            weight = ind.get('weight', 0)
+                                            description = ind.get('description', '')
+                                            
+                                            with st.expander(f"**{indicator_id} {name}** (权重: {weight}%)"):
+                                                if description:
+                                                    st.markdown(f"**描述**: {description}")
+                                                if ind.get('graduation_requirement'):
+                                                    st.markdown(f"**对应毕业要求**: {ind.get('graduation_requirement')}")
+                                                if ind.get('evaluation_method'):
+                                                    st.markdown(f"**评价方式**: {ind.get('evaluation_method')}")
+                                                
+                                                grade_levels = ind.get('grade_levels', {})
+                                                if grade_levels:
+                                                    st.markdown("#### 评分等级")
+                                                    level_names = {
+                                                        "excellent": "优秀",
+                                                        "good": "良好",
+                                                        "medium": "中等",
+                                                        "pass": "及格",
+                                                        "fail": "不及格"
+                                                    }
+                                                    for level, desc in grade_levels.items():
+                                                        st.markdown(f"**{level_names.get(level, level)}**: {desc}")
+                                    
+                                    with derive_tab2:
+                                        st.markdown("### 📝 详细评价要点")
+                                        for ind in derived_standards.get('indicators', []):
+                                            indicator_id = ind.get('indicator_id', ind.get('id', ''))
+                                            name = ind.get('name', '')
+                                            evaluation_points = ind.get('evaluation_points', [])
+                                            
+                                            if evaluation_points:
+                                                st.markdown(f"#### {indicator_id} {name}")
+                                                for point in evaluation_points:
+                                                    point_name = point.get('point_name', '')
+                                                    point_weight = point.get('weight', '')
+                                                    point_desc = point.get('description', '')
+                                                    grade_criteria = point.get('grade_criteria', {})
+                                                    
+                                                    with st.expander(f"**{point_name}** (权重: {point_weight}%)"):
+                                                        if point_desc:
+                                                            st.markdown(f"**描述**: {point_desc}")
+                                                        
+                                                        if grade_criteria:
+                                                            st.markdown("#### 评分标准")
+                                                            grade_names = {
+                                                                "excellent": "优秀(90-100)",
+                                                                "good": "良好(80-89)",
+                                                                "medium": "中等(70-79)",
+                                                                "pass": "及格(60-69)",
+                                                                "fail": "不及格(0-59)"
+                                                            }
+                                                            for level, criteria in grade_criteria.items():
+                                                                st.markdown(f"**{grade_names.get(level, level)}**: {criteria}")
+                                                st.markdown("")
+                                    
+                                    with derive_tab3:
+                                        evaluation_table = derived_standards.get('evaluation_table', {})
+                                        if evaluation_table:
+                                            st.markdown(f"### 📊 {evaluation_table.get('title', '评价表格')}")
+                                            
+                                            rows = evaluation_table.get('rows', [])
+                                            if rows:
+                                                import pandas as pd
+                                                df = pd.DataFrame(rows)
+                                                st.dataframe(df, use_container_width=True, hide_index=True)
+                                            else:
+                                                st.info("暂无评价表格数据")
+                                        else:
+                                            st.info("暂无评价表格")
+                                    
+                                    with derive_tab4:
+                                        evaluation_flow = derived_standards.get('evaluation_flow', {})
+                                        if evaluation_flow:
+                                            st.markdown("### 🔄 评价流程")
+                                            
+                                            steps = evaluation_flow.get('steps', [])
+                                            if steps:
+                                                for step in steps:
+                                                    step_num = step.get('step', '')
+                                                    step_name = step.get('name', '')
+                                                    step_weight = step.get('weight', 0)
+                                                    step_desc = step.get('description', '')
+                                                    
+                                                    st.markdown(f"**步骤{step_num}: {step_name}** (权重: {step_weight*100:.0f}%)")
+                                                    st.markdown(f"- {step_desc}")
+                                                    st.markdown("")
+                                            
+                                            formula = evaluation_flow.get('final_score_formula', '')
+                                            if formula:
+                                                st.markdown("#### 📐 成绩计算公式")
+                                                st.code(formula, language=None)
+                                        
+                                        grading_levels = derived_standards.get('grading_levels', {})
+                                        if grading_levels:
+                                            st.markdown("### 📊 评分等级标准")
+                                            level_names = {
+                                                "excellent": "优秀",
+                                                "good": "良好",
+                                                "medium": "中等",
+                                                "pass": "及格",
+                                                "fail": "不及格"
+                                            }
+                                            for level, info in grading_levels.items():
+                                                if isinstance(info, dict):
+                                                    min_score = info.get('min', 0)
+                                                    max_score = info.get('max', 100)
+                                                    desc = info.get('description', '')
+                                                    st.markdown(f"**{level_names.get(level, level)}** ({min_score}-{max_score}分): {desc}")
+                                                else:
+                                                    st.markdown(f"**{level_names.get(level, level)}**: {info}")
+                                        
+                                        excluded = derived_standards.get('excluded_indicators', [])
+                                        if excluded:
+                                            st.markdown("### ⚠️ 排除的评价项")
+                                            for item in excluded:
+                                                st.markdown(f"- {item}")
+                                    
+                                    with derive_tab5:
+                                        st.markdown("### 完整衍生指标（JSON格式）")
+                                        st.json(derived_standards)
+                                else:
+                                    st.error(f"❌ 生成失败: {derive_response.json().get('detail', '未知错误')}")
+                            except Exception as e:
+                                st.error(f"❌ 生成衍生指标失败: {str(e)}")
+                else:
+                    st.info("ℹ️ 暂无提炼结果，请点击\"提炼指标\"按钮进行提炼")
 
 # ==================== 学生管理 ====================
 elif page == "👥 学生管理":
@@ -713,7 +1154,7 @@ elif page == "📁 文件上传":
     
     # 步骤指示器
     st.markdown("""
-    **提交流程：** 选择提交类型 → 创建提交 → 上传内容 → 关联人员（可选）
+    **提交流程：** 选择提交类型 → 选择用途 → 创建提交 → 上传内容 → 关联人员（可选）
     """)
     
     # 步骤 1: 选择提交类型并创建提交
@@ -727,6 +1168,19 @@ elif page == "📁 文件上传":
         horizontal=True,
         key="submission_type"
     )
+    
+    # 提交用途选择
+    submission_purpose = st.radio(
+        "选择提交用途",
+        options=["normal", "graduation"],
+        format_func=lambda x: "📚 普通作业" if x == "normal" else "🎓 毕业设计",
+        horizontal=True,
+        key="submission_purpose",
+        help="选择毕业设计将使用专门的毕业设计评价标准进行评估"
+    )
+    
+    if submission_purpose == "graduation":
+        st.info("🎓 已选择毕业设计模式，评估时将使用确定性评价标准，支持不同项目类型的自动检测")
     
     with st.form("create_submission_form"):
         title = st.text_input("提交标题*", placeholder="请输入提交标题")
@@ -807,6 +1261,7 @@ elif page == "📁 文件上传":
                     payload = {
                         "title": title,
                         "submission_type": submission_type,
+                        "submission_purpose": submission_purpose,
                         "student_id": person_id
                     }
                     
@@ -943,6 +1398,7 @@ elif page == "🤖 评估管理":
     **评估流程：**
     - 阶段评估：选择特定报告，根据学生工作时期进行评估
     - 整体评估：对学生的所有提交进行综合评估
+    - 毕业设计评估：使用确定性标准评价毕业设计，支持不同项目类型
     
     系统将使用AI对学生提交的材料进行评估，包括：
     - 📚 学术表现分析
@@ -956,7 +1412,7 @@ elif page == "🤖 评估管理":
     # 评估类型选择
     eval_type = st.selectbox(
         "选择评估类型",
-        options=["阶段评估", "整体评估"]
+        options=["阶段评估", "整体评估", "毕业设计评估"]
     )
     
     if eval_type == "阶段评估":
@@ -969,62 +1425,72 @@ elif page == "🤖 评估管理":
             if response.status_code == 200:
                 submissions = response.json()
                 if submissions:
-                    # 构建提交选项，包含文件名
-                    submission_options = {}
-                    for sub in submissions:
-                        submission_id = sub['submission_id']
-                        student_id = sub.get('student_id', '未知')
-                        title = sub['title']
-                        
-                        # 获取该提交的文件
-                        files_response = requests.get(f"{API_BASE_URL}/submissions/{submission_id}/files")
-                        if files_response.status_code == 200:
-                            files = files_response.json()
-                            if files:
-                                for file in files:
-                                    file_name = file.get('file_name', '未知文件')
-                                    file_id = file.get('id', '')
-                                    # 使用提交ID+文件ID作为唯一键，如果文件ID为空则使用索引
-                                    if file_id:
-                                        option_key = f"{submission_id}_{file_id}"
-                                    else:
-                                        option_key = f"{submission_id}_file_{len(submission_options)}"
-                                    submission_options[option_key] = f"{title} - {file_name} (学生ID: {student_id})"
-                            else:
-                                # 如果没有文件，也显示提交记录（使用文字提交）
-                                text_content = sub.get('text_content', '')
-                                if text_content:
-                                    option_key = f"{submission_id}_text"
-                                    submission_options[option_key] = f"{title} - 文字提交 (学生ID: {student_id})"
-                        else:
-                            # 如果获取文件失败，也显示提交记录
-                            option_key = f"{submission_id}_unknown"
-                            submission_options[option_key] = f"{title} - 未知文件类型 (学生ID: {student_id})"
+                    # 过滤出普通作业提交（非毕业设计）
+                    normal_submissions = [s for s in submissions if s.get('submission_purpose', 'normal') == 'normal']
+                    graduation_submissions = [s for s in submissions if s.get('submission_purpose', 'normal') == 'graduation']
                     
-                    selected_submission_id = None
-                    if submission_options:
-                        selected_option = st.selectbox(
-                            "选择报告",
-                            options=list(submission_options.keys()),
-                            format_func=lambda x: submission_options[x]
-                        )
-                        
-                        # 提取提交ID（处理带文件ID的情况）
-                        if '_' in selected_option:
-                            # 找到第一个下划线的位置
-                            first_underscore = selected_option.find('_')
-                            # 找到第二个下划线的位置（如果存在）
-                            second_underscore = selected_option.find('_', first_underscore + 1)
-                            if second_underscore != -1:
-                                # 提取从开始到第二个下划线的部分作为提交ID
-                                selected_submission_id = selected_option[:second_underscore]
+                    if graduation_submissions:
+                        st.info(f"🎓 有 {len(graduation_submissions)} 个毕业设计提交，请使用\"毕业设计评估\"进行评估")
+                    
+                    if not normal_submissions:
+                        st.warning("⚠️ 暂无普通作业提交记录，只有毕业设计提交。请使用\"毕业设计评估\"进行评估")
+                    else:
+                        # 构建提交选项，包含文件名
+                        submission_options = {}
+                        for sub in normal_submissions:
+                            submission_id = sub['submission_id']
+                            student_id = sub.get('student_id', '未知')
+                            title = sub['title']
+                            
+                            # 获取该提交的文件
+                            files_response = requests.get(f"{API_BASE_URL}/submissions/{submission_id}/files")
+                            if files_response.status_code == 200:
+                                files = files_response.json()
+                                if files:
+                                    for file in files:
+                                        file_name = file.get('file_name', '未知文件')
+                                        file_id = file.get('id', '')
+                                        # 使用提交ID+文件ID作为唯一键，如果文件ID为空则使用索引
+                                        if file_id:
+                                            option_key = f"{submission_id}_{file_id}"
+                                        else:
+                                            option_key = f"{submission_id}_file_{len(submission_options)}"
+                                        submission_options[option_key] = f"{title} - {file_name} (学生ID: {student_id})"
+                                else:
+                                    # 如果没有文件，也显示提交记录（使用文字提交）
+                                    text_content = sub.get('text_content', '')
+                                    if text_content:
+                                        option_key = f"{submission_id}_text"
+                                        submission_options[option_key] = f"{title} - 文字提交 (学生ID: {student_id})"
                             else:
-                                # 如果只有一个下划线，使用整个字符串作为提交ID
+                                # 如果获取文件失败，也显示提交记录
+                                option_key = f"{submission_id}_unknown"
+                                submission_options[option_key] = f"{title} - 未知文件类型 (学生ID: {student_id})"
+                        
+                        selected_submission_id = None
+                        if submission_options:
+                            selected_option = st.selectbox(
+                                "选择报告",
+                                options=list(submission_options.keys()),
+                                format_func=lambda x: submission_options[x]
+                            )
+                            
+                            # 提取提交ID（处理带文件ID的情况）
+                            if '_' in selected_option:
+                                # 找到第一个下划线的位置
+                                first_underscore = selected_option.find('_')
+                                # 找到第二个下划线的位置（如果存在）
+                                second_underscore = selected_option.find('_', first_underscore + 1)
+                                if second_underscore != -1:
+                                    # 提取从开始到第二个下划线的部分作为提交ID
+                                    selected_submission_id = selected_option[:second_underscore]
+                                else:
+                                    # 如果只有一个下划线，使用整个字符串作为提交ID
+                                    selected_submission_id = selected_option
+                            else:
                                 selected_submission_id = selected_option
                         else:
-                            selected_submission_id = selected_option
-                    else:
-                        st.warning("⚠️ 暂无提交记录，请先在提交管理页面创建提交")
+                            st.warning("⚠️ 暂无提交记录，请先在提交管理页面创建提交")
                     
                     if selected_submission_id:
                         # 学生工作时期设置
@@ -1296,8 +1762,19 @@ elif page == "🤖 评估管理":
                             st.error("❌ 该学生暂无提交记录，无法进行整体评估")
                             st.stop()
                         else:
-                            # 构建提交选项
-                            submission_options = {submission['submission_id']: f"{submission['submission_id']} - {submission['title']}" for submission in submissions}
+                            # 过滤出普通作业提交（非毕业设计）
+                            normal_submissions = [s for s in submissions if s.get('submission_purpose', 'normal') == 'normal']
+                            graduation_submissions = [s for s in submissions if s.get('submission_purpose', 'normal') == 'graduation']
+                            
+                            if graduation_submissions:
+                                st.info(f"🎓 该学生有 {len(graduation_submissions)} 个毕业设计提交，请使用\"毕业设计评估\"进行评估")
+                            
+                            if not normal_submissions:
+                                st.warning("⚠️ 该学生没有普通作业提交，只有毕业设计提交。请使用\"毕业设计评估\"进行评估")
+                                st.stop()
+                            
+                            # 构建提交选项（只显示普通作业）
+                            submission_options = {submission['submission_id']: f"{submission['submission_id']} - {submission['title']}" for submission in normal_submissions}
                             selected_submission_id = st.selectbox(
                                 "选择报告文件",
                                 options=list(submission_options.keys()),
@@ -1305,7 +1782,7 @@ elif page == "🤖 评估管理":
                             )
                             
                             # 检查选中的提交是否有内容
-                            selected_submission = next((s for s in submissions if s['submission_id'] == selected_submission_id), None)
+                            selected_submission = next((s for s in normal_submissions if s['submission_id'] == selected_submission_id), None)
                             if selected_submission:
                                 # 检查是否有文字内容
                                 has_text_content = selected_submission.get('text_content') and selected_submission.get('text_content').strip()
@@ -1450,6 +1927,389 @@ elif page == "🤖 评估管理":
                 st.error("❌ 获取学生列表失败")
         except Exception as e:
             st.error(f"❌ 加载学生列表失败: {str(e)}")
+    
+    elif eval_type == "毕业设计评估":
+        st.subheader("🎓 毕业设计评估")
+        st.markdown("""
+        **功能说明：**
+        - 自动检测项目类型（算法类、仿真类、实物类、传统机械类、混合类）
+        - 使用确定性评价标准，确保评价结果一致
+        - 不同项目类型有不同的评价指标和权重
+        """)
+        
+        # 获取项目类型列表
+        try:
+            types_response = requests.get(f"{API_BASE_URL}/project_types")
+            if types_response.status_code == 200:
+                project_types = types_response.json().get('project_types', [])
+                
+                # 项目类型选择
+                type_options = {"自动检测": None}
+                for pt in project_types:
+                    type_options[f"{pt['name']} ({pt['indicators_count']}个指标)"] = pt['value']
+                
+                selected_type = st.selectbox(
+                    "选择项目类型（可选，不选则自动检测）",
+                    options=list(type_options.keys())
+                )
+                project_type_value = type_options[selected_type]
+                
+                # 显示选中类型的评价标准
+                if project_type_value:
+                    with st.expander(f"📋 查看 {selected_type} 的评价标准"):
+                        standards_response = requests.get(f"{API_BASE_URL}/evaluation_standards/{project_type_value}")
+                        if standards_response.status_code == 200:
+                            standards_data = standards_response.json()
+                            standards = standards_data.get('standards', {})
+                            
+                            st.markdown(f"**描述：** {standards.get('description', '')}")
+                            
+                            indicators = standards.get('indicators', [])
+                            if indicators:
+                                st.markdown("### 评价指标")
+                                for ind in indicators:
+                                    st.markdown(f"**{ind['name']}** (权重: {ind['weight']}%)")
+                                    st.markdown(f"- 描述: {ind['description']}")
+                                    with st.expander("查看评分等级"):
+                                        grades = ind.get('grade_levels', {})
+                                        for level, desc in grades.items():
+                                            level_name = {"excellent": "优秀", "good": "良好", "medium": "中等", "pass": "及格", "fail": "不及格"}.get(level, level)
+                                            st.markdown(f"- **{level_name}**: {desc}")
+                                    st.markdown("---")
+                            
+                            excluded = standards.get('excluded_indicators', [])
+                            if excluded:
+                                st.warning(f"⚠️ 本类型不评价以下内容: {', '.join(excluded)}")
+            else:
+                st.warning("无法获取项目类型列表")
+                project_type_value = None
+        except Exception as e:
+            st.error(f"获取项目类型失败: {str(e)}")
+            project_type_value = None
+        
+        st.markdown("---")
+        
+        # 评价指导文件选择 - 改为选择已提炼的评价指标
+        st.subheader("📋 评价指导指标")
+        st.markdown("选择已在大纲管理页面提炼或衍生的评价指标")
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        
+        # 获取已提炼的评价指标文件
+        extracted_dir = os.path.join(project_root, "extracted_indicators")
+        derived_dir = os.path.join(project_root, "derived_standards")
+        
+        indicator_files = []
+        
+        if os.path.exists(extracted_dir):
+            for f in os.listdir(extracted_dir):
+                if f.endswith('.json'):
+                    indicator_files.append(("提炼指标", os.path.join(extracted_dir, f), f))
+        
+        if os.path.exists(derived_dir):
+            for f in os.listdir(derived_dir):
+                if f.endswith('.json'):
+                    indicator_files.append(("衍生指标", os.path.join(derived_dir, f), f))
+        
+        if not indicator_files:
+            st.warning("⚠️ 没有找到已提炼的评价指标，请先在大纲管理页面提炼或生成评价指标")
+            extracted_guidance = None
+        else:
+            type_labels = [f"[{t}] {n}" for t, p, n in indicator_files]
+            selected_indicator_idx = st.selectbox(
+                "选择评价指标",
+                options=range(len(indicator_files)),
+                format_func=lambda x: type_labels[x],
+                help="选择已提炼或衍生的评价指标"
+            )
+            
+            selected_type, selected_path, selected_name = indicator_files[selected_indicator_idx]
+            st.info(f"📄 已选择: {selected_name} ({selected_type})")
+            
+            try:
+                with open(selected_path, 'r', encoding='utf-8') as f:
+                    extracted_guidance = json.load(f)
+                
+                st.session_state["extracted_guidance"] = extracted_guidance
+                
+                with st.expander("📝 查看指标详情"):
+                    if extracted_guidance.get('indicators'):
+                        st.markdown("### 📋 评价指标")
+                        for ind in extracted_guidance.get('indicators', []):
+                            st.markdown(f"**{ind.get('name', '')}** (权重: {ind.get('weight', '未知')})")
+                            if ind.get('description'):
+                                st.markdown(f"- 描述: {ind.get('description')}")
+                            st.markdown("")
+                    
+                    if extracted_guidance.get('grading_levels'):
+                        st.markdown("### 📊 评分等级")
+                        grading = extracted_guidance.get('grading_levels', {})
+                        for level, desc in grading.items():
+                            level_names = {
+                                "excellent": "优秀",
+                                "good": "良好",
+                                "medium": "中等",
+                                "pass": "及格",
+                                "fail": "不及格"
+                            }
+                            st.markdown(f"**{level_names.get(level, level)}**: {desc}")
+                    
+                    if extracted_guidance.get('key_requirements'):
+                        st.markdown("### 📌 关键要求")
+                        for req in extracted_guidance.get('key_requirements', []):
+                            st.markdown(f"- {req}")
+                    
+                    if extracted_guidance.get('summary'):
+                        st.markdown("### 📝 总结")
+                        st.write(extracted_guidance.get('summary', ''))
+                    
+                    if extracted_guidance.get('grade_levels'):
+                        st.markdown("### 📊 评分等级详情")
+                        for ind in extracted_guidance.get('indicators', []):
+                            if ind.get('grade_levels'):
+                                st.markdown(f"**{ind.get('name', '')}**")
+                                for level, desc in ind.get('grade_levels', {}).items():
+                                    level_names = {
+                                        "excellent": "优秀",
+                                        "good": "良好",
+                                        "medium": "中等",
+                                        "pass": "及格",
+                                        "fail": "不及格"
+                                    }
+                                    st.markdown(f"- **{level_names.get(level, level)}**: {desc}")
+                                st.markdown("")
+            except Exception as e:
+                st.error(f"❌ 读取评价指标失败: {str(e)}")
+                extracted_guidance = None
+        
+        st.markdown("---")
+        
+        # 评分方式选择
+        st.subheader("⚙️ 评分方式")
+        evaluation_method = st.radio(
+            "选择评分方式",
+            options=[
+                ("规则引擎评分（确定性，结果一致）", "rule_engine"),
+                ("大模型评分（灵活性高，可能有随机性）", "llm")
+            ],
+            format_func=lambda x: x[0],
+            help="规则引擎评分确保相同输入产生相同输出；大模型评分更灵活但结果可能有差异"
+        )
+        
+        method_value = evaluation_method[1]
+        
+        if method_value == "rule_engine":
+            st.info("💡 规则引擎评分特点：\n- 相同论文多次评分结果完全一致\n- 基于关键词匹配、结构检查、数量统计等规则\n- 适合标准化评价")
+        else:
+            st.warning("⚠️ 大模型评分特点：\n- 评分更灵活，能理解语义\n- 相同论文多次评分可能有差异\n- 适合需要深度理解的评价")
+        
+        st.markdown("---")
+        
+        # 上传毕业设计论文
+        st.subheader("📄 上传毕业设计论文")
+        
+        uploaded_file = st.file_uploader(
+            "上传毕业设计论文",
+            type=['txt', 'md', 'docx', 'pdf'],
+            help="支持 txt, md, docx, pdf 格式"
+        )
+        
+        submission_content = ""
+        student_info = {}
+        
+        if uploaded_file:
+            # 读取文件内容
+            if uploaded_file.type == "text/plain" or uploaded_file.name.endswith('.txt'):
+                submission_content = uploaded_file.read().decode('utf-8')
+            elif uploaded_file.name.endswith('.md'):
+                submission_content = uploaded_file.read().decode('utf-8')
+            elif uploaded_file.name.endswith('.docx'):
+                try:
+                    import docx
+                    doc = docx.Document(uploaded_file)
+                    submission_content = "\n".join([para.text for para in doc.paragraphs])
+                except:
+                    st.error("请安装 python-docx 库来处理 docx 文件")
+            elif uploaded_file.name.endswith('.pdf'):
+                try:
+                    import PyPDF2
+                    reader = PyPDF2.PdfReader(uploaded_file)
+                    submission_content = ""
+                    for page in reader.pages:
+                        submission_content += page.extract_text() + "\n"
+                except:
+                    st.error("请安装 PyPDF2 库来处理 PDF 文件")
+            
+            st.success(f"✅ 已读取论文: {uploaded_file.name} ({len(submission_content)} 字符)")
+        
+        # 学生信息
+        with st.expander("📝 学生信息（可选）"):
+            col1, col2 = st.columns(2)
+            with col1:
+                student_info["name"] = st.text_input("学生姓名")
+                student_info["student_id"] = st.text_input("学号")
+            with col2:
+                student_info["title"] = st.text_input("论文题目")
+                student_info["major"] = st.text_input("专业")
+        
+        # 开始评估
+        if st.button("🚀 开始毕业设计评估", use_container_width=True, type="primary"):
+            if not submission_content:
+                st.error("❌ 请上传毕业设计论文")
+            elif method_value == "rule_engine" and not extracted_guidance:
+                st.error("❌ 规则引擎评分需要先选择评价指标")
+            else:
+                if method_value == "rule_engine":
+                    with st.spinner("正在进行规则引擎评分（确定性评价）..."):
+                        try:
+                            response = requests.post(
+                                f"{API_BASE_URL}/evaluate_with_rule_engine",
+                                json={
+                                    "submission_content": submission_content,
+                                    "indicators": extracted_guidance,
+                                    "student_info": student_info
+                                },
+                                timeout=60
+                            )
+                            
+                            if response.status_code == 200:
+                                result = response.json()
+                                
+                                st.success("✅ 评估完成！（确定性评分，结果可复现）")
+                                
+                                overall_score = result.get('overall_score', 0)
+                                grade_level = result.get('grade_level', '')
+                                
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("综合评分", f"{overall_score}分")
+                                with col2:
+                                    st.metric("等级", grade_level)
+                                with col3:
+                                    st.metric("评分方式", "规则引擎")
+                                
+                                dimension_scores = result.get('dimension_scores', [])
+                                if dimension_scores:
+                                    st.subheader("📈 各指标评分")
+                                    
+                                    for ds in dimension_scores:
+                                        indicator_id = ds.get('indicator_id', '未知指标')
+                                        score = ds.get('score', 0)
+                                        grade = ds.get('grade_level', '')
+                                        evidence = ds.get('evidence', [])
+                                        
+                                        with st.expander(f"**{indicator_id}** - {score}分 ({grade})", expanded=False):
+                                            if evidence:
+                                                st.markdown("**证据:**")
+                                                for ev in evidence[:5]:
+                                                    st.markdown(f"- {ev}")
+                                
+                                strengths = result.get('strengths', [])
+                                weaknesses = result.get('weaknesses', [])
+                                
+                                if strengths:
+                                    st.subheader("💪 优势")
+                                    for s in strengths:
+                                        st.markdown(f"✅ {s}")
+                                
+                                if weaknesses:
+                                    st.subheader("📌 待改进")
+                                    for w in weaknesses:
+                                        st.markdown(f"⚠️ {w}")
+                                
+                                with st.expander("📋 查看完整规则匹配详情"):
+                                    rule_results = result.get('rule_results', [])
+                                    for rr in rule_results:
+                                        st.markdown(f"**{rr.get('rule_id', '')}**: {rr.get('score', 0)}分")
+                                        st.markdown(f"- 详情: {rr.get('details', '')}")
+                                        st.markdown("")
+                            else:
+                                st.error(f"❌ 评估失败: {response.json().get('detail', '未知错误')}")
+                        except Exception as e:
+                            st.error(f"❌ 评估失败: {str(e)}")
+                else:
+                    guidance_content_for_eval = None
+                    if "extracted_guidance" in st.session_state and st.session_state["extracted_guidance"]:
+                        guidance_content_for_eval = json.dumps(st.session_state["extracted_guidance"], ensure_ascii=False)
+                    
+                    with st.spinner("正在进行大模型评价..."):
+                        try:
+                            response = requests.post(
+                                f"{API_BASE_URL}/evaluate_graduation_project",
+                                json={
+                                    "submission_content": submission_content,
+                                    "project_type": project_type_value,
+                                    "student_info": student_info,
+                                    "guidance_content": guidance_content_for_eval
+                                },
+                                timeout=120
+                            )
+                            
+                            if response.status_code == 200:
+                                result = response.json()
+                                
+                                st.success("✅ 评估完成！")
+                                
+                                detected_type = result.get('project_type_name', '未知类型')
+                                st.info(f"📊 检测到项目类型: **{detected_type}**")
+                                
+                                overall_score = result.get('overall_score', 0)
+                                grade_level = result.get('grade_level', '')
+                                
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("综合评分", f"{overall_score}分")
+                                with col2:
+                                    st.metric("等级", grade_level)
+                                with col3:
+                                    st.metric("项目类型", detected_type)
+                                
+                                dimension_scores = result.get('dimension_scores', [])
+                                if dimension_scores:
+                                    st.subheader("📈 各指标评分")
+                                    
+                                    for ds in dimension_scores:
+                                        indicator_name = ds.get('indicator_name', ds.get('dimension', '未知指标'))
+                                        score = ds.get('score', 0)
+                                        grade = ds.get('grade_level', '')
+                                        evidence = ds.get('evidence', [])
+                                        reasoning = ds.get('reasoning', '')
+                                        
+                                        with st.expander(f"**{indicator_name}**: {score}分 ({grade})"):
+                                            st.markdown(f"**评分理由：** {reasoning}")
+                                            if evidence:
+                                                st.markdown("**证据：**")
+                                                for e in evidence:
+                                                    st.markdown(f"- {e}")
+                                
+                                strengths = result.get('strengths', [])
+                                if strengths:
+                                    st.subheader("💪 优势")
+                                    for s in strengths:
+                                        st.markdown(f"✅ {s}")
+                                
+                                weaknesses = result.get('weaknesses', [])
+                                if weaknesses:
+                                    st.subheader("⚠️ 待改进")
+                                    for w in weaknesses:
+                                        st.markdown(f"🔸 {w}")
+                                
+                                overall_eval = result.get('overall_evaluation', '')
+                                if overall_eval:
+                                    st.subheader("📝 总体评价")
+                                    st.markdown(overall_eval)
+                                
+                                with st.expander("查看完整JSON结果"):
+                                    st.json(result)
+                            else:
+                                try:
+                                    error_detail = response.json().get('detail', '未知错误')
+                                except:
+                                    error_detail = f"HTTP {response.status_code}"
+                                st.error(f"❌ 评估失败: {error_detail}")
+                        except Exception as e:
+                            st.error(f"❌ 评估过程出错: {str(e)}")
 
 # ==================== 结果查询 ====================
 elif page == "📊 结果查询":

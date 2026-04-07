@@ -35,7 +35,7 @@ from src.database import get_db, DatabaseService, init_db
 from src.database.models import Student, Submission, MediaFile, EvaluationResult, ProgressReport
 from src.models.schemas import (
     StudentCreate, StudentUpdate, StudentResponse,
-    SubmissionCreate, SubmissionResponse, SubmissionStatus, SubmissionType,
+    SubmissionCreate, SubmissionResponse, SubmissionStatus, SubmissionType, SubmissionPurpose,
     MediaFileResponse,
     EvaluationResultResponse, DimensionScoreResponse,
     EvaluationRequest, EvaluationResponse, ProgressReportResponse,
@@ -336,6 +336,7 @@ async def create_submission(
         description=submission.description,
         student_id=submission.student_id,
         submission_type=submission.submission_type.value,
+        submission_purpose=submission.submission_purpose.value,
         text_content=submission.text_content
     )
     
@@ -346,6 +347,7 @@ async def create_submission(
         title=new_submission.title,
         description=new_submission.description,
         submission_type=SubmissionType(new_submission.submission_type),
+        submission_purpose=SubmissionPurpose(new_submission.submission_purpose),
         text_content=new_submission.text_content,
         status=SubmissionStatus(new_submission.status),
         created_at=new_submission.created_at,
@@ -373,6 +375,7 @@ async def get_all_submissions(
             title=submission.title,
             description=submission.description,
             submission_type=SubmissionType(submission.submission_type),
+            submission_purpose=SubmissionPurpose(getattr(submission, 'submission_purpose', 'normal')),
             text_content=submission.text_content,
             status=SubmissionStatus(submission.status),
             created_at=submission.created_at,
@@ -403,6 +406,7 @@ async def get_submission(
         title=submission.title,
         description=submission.description,
         submission_type=SubmissionType(submission.submission_type),
+        submission_purpose=SubmissionPurpose(getattr(submission, 'submission_purpose', 'normal')),
         text_content=submission.text_content,
         status=SubmissionStatus(submission.status),
         created_at=submission.created_at,
@@ -426,6 +430,7 @@ async def get_student_submissions(
             title=submission.title,
             description=submission.description,
             submission_type=SubmissionType(submission.submission_type),
+            submission_purpose=SubmissionPurpose(getattr(submission, 'submission_purpose', 'normal')),
             text_content=submission.text_content,
             status=SubmissionStatus(submission.status),
             created_at=submission.created_at,
@@ -733,59 +738,31 @@ async def analyze_syllabus(
 ):
     """
     使用大模型分析课程大纲
+    自动检测文档类型并使用对应的提示词进行分析
     """
     try:
         # 导入大模型评估器
         from src.evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.syllabus_analyzer import SyllabusAnalyzer
         
         # 从请求中获取参数
         syllabus_content = request.get('syllabus_content', '')
         syllabus_name = request.get('syllabus_name', '')
         
-        # 构建大模型提示词
-        prompt = f"""
-        # 课程大纲分析任务
-        请对以下课程大纲进行详细、深入的分析，提取出：
-        1. **能力点**：课程要求学生掌握的具体知识和技能，每个能力点需要详细描述，包括具体的知识点、技能要求和掌握程度
-        2. **评价标准**：课程的详细评分标准和考核方式，包括各项考核的具体内容、评分权重、评分方法和标准
-        3. **毕业要求指标点**：课程支撑的具体毕业要求指标点，包括指标点编号、具体要求和支撑关系
+        # 使用 SyllabusAnalyzer 检测文档类型并构建对应提示词
+        analyzer = SyllabusAnalyzer("")
+        doc_type = analyzer.detect_document_type(syllabus_content)
         
-        # 课程大纲内容
-        {syllabus_content}
+        print(f"检测到文档类型: {doc_type}")
         
-        # 输出要求
-        - 分析结果必须详细、具体，避免泛泛而谈
-        - 能力点需要具体到知识点和技能点，每个能力点应有详细描述
-        - 评价标准需要详细到具体的考核内容、评分标准和权重
-        - 毕业要求指标点需要具体到指标点编号和具体要求
-        
-        # 输出格式
-        请以JSON格式返回分析结果，结构如下：
-        {{
-            "ability_points": [
-                {{
-                    "name": "能力点名称",
-                    "description": "详细描述",
-                    "level": "掌握程度（如：了解、理解、掌握、应用）"
-                }}
-            ],
-            "evaluation_criteria": [
-                {{
-                    "name": "评价项目",
-                    "weight": "权重（如：20%）",
-                    "description": "详细描述",
-                    "standard": "评分标准"
-                }}
-            ],
-            "graduation_requirements": [
-                {{
-                    "id": "指标点编号",
-                    "description": "详细描述",
-                    "support_level": "支撑程度（如：强支撑、中等支撑、弱支撑）"
-                }}
-            ]
-        }}
-        """
+        # 根据文档类型选择对应的提示词
+        if doc_type == 'graduation_requirements':
+            prompt = analyzer.build_graduation_requirements_prompt(syllabus_content)
+        elif doc_type == 'course_evaluation':
+            prompt = analyzer.build_course_evaluation_prompt(syllabus_content)
+        else:
+            # 未知类型使用通用提示词
+            prompt = analyzer.build_syllabus_analysis_prompt(syllabus_content)
         
         # 调用大模型（增加max_tokens以获取更详细的分析结果）
         result = llm_evaluator.generate_report(prompt, max_tokens=4000)
@@ -794,8 +771,15 @@ async def analyze_syllabus(
         try:
             # 尝试直接解析JSON
             analysis_result = json.loads(result)
+            # 添加文档类型信息
+            analysis_result['document_type'] = doc_type
             # 检查分析结果是否为空
-            if not analysis_result or (not analysis_result.get('ability_points') and not analysis_result.get('evaluation_criteria')):
+            has_content = (
+                analysis_result.get('ability_points') or 
+                analysis_result.get('evaluation_criteria') or 
+                analysis_result.get('graduation_requirements')
+            )
+            if not analysis_result or not has_content:
                 raise Exception("未获取到有效的分析结果")
             return analysis_result
         except Exception as e:
@@ -807,8 +791,15 @@ async def analyze_syllabus(
                 if start_idx != -1 and end_idx != -1:
                     json_str = result[start_idx:end_idx]
                     analysis_result = json.loads(json_str)
+                    # 添加文档类型信息
+                    analysis_result['document_type'] = doc_type
                     # 检查分析结果是否为空
-                    if not analysis_result or (not analysis_result.get('ability_points') and not analysis_result.get('evaluation_criteria')):
+                    has_content = (
+                        analysis_result.get('ability_points') or 
+                        analysis_result.get('evaluation_criteria') or 
+                        analysis_result.get('graduation_requirements')
+                    )
+                    if not analysis_result or not has_content:
                         raise Exception("未获取到有效的分析结果")
                     return analysis_result
                 else:
@@ -827,6 +818,389 @@ async def analyze_syllabus(
             raise HTTPException(status_code=504, detail=f"大纲分析失败: 请求超时，请稍后重试")
         else:
             raise HTTPException(status_code=500, detail=f"大纲分析失败: {error_message}")
+
+@app.post("/analyze_graduation_project")
+async def analyze_graduation_project(
+    request: Dict = Body(...)
+):
+    """
+    多轮迭代分析毕业设计大纲
+    通过三轮调用大模型，逐步完善评价提示词
+    """
+    try:
+        from src.evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.syllabus_analyzer import SyllabusAnalyzer
+        
+        syllabus_content = request.get('syllabus_content', '')
+        syllabus_name = request.get('syllabus_name', '')
+        max_rounds = request.get('max_rounds', 3)
+        
+        analyzer = SyllabusAnalyzer("")
+        results = {
+            "syllabus_name": syllabus_name,
+            "rounds": [],
+            "final_result": None
+        }
+        
+        # 第一轮：初步分析
+        print(f"开始第一轮分析: {syllabus_name}")
+        round1_prompt = analyzer.build_graduation_project_initial_analysis_prompt(syllabus_content)
+        round1_result = llm_evaluator.generate_report(round1_prompt, max_tokens=3000)
+        
+        try:
+            initial_result = json.loads(round1_result)
+            results["rounds"].append({
+                "round": 1,
+                "type": "initial_analysis",
+                "result": initial_result
+            })
+            print(f"第一轮分析完成")
+        except Exception as e:
+            raise Exception(f"第一轮分析结果解析失败: {str(e)}")
+        
+        # 第二轮：详细分析
+        print(f"开始第二轮分析: {syllabus_name}")
+        round2_prompt = analyzer.build_graduation_project_detailed_analysis_prompt(syllabus_content, initial_result)
+        round2_result = llm_evaluator.generate_report(round2_prompt, max_tokens=4000)
+        
+        try:
+            detailed_result = json.loads(round2_result)
+            results["rounds"].append({
+                "round": 2,
+                "type": "detailed_analysis",
+                "result": detailed_result
+            })
+            print(f"第二轮分析完成")
+        except Exception as e:
+            raise Exception(f"第二轮分析结果解析失败: {str(e)}")
+        
+        # 第三轮：提示词优化
+        if max_rounds >= 3:
+            print(f"开始第三轮分析: {syllabus_name}")
+            round3_prompt = analyzer.build_graduation_project_prompt_refinement_prompt(syllabus_content, detailed_result)
+            round3_result = llm_evaluator.generate_report(round3_prompt, max_tokens=4000)
+            
+            try:
+                refined_result = json.loads(round3_result)
+                results["rounds"].append({
+                    "round": 3,
+                    "type": "prompt_refinement",
+                    "result": refined_result
+                })
+                print(f"第三轮分析完成")
+                
+                # 使用优化后的结果作为最终结果
+                results["final_result"] = {
+                    "ability_points": refined_result.get("optimized_ability_points", []),
+                    "evaluation_criteria": refined_result.get("optimized_evaluation_criteria", []),
+                    "evaluation_prompt_template": refined_result.get("evaluation_prompt_template", ""),
+                    "optimization_notes": refined_result.get("optimization_notes", "")
+                }
+            except Exception as e:
+                # 如果第三轮失败，使用第二轮结果
+                print(f"第三轮分析结果解析失败: {str(e)}，使用第二轮结果")
+                results["final_result"] = detailed_result
+        else:
+            results["final_result"] = detailed_result
+        
+        return results
+        
+    except Exception as e:
+        error_message = str(e)
+        if "API密钥未设置" in error_message:
+            raise HTTPException(status_code=400, detail=f"毕业设计分析失败: API密钥未设置，请在AI设置页面中配置API密钥")
+        elif "400" in error_message or "Bad Request" in error_message:
+            raise HTTPException(status_code=400, detail=f"毕业设计分析失败: 请求参数错误，请检查输入内容")
+        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            raise HTTPException(status_code=504, detail=f"毕业设计分析失败: 请求超时，请稍后重试")
+        else:
+            raise HTTPException(status_code=500, detail=f"毕业设计分析失败: {error_message}")
+
+@app.post("/evaluate_graduation_project")
+async def evaluate_graduation_project(
+    request: Dict = Body(...)
+):
+    """
+    使用确定性评价标准评价毕业设计
+    自动检测项目类型并使用对应的评价标准
+    """
+    try:
+        from src.evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.evaluation_standards import (
+            ProjectType,
+            PROJECT_TYPE_NAMES,
+            detect_project_type
+        )
+        
+        submission_content = request.get('submission_content', '')
+        project_type = request.get('project_type', None)
+        student_info = request.get('student_info', {})
+        guidance_content = request.get('guidance_content', None)
+        
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+        
+        title = student_info.get("title", "") if student_info else ""
+        
+        if project_type:
+            try:
+                detected_type = ProjectType(project_type)
+            except ValueError:
+                detected_type = detect_project_type(title, submission_content)
+        else:
+            detected_type = detect_project_type(title, submission_content)
+        
+        type_name = PROJECT_TYPE_NAMES.get(detected_type, "未知类型")
+        print(f"检测到项目类型: {type_name}")
+        
+        result = llm_evaluator.evaluate_with_deterministic_standards(
+            submission_content=submission_content,
+            project_type=detected_type.value,
+            student_info=student_info,
+            guidance_content=guidance_content
+        )
+        
+        result["detected_project_type"] = detected_type.value
+        result["project_type_name"] = type_name
+        
+        return result
+        
+    except Exception as e:
+        error_message = str(e)
+        if "API密钥未设置" in error_message:
+            raise HTTPException(status_code=400, detail=f"评价失败: API密钥未设置，请在AI设置页面中配置API密钥")
+        elif "400" in error_message or "Bad Request" in error_message:
+            raise HTTPException(status_code=400, detail=f"评价失败: 请求参数错误，请检查输入内容")
+        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            raise HTTPException(status_code=504, detail=f"评价失败: 请求超时，请稍后重试")
+        else:
+            raise HTTPException(status_code=500, detail=f"评价失败: {error_message}")
+
+@app.get("/project_types")
+async def get_project_types():
+    """
+    获取所有项目类型
+    """
+    from src.evaluation.evaluation_standards import ProjectType, PROJECT_TYPE_NAMES, EVALUATION_STANDARDS
+    
+    types = []
+    for pt in ProjectType:
+        if pt != ProjectType.UNKNOWN:
+            type_config = EVALUATION_STANDARDS.get(pt.value, {})
+            types.append({
+                "value": pt.value,
+                "name": PROJECT_TYPE_NAMES.get(pt, "未知类型"),
+                "description": type_config.get("description", ""),
+                "indicators_count": len(type_config.get("indicators", []))
+            })
+    
+    return {"project_types": types}
+
+@app.get("/evaluation_standards/{project_type}")
+async def get_evaluation_standards_by_type(project_type: str):
+    """
+    获取指定项目类型的评价标准
+    """
+    from src.evaluation.evaluation_standards import (
+        ProjectType,
+        PROJECT_TYPE_NAMES,
+        EVALUATION_STANDARDS
+    )
+    
+    try:
+        pt = ProjectType(project_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"无效的项目类型: {project_type}")
+    
+    standards = EVALUATION_STANDARDS.get(pt.value)
+    if not standards:
+        raise HTTPException(status_code=404, detail=f"未找到项目类型 {project_type} 的评价标准")
+    
+    return {
+        "project_type": pt.value,
+        "project_type_name": PROJECT_TYPE_NAMES.get(pt, "未知类型"),
+        "standards": standards
+    }
+
+@app.post("/extract_guidance_content")
+async def extract_guidance_content(
+    request: Dict = Body(...)
+):
+    """
+    使用大模型提炼评价指导文件的内容
+    """
+    try:
+        from src.evaluation.llm_evaluator import llm_evaluator
+        
+        file_content = request.get('file_content', '')
+        file_name = request.get('file_name', '')
+        
+        if not file_content:
+            raise HTTPException(status_code=400, detail="文件内容不能为空")
+        
+        result = llm_evaluator.extract_guidance_content(
+            file_content=file_content,
+            file_name=file_name
+        )
+        
+        return result
+        
+    except Exception as e:
+        error_message = str(e)
+        if "API密钥未设置" in error_message:
+            raise HTTPException(status_code=400, detail=f"提炼失败: API密钥未设置，请在AI设置页面中配置API密钥")
+        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            raise HTTPException(status_code=504, detail=f"提炼失败: 请求超时，请稍后重试")
+        else:
+            raise HTTPException(status_code=500, detail=f"提炼失败: {error_message}")
+
+@app.post("/generate_evaluation_standards")
+async def generate_evaluation_standards(
+    request: Dict = Body(...)
+):
+    """
+    使用大模型生成项目评价指标
+    """
+    try:
+        from src.evaluation.llm_evaluator import llm_evaluator
+        
+        file_content = request.get('file_content', '')
+        file_name = request.get('file_name', '')
+        project_type = request.get('project_type', 'mixed')
+        
+        if not file_content:
+            raise HTTPException(status_code=400, detail="文件内容不能为空")
+        
+        result = llm_evaluator.generate_evaluation_standards(
+            file_content=file_content,
+            file_name=file_name,
+            project_type=project_type
+        )
+        
+        return result
+        
+    except Exception as e:
+        error_message = str(e)
+        if "API密钥未设置" in error_message:
+            raise HTTPException(status_code=400, detail=f"生成失败: API密钥未设置，请在AI设置页面中配置API密钥")
+        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            raise HTTPException(status_code=504, detail=f"生成失败: 请求超时，请稍后重试")
+        else:
+            raise HTTPException(status_code=500, detail=f"生成失败: {error_message}")
+
+@app.get("/syllabus_files")
+async def get_syllabus_files():
+    """
+    获取大纲管理页面的文件列表
+    """
+    import os
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    syllabus_folder = os.path.join(project_root, "评价大纲")
+    
+    if not os.path.exists(syllabus_folder):
+        return {"files": [], "folder_path": syllabus_folder}
+    
+    files = []
+    for f in os.listdir(syllabus_folder):
+        if f.endswith('.docx') or f.endswith('.doc') or f.endswith('.pdf') or f.endswith('.txt'):
+            file_path = os.path.join(syllabus_folder, f)
+            files.append({
+                "name": f,
+                "path": file_path,
+                "size": os.path.getsize(file_path),
+                "modified": os.path.getmtime(file_path)
+            })
+    
+    return {"files": files, "folder_path": syllabus_folder}
+
+@app.post("/read_syllabus_file")
+async def read_syllabus_file(
+    request: Dict = Body(...)
+):
+    """
+    读取大纲文件内容
+    """
+    import os
+    file_name = request.get('file_name', '')
+    
+    if not file_name:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    file_path = os.path.join(project_root, "评价大纲", file_name)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_name}")
+    
+    try:
+        if file_name.endswith('.docx'):
+            from docx import Document
+            doc = Document(file_path)
+            content = "\n".join([para.text for para in doc.paragraphs])
+        elif file_name.endswith('.txt'):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        elif file_name.endswith('.pdf'):
+            import PyPDF2
+            with open(file_path, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                content = ""
+                for page in reader.pages:
+                    content += page.extract_text() + "\n"
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的文件格式: {file_name}")
+        
+        return {"file_name": file_name, "content": content}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取文件失败: {str(e)}")
+
+@app.post("/evaluate_with_rule_engine")
+async def evaluate_with_rule_engine(
+    request: Dict = Body(...)
+):
+    """
+    使用规则引擎进行确定性评分
+    确保相同输入产生相同输出，解决评价结果不一致问题
+    """
+    try:
+        from src.evaluation.rule_engine import rule_engine
+        
+        submission_content = request.get('submission_content', '')
+        indicators = request.get('indicators', {})
+        student_info = request.get('student_info', {})
+        
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+        
+        if not indicators:
+            raise HTTPException(status_code=400, detail="评价指标不能为空，请先选择评价指标")
+        
+        rule_engine.load_rules_from_indicators(indicators)
+        
+        result = rule_engine.evaluate(submission_content)
+        
+        result["student_info"] = student_info
+        result["evaluation_method"] = "rule_engine"
+        result["is_deterministic"] = True
+        
+        strengths = []
+        weaknesses = []
+        
+        for dim in result.get("dimension_scores", []):
+            if dim.get("score", 0) >= 80:
+                strengths.append(f"{dim.get('indicator_id', '')}表现良好({dim.get('score')}分)")
+            elif dim.get("score", 0) < 60:
+                weaknesses.append(f"{dim.get('indicator_id', '')}需要改进({dim.get('score')}分)")
+        
+        result["strengths"] = strengths if strengths else ["整体表现符合要求"]
+        result["weaknesses"] = weaknesses if weaknesses else ["无明显短板"]
+        
+        return result
+        
+    except Exception as e:
+        error_message = str(e)
+        raise HTTPException(status_code=500, detail=f"规则引擎评分失败: {error_message}")
 
 @app.post("/evaluate", response_model=EvaluationResponse)
 async def evaluate_submission(
