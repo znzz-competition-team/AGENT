@@ -193,16 +193,32 @@ class ExamQuestionResult(BaseModel):
     mistakes: List[str] = []
 
 
+class FormulaRecognitionBox(BaseModel):
+    page_index: int = 1
+    x: float
+    y: float
+    w: float
+    h: float
+    coordinate_type: str = "relative"
+    confidence: Optional[float] = None
+    text: str
+    latex: Optional[str] = None
+    box_type: str = "formula"
+
+
 class HandwritingExamGradeResponse(BaseModel):
     success: bool
     exam_type: str = "handwritten_exam"
+    recognition_mode: str = "general"
     student_id: Optional[str] = None
     subject: Optional[str] = None
     recognized_text: str
     total_score: float
     max_score: float
     overall_comment: str
+    course_achievement_comment: str = ""
     strengths: List[str] = []
     areas_for_improvement: List[str] = []
     question_results: List[ExamQuestionResult] = []
+    formula_boxes: List[FormulaRecognitionBox] = []
     model: str

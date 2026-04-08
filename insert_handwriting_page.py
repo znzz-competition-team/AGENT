@@ -101,6 +101,10 @@ INSERT_BLOCK = r'''
                             st.subheader("总体评语")
                             st.write(result["overall_comment"])
 
+                        if result.get("course_achievement_comment"):
+                            st.subheader("课程达成度评价")
+                            st.write(result["course_achievement_comment"])
+
                         if result.get("strengths"):
                             st.subheader("亮点")
                             for item in result["strengths"]:

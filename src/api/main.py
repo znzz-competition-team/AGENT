@@ -158,6 +158,182 @@ def parse_float_form(value: Optional[str]) -> Optional[float]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"数值格式错误: {value}") from exc
 
+
+def ensure_baidu_ocr_dependency() -> None:
+    """检查百度 OCR SDK 是否可用。"""
+    try:
+        import aip  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="当前环境未安装百度OCR依赖 `baidu-aip`，普通手写识别功能暂不可用。请先安装：pip install baidu-aip",
+        ) from exc
+
+
+def model_supports_vision(model_name: Optional[str]) -> bool:
+    """粗略判断当前模型是否支持图像输入。"""
+    if not model_name:
+        return False
+    model = model_name.lower()
+    vision_markers = (
+        "gpt-4o",
+        "gpt-4.1",
+        "gpt-4-turbo",
+        "glm-4v",
+        "qwen-vl-ocr",
+        "qvq",
+        "vl",
+        "vision",
+        "omni",
+    )
+    non_vision_markers = (
+        "qwen-turbo",
+        "qwen-plus",
+        "qwen-max",
+        "deepseek-chat",
+        "deepseek-reasoner",
+        "gpt-3.5",
+    )
+    if any(marker in model for marker in non_vision_markers):
+        return False
+    return any(marker in model for marker in vision_markers)
+
+
+HANDWRITING_OCR_PROMPT = (
+    "请识别图片中的手写文字内容。"
+    "尽量保持原文顺序逐行输出，不要添加解释。"
+    "若包含数学公式、上下标、分式、积分、根号、希腊字母、单位或编号，请尽量准确保留原样。"
+    "看不清的字符用[不清]标记，不要臆造内容。"
+)
+
+
+def run_multimodal_handwriting_ocr(file_path: str, ai_config: Dict[str, Any]) -> Dict[str, Any]:
+    """使用支持视觉的多模态模型进行手写识别。"""
+    import base64
+    import mimetypes
+    from openai import OpenAI
+
+    file_ext = os.path.splitext(file_path)[1].lower()
+    client = OpenAI(
+        api_key=ai_config["api_key"],
+        base_url=ai_config.get("base_url"),
+    )
+
+    def image_bytes_to_content(image_bytes: bytes, mime_type: str) -> Dict[str, Any]:
+        encoded = base64.b64encode(image_bytes).decode("utf-8")
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{mime_type};base64,{encoded}",
+            },
+        }
+
+    def recognize_single_image(image_bytes: bytes, mime_type: str) -> str:
+        response = client.chat.completions.create(
+            model=ai_config["model"],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        image_bytes_to_content(image_bytes, mime_type),
+                        {"type": "text", "text": HANDWRITING_OCR_PROMPT},
+                    ],
+                }
+            ],
+            temperature=min(float(ai_config.get("temperature", 0.01)), 0.1),
+            max_tokens=max(int(ai_config.get("max_tokens", 2000)), 2000),
+        )
+        content = response.choices[0].message.content
+        if isinstance(content, list):
+            text_parts = [part.get("text", "") for part in content if isinstance(part, dict)]
+            return "\n".join(part for part in text_parts if part).strip()
+        return (content or "").strip()
+
+    if file_ext == ".pdf":
+        import fitz
+
+        recognized_pages = []
+        doc = fitz.open(file_path)
+        try:
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                page_text = recognize_single_image(pix.tobytes("png"), "image/png")
+                if page_text:
+                    recognized_pages.append(f"第{page_num + 1}页:\n{page_text}")
+            recognized_text = "\n\n".join(recognized_pages).strip()
+        finally:
+            doc.close()
+    else:
+        mime_type, _ = mimetypes.guess_type(file_path)
+        with open(file_path, "rb") as image_file:
+            recognized_text = recognize_single_image(image_file.read(), mime_type or "image/png")
+
+    if not recognized_text:
+        raise HTTPException(status_code=400, detail="AI 视觉模型未识别到有效文字内容，请检查图片是否清晰。")
+
+    return {
+        "recognized_text": recognized_text,
+        "confidence": 95.0,
+        "engine": ai_config["model"],
+    }
+
+
+def run_baidu_handwriting_ocr(
+    file_path: str,
+    app_id: str,
+    api_key: str,
+    secret_key: str,
+) -> Dict[str, Any]:
+    """使用百度 OCR 进行手写识别。"""
+    ensure_baidu_ocr_dependency()
+    from aip import AipOcr
+
+    file_ext = os.path.splitext(file_path)[1].lower()
+    client = AipOcr(app_id, api_key, secret_key)
+
+    if file_ext == ".pdf":
+        import fitz
+
+        recognized_pages = []
+        doc = fitz.open(file_path)
+        try:
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                result = client.handwriting(pix.tobytes("png"))
+                if 'words_result' in result and result['words_result']:
+                    page_text = '\n'.join([item['words'] for item in result['words_result']])
+                    recognized_pages.append(f"第{page_num + 1}页:\n{page_text}")
+                else:
+                    error_msg = result.get('error_msg', '未知错误')
+                    error_code = result.get('error_code', '未知错误码')
+                    logger.warning(f"第{page_num + 1}页识别失败: {error_msg} (错误码: {error_code})")
+        finally:
+            doc.close()
+
+        recognized_text = "\n\n".join(recognized_pages).strip()
+        if not recognized_text:
+            raise HTTPException(status_code=400, detail="PDF文件中未提取到文字，请确保PDF包含可识别的文字内容")
+        confidence = 90.0
+    else:
+        with open(file_path, 'rb') as f:
+            image = f.read()
+        result = client.handwriting(image)
+        if 'words_result' in result:
+            recognized_text = '\n'.join([item['words'] for item in result['words_result']]).strip()
+            confidence = 95.0
+        else:
+            error_msg = result.get('error_msg', '未知错误')
+            error_code = result.get('error_code', '未知错误码')
+            raise HTTPException(status_code=400, detail=f"百度OCR识别失败：{error_msg} (错误码: {error_code})")
+
+    return {
+        "recognized_text": recognized_text,
+        "confidence": confidence,
+        "engine": "baidu-ocr",
+    }
+
 # 初始化数据库
 init_db()
 
@@ -444,9 +620,9 @@ async def get_student_submissions(
 @app.post("/handwriting-recognize")
 async def handwriting_recognize(
     student_id: str = Form(...),
-    app_id: str = Form(...),
-    api_key: str = Form(...),
-    secret_key: str = Form(...),
+    app_id: Optional[str] = Form(None),
+    api_key: Optional[str] = Form(None),
+    secret_key: Optional[str] = Form(None),
     file: UploadFile = File(...),
     db_service: DatabaseService = Depends(get_database_service)
 ):
@@ -468,102 +644,36 @@ async def handwriting_recognize(
         if file_ext not in [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".pdf"]:
             raise HTTPException(status_code=400, detail="不支持的文件类型")
         
-        # 处理PDF文件
-        if file_ext == ".pdf":
-            # 使用PyMuPDF将PDF转换为图片，然后调用百度OCR识别
-            logger.info("开始处理PDF文件")
-            recognized_text = ""
-            
-            try:
-                # 使用PyMuPDF将PDF转换为图片
-                logger.info("使用PyMuPDF将PDF转换为图片")
-                import fitz
-                
-                # 打开PDF文件
-                doc = fitz.open(file_path)
-                page_count = len(doc)
-                logger.info(f"PDF文件共 {page_count} 页")
-                
-                # 将每一页转换为图片并调用百度OCR
-                for page_num in range(page_count):
-                    page = doc[page_num]
-                    
-                    # 将页面转换为图片
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 使用2倍分辨率提高识别率
-                    img_data = pix.tobytes("png")
-                    
-                    # 调用百度OCR的手写文字识别接口
-                    from aip import AipOcr
-                    client = AipOcr(app_id, api_key, secret_key)
-                    result = client.handwriting(img_data)
-                    
-                    # 打印识别结果用于调试
-                    logger.info(f"第{page_num+1}页识别结果: {result}")
-                    
-                    # 提取识别结果
-                    if 'words_result' in result and result['words_result']:
-                        page_text = '\n'.join([item['words'] for item in result['words_result']])
-                        recognized_text += f"第{page_num+1}页:\n{page_text}\n\n"
-                    else:
-                        # 如果没有识别到文字，记录错误信息
-                        error_msg = result.get('error_msg', '未知错误')
-                        error_code = result.get('error_code', '未知错误码')
-                        logger.warning(f"第{page_num+1}页识别失败: {error_msg} (错误码: {error_code})")
-                
-                # 关闭PDF文档
-                doc.close()
-                
-                logger.info(f"PDF识别完成，共处理 {page_count} 页")
-                
-                if not recognized_text:
-                    raise HTTPException(status_code=400, detail="PDF文件中未提取到文字，请确保PDF包含可识别的文字内容")
-                
-                confidence = 90.0
-                logger.info("PDF处理完成")
-            except Exception as e:
-                logger.error(f"PDF处理失败: {str(e)}")
-                import traceback
-                error_detail = traceback.format_exc()
-                logger.error(f"详细错误: {error_detail}")
-                raise HTTPException(status_code=500, detail=f"PDF处理失败: {str(e)}")
+        current_ai_config = get_current_ai_config()
+        if model_supports_vision(current_ai_config.get("model")):
+            logger.info("手写识别使用 AI 视觉模型: %s", current_ai_config.get("model"))
+            ocr_result = run_multimodal_handwriting_ocr(file_path, current_ai_config)
         else:
-            # 使用百度OCR进行手写文字识别
-            from aip import AipOcr
-            
-            # 使用前端传递的百度OCR API配置
-            # 初始化百度OCR客户端
-            client = AipOcr(app_id, api_key, secret_key)
-            
-            # 读取图片文件
-            with open(file_path, 'rb') as f:
-                image = f.read()
-            
-            # 调用百度OCR的手写文字识别接口
-            result = client.handwriting(image)
-            
-            # 提取识别结果
-            if 'words_result' in result:
-                recognized_text = '\n'.join([item['words'] for item in result['words_result']])
-                confidence = 95.0
-            else:
-                error_msg = result.get('error_msg', '未知错误')
-                error_code = result.get('error_code', '未知错误码')
-                raise HTTPException(status_code=400, detail=f"百度OCR识别失败：{error_msg} (错误码: {error_code})")
+            if not all([app_id, api_key, secret_key]):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "当前 AI 模型不支持图像识别，且未提供完整的百度 OCR 配置。"
+                        "请在 AI 设置中切换到支持视觉的模型（如 qwen-vl-ocr-latest、gpt-4o、glm-4v），"
+                        "或填写百度 OCR 的 APP ID / API Key / Secret Key。"
+                    ),
+                )
+            logger.info("手写识别使用百度 OCR")
+            ocr_result = run_baidu_handwriting_ocr(file_path, app_id, api_key, secret_key)
         
         # 保存识别记录
-        record = {
-            "student_id": student_id,
-            "file_name": file.filename,
-            "recognized_text": recognized_text,
-            "confidence": confidence,
-            "timestamp": datetime.now().isoformat()
-        }
-        db_service.add_handwriting_record(record)
+        db_service.add_handwriting_record(
+            student_id=student_id,
+            file_name=file.filename,
+            recognized_text=ocr_result["recognized_text"],
+            confidence=ocr_result["confidence"],
+        )
         
         return {
             "student_id": student_id,
-            "recognized_text": recognized_text,
-            "confidence": confidence,
+            "recognized_text": ocr_result["recognized_text"],
+            "confidence": ocr_result["confidence"],
+            "engine": ocr_result["engine"],
             "file_name": file.filename
         }
     except HTTPException:
@@ -603,6 +713,7 @@ async def grade_handwriting_exam(
     student_id: Optional[str] = Form(None),
     total_score: Optional[str] = Form(None),
     extra_requirements: Optional[str] = Form(None),
+    recognition_mode: str = Form("general"),
     files: List[UploadFile] = File(...),
     db_service: DatabaseService = Depends(get_database_service)
 ):
@@ -616,10 +727,24 @@ async def grade_handwriting_exam(
         raise HTTPException(status_code=400, detail="请至少上传一张试卷图片")
 
     parsed_total_score = parse_float_form(total_score)
+    normalized_mode = (recognition_mode or "general").strip().lower()
+    if normalized_mode not in {"general", "formula"}:
+        raise HTTPException(status_code=400, detail="recognition_mode 仅支持 general 或 formula")
     allowed_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
     temp_paths: List[str] = []
 
     try:
+        current_ai_config = get_current_ai_config()
+        current_model = current_ai_config.get("model")
+        if not model_supports_vision(current_model):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"当前模型 `{current_model}` 不支持图片输入，无法进行试卷识别与批改。"
+                    "请到 AI 设置中切换为支持视觉的模型，例如 `gpt-4o` 或 `glm-4v`。"
+                ),
+            )
+
         for file in files:
             file_ext = os.path.splitext(file.filename)[1].lower()
             if file_ext not in allowed_exts:
@@ -636,7 +761,7 @@ async def grade_handwriting_exam(
 
         from src.agents.exam_grading_agent import HandwritingExamGradingAgent
 
-        grading_agent = HandwritingExamGradingAgent(ai_config=get_current_ai_config())
+        grading_agent = HandwritingExamGradingAgent(ai_config=current_ai_config)
         result = grading_agent.grade_exam(
             image_paths=temp_paths,
             answer_key=answer_key,
@@ -644,19 +769,23 @@ async def grade_handwriting_exam(
             subject=subject,
             total_score=parsed_total_score,
             extra_requirements=extra_requirements,
+            recognition_mode=normalized_mode,
         )
 
         return HandwritingExamGradeResponse(
             success=True,
+            recognition_mode=result.get("recognition_mode", normalized_mode),
             student_id=student_id,
             subject=subject,
             recognized_text=result["recognized_text"],
             total_score=result["total_score"],
             max_score=result["max_score"],
             overall_comment=result["overall_comment"],
+            course_achievement_comment=result.get("course_achievement_comment", ""),
             strengths=result["strengths"],
             areas_for_improvement=result["areas_for_improvement"],
             question_results=result["question_results"],
+            formula_boxes=result.get("formula_boxes", []),
             model=result["model"],
         )
     except HTTPException:

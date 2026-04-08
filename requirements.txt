@@ -48,6 +48,7 @@ aiohttp>=3.9.0
 tenacity>=8.2.0
 tqdm>=4.66.0
 python-dateutil>=2.8.2
+baidu-aip>=4.16.13
 
 # Testing
 pytest>=7.4.0

@@ -88,7 +88,7 @@ AI_PROVIDERS = {
     "qwen": {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max", "qvq-max", "qwen-vl-ocr-latest"],
         "default_model": "qwen-turbo"
     },
     "custom": {

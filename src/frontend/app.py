@@ -6,6 +6,7 @@ from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
 import os
+from PIL import Image, ImageDraw
 
 # API 基础 URL
 API_BASE_URL = "http://localhost:8000"
@@ -47,7 +48,7 @@ AI_PROVIDERS = {
     "qwen": {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max", "qvq-max", "qwen-vl-ocr-latest"],
         "default_model": "qwen-turbo",
         "description": "阿里云通义千问系列"
     },
@@ -79,6 +80,128 @@ def process_reasoning(reasoning: str) -> str:
         except:
             pass
     return reasoning
+
+
+def parse_ocr_boxes(recognized_text: str) -> pd.DataFrame:
+    """解析类似 x,y,w,h,confidence,text 的 OCR 输出。"""
+    records = []
+    if not recognized_text:
+        return pd.DataFrame()
+
+    for line in recognized_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(",", 5)
+        if len(parts) != 6:
+            continue
+        try:
+            x = int(float(parts[0].strip()))
+            y = int(float(parts[1].strip()))
+            w = int(float(parts[2].strip()))
+            h = int(float(parts[3].strip()))
+            confidence = float(parts[4].strip())
+            text = parts[5].strip()
+        except ValueError:
+            continue
+
+        records.append(
+            {
+                "x": x,
+                "y": y,
+                "w": w,
+                "h": h,
+                "confidence": confidence,
+                "text": text,
+            }
+        )
+
+    return pd.DataFrame(records)
+
+
+def draw_ocr_boxes(image_file, ocr_df: pd.DataFrame):
+    """在图片上绘制 OCR 框。"""
+    image = Image.open(image_file).convert("RGB")
+    draw = ImageDraw.Draw(image)
+
+    for _, row in ocr_df.iterrows():
+        x1, y1 = int(row["x"]), int(row["y"])
+        x2, y2 = x1 + int(row["w"]), y1 + int(row["h"])
+        confidence = float(row["confidence"])
+        color = "#1f77b4" if confidence >= 90 else "#ff7f0e" if confidence >= 80 else "#d62728"
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
+        draw.text((x1, max(0, y1 - 14)), str(row["text"])[:24], fill=color)
+
+    return image
+
+
+def parse_formula_boxes(formula_boxes) -> pd.DataFrame:
+    """解析后端返回的公式框列表。"""
+    if not formula_boxes or not isinstance(formula_boxes, list):
+        return pd.DataFrame()
+
+    records = []
+    for item in formula_boxes:
+        if not isinstance(item, dict):
+            continue
+        try:
+            page_index = int(item.get("page_index", 1) or 1)
+            x = float(item.get("x", 0.0) or 0.0)
+            y = float(item.get("y", 0.0) or 0.0)
+            w = float(item.get("w", 0.0) or 0.0)
+            h = float(item.get("h", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+
+        if w <= 0 or h <= 0:
+            continue
+
+        confidence = item.get("confidence")
+        if confidence is not None:
+            try:
+                confidence = float(confidence)
+            except (TypeError, ValueError):
+                confidence = None
+
+        records.append(
+            {
+                "page_index": page_index,
+                "x": x,
+                "y": y,
+                "w": w,
+                "h": h,
+                "confidence": confidence,
+                "text": str(item.get("text", "") or ""),
+                "latex": str(item.get("latex", "") or ""),
+                "box_type": str(item.get("box_type", "formula") or "formula"),
+            }
+        )
+
+    return pd.DataFrame(records)
+
+
+def draw_formula_boxes(image_file, formula_df: pd.DataFrame):
+    """将相对坐标公式框叠加到原图。"""
+    image = Image.open(image_file).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    img_w, img_h = image.size
+
+    for _, row in formula_df.iterrows():
+        x1 = int(max(0, min(1, float(row["x"]))) * img_w)
+        y1 = int(max(0, min(1, float(row["y"]))) * img_h)
+        x2 = int(max(0, min(1, float(row["x"] + row["w"]))) * img_w)
+        y2 = int(max(0, min(1, float(row["y"] + row["h"]))) * img_h)
+        confidence = row.get("confidence")
+        if confidence is None:
+            color = "#1f77b4"
+        else:
+            confidence = float(confidence)
+            color = "#2ca02c" if confidence >= 0.9 else "#ff7f0e" if confidence >= 0.75 else "#d62728"
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        label = str(row.get("latex") or row.get("text") or "formula")
+        draw.text((x1, max(0, y1 - 16)), label[:28], fill=color)
+
+    return image
 
 # 页面配置
 st.set_page_config(
@@ -1362,8 +1485,8 @@ elif page == "✏️ 手写识别":
     - WEBP
     """)
     
-    # 步骤 1: 百度OCR配置
-    st.subheader("步骤 1: 百度OCR配置")
+    # 步骤 1: 识别引擎配置
+    st.subheader("步骤 1: 识别引擎配置")
     
     # 初始化会话状态
     if "app_id" not in st.session_state:
@@ -1373,8 +1496,21 @@ elif page == "✏️ 手写识别":
     if "secret_key" not in st.session_state:
         st.session_state.secret_key = "pDVhG7JQmmSJ6FRoHuIZGjyHwkHokN0F"
     
-    # 百度OCR API配置
-    with st.expander("百度OCR API配置", expanded=True):
+    current_ai_config = {}
+    try:
+        ai_response = requests.get(f"{API_BASE_URL}/ai-config", timeout=10)
+        if ai_response.status_code == 200:
+            current_ai_config = ai_response.json()
+    except Exception:
+        current_ai_config = {}
+
+    current_model = current_ai_config.get("model", "")
+    if current_model:
+        st.info(f"当前 AI 识别模型：`{current_model}`")
+    else:
+        st.warning("当前未读取到 AI 设置，将回退到百度 OCR（如果已填写百度配置）。")
+
+    with st.expander("百度 OCR 备用配置（仅在当前 AI 模型不支持图像识别时使用）", expanded=False):
         app_id = st.text_input("APP ID", value=st.session_state.app_id, placeholder="请输入百度OCR的APP ID", key="app_id_input")
         api_key = st.text_input("API Key", value=st.session_state.api_key, placeholder="请输入百度OCR的API Key", key="api_key_input")
         secret_key = st.text_input("Secret Key", value=st.session_state.secret_key, placeholder="请输入百度OCR的Secret Key", type="password", key="secret_key_input")
@@ -1455,6 +1591,28 @@ elif page == "✏️ 手写识别":
                         # 显示识别置信度
                         if 'confidence' in result:
                             st.metric("识别置信度", f"{result['confidence']:.2f}%")
+                        if result.get("engine"):
+                            st.caption(f"识别引擎：{result['engine']}")
+
+                        ocr_df = parse_ocr_boxes(result.get("recognized_text", ""))
+                        if not ocr_df.empty:
+                            st.subheader("📍 OCR 可视化")
+                            vis_col1, vis_col2 = st.columns([2, 1])
+                            with vis_col1:
+                                if file_ext != 'pdf':
+                                    uploaded_file.seek(0)
+                                    boxed_image = draw_ocr_boxes(uploaded_file, ocr_df)
+                                    st.image(boxed_image, caption="识别框叠加预览", use_container_width=True)
+                                else:
+                                    st.info("当前文件为 PDF，已解析出坐标结果。图片叠框预览建议先上传单页截图。")
+                            with vis_col2:
+                                st.dataframe(
+                                    ocr_df[["text", "confidence", "x", "y", "w", "h"]],
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                        else:
+                            st.caption("当前返回结果不包含标准坐标框格式，因此只展示纯文本识别结果。")
                         
                         # 保存识别结果（可选）
                         if st.button("💾 保存识别结果", use_container_width=True):
@@ -1493,11 +1651,18 @@ elif page == "✏️ 手写识别":
             format_func=lambda x: grading_student_options[x]
         )
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             subject = st.text_input("科目", placeholder="如：数学、语文、英语")
         with col2:
             total_score = st.text_input("试卷总分", placeholder="如：100，可留空")
+        with col3:
+            recognition_mode = st.selectbox(
+                "识别模式",
+                options=["general", "formula"],
+                format_func=lambda x: "通用批改模式" if x == "general" else "公式识别专用模式",
+                help="公式识别专用模式会输出公式框选坐标和 LaTeX，便于直接可视化核对。"
+            )
 
         exam_files = st.file_uploader(
             "上传试卷图片",
@@ -1539,6 +1704,7 @@ elif page == "✏️ 手写识别":
                         "student_id": selected_grading_student_id,
                         "total_score": total_score,
                         "extra_requirements": extra_requirements,
+                        "recognition_mode": recognition_mode,
                     }
                     files = [
                         ("files", (uploaded_file.name, uploaded_file, uploaded_file.type))
@@ -1557,17 +1723,24 @@ elif page == "✏️ 手写识别":
                         result = response.json()
                         st.success("试卷批改完成。")
 
-                        metric_col1, metric_col2, metric_col3 = st.columns(3)
+                        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
                         with metric_col1:
                             st.metric("总得分", f"{result.get('total_score', 0)}")
                         with metric_col2:
                             st.metric("满分", f"{result.get('max_score', 0)}")
                         with metric_col3:
                             st.metric("模型", result.get("model", "N/A"))
+                        with metric_col4:
+                            mode_label = "公式专用" if result.get("recognition_mode") == "formula" else "通用"
+                            st.metric("识别模式", mode_label)
 
                         if result.get("overall_comment"):
                             st.subheader("总体评语")
                             st.write(result["overall_comment"])
+
+                        if result.get("course_achievement_comment"):
+                            st.subheader("课程达成度评价")
+                            st.write(result["course_achievement_comment"])
 
                         if result.get("strengths"):
                             st.subheader("亮点")
@@ -1582,6 +1755,36 @@ elif page == "✏️ 手写识别":
                         if result.get("recognized_text"):
                             with st.expander("查看识别出的试卷文本"):
                                 st.text_area("识别文本", value=result.get("recognized_text", ""), height=320)
+
+                        formula_df = parse_formula_boxes(result.get("formula_boxes", []))
+                        if not formula_df.empty:
+                            st.subheader("📐 公式框选可视化")
+                            st.caption("以下叠框来自后端返回的相对坐标（0~1），已映射到原图。")
+
+                            page_tabs = st.tabs([f"第 {idx} 页" for idx in range(1, len(exam_files) + 1)])
+                            for page_index, page_tab in enumerate(page_tabs, start=1):
+                                with page_tab:
+                                    uploaded_file = exam_files[page_index - 1]
+                                    page_formula_df = formula_df[formula_df["page_index"] == page_index]
+                                    uploaded_file.seek(0)
+                                    if page_formula_df.empty:
+                                        st.info("当前页暂无公式框。")
+                                        st.image(uploaded_file, caption=f"第 {page_index} 页原图", use_container_width=True)
+                                    else:
+                                        boxed_image = draw_formula_boxes(uploaded_file, page_formula_df)
+                                        st.image(boxed_image, caption=f"第 {page_index} 页公式框叠加", use_container_width=True)
+
+                            st.subheader("公式框表格")
+                            table_df = formula_df.copy()
+                            if "confidence" in table_df.columns:
+                                table_df["confidence"] = table_df["confidence"].apply(
+                                    lambda x: round(x, 4) if pd.notna(x) else None
+                                )
+                            st.dataframe(
+                                table_df[["page_index", "box_type", "confidence", "text", "latex", "x", "y", "w", "h"]],
+                                use_container_width=True,
+                                hide_index=True
+                            )
 
                         question_results = result.get("question_results", [])
                         if question_results:
