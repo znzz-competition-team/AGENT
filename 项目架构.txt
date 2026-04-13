@@ -1,0 +1,80 @@
+d:\AGENT\AGENT/
+├── 📁 src/                          # 核心源代码目录
+│   ├── 📁 api/                      # API接口层
+│   │   └── main.py                  # FastAPI主应用，提供所有REST API端点
+│   │
+│   ├── 📁 frontend/                 # 前端界面
+│   │   └── app.py                   # Streamlit应用，提供Web界面
+│   │
+│   ├── 📁 database/                 # 数据库层
+│   │   ├── database.py              # 数据库连接和会话管理
+│   │   ├── database_service.py      # 数据库服务类，封装CRUD操作
+│   │   └── models.py                # SQLAlchemy数据模型定义
+│   │
+│   ├── 📁 evaluation/               # 评估核心模块
+│   │   ├── llm_evaluator.py         # LLM评估器，使用大模型进行评分
+│   │   ├── rule_engine.py           # 规则引擎（已弃用，改用LLM确定性评分）
+│   │   ├── evaluation_standards.py  # 评价标准管理
+│   │   ├── stage_evaluator.py       # 阶段评估器
+│   │   └── syllabus_analyzer.py     # 教学大纲分析器
+│   │
+│   ├── 📁 processors/               # 文件处理器
+│   │   ├── base_processor.py        # 处理器基类
+│   │   ├── document_processor.py    # 文档处理器（PDF、DOCX、TXT等）
+│   │   ├── audio_processor.py       # 音频处理器
+│   │   ├── video_processor.py       # 视频处理器
+│   │   ├── ppt_processor.py         # PPT处理器
+│   │   └── processor_factory.py     # 处理器工厂类
+│   │
+│   ├── 📁 agents/                   # AI代理模块（CrewAI）
+│   │   ├── crew_manager.py          # 代理团队管理器
+│   │   └── evaluation_agents.py     # 评估代理定义
+│   │
+│   ├── 📁 models/                   # 数据模型
+│   │   └── schemas.py               # Pydantic模型，API请求/响应模式
+│   │
+│   ├── 📁 utils/                    # 工具函数
+│   │   ├── logger.py                # 日志工具
+│   │   ├── data_fusion.py           # 数据融合工具
+│   │   ├── media_processor.py       # 媒体处理工具
+│   │   ├── visualization.py         # 可视化工具
+│   │   └── helpers.py               # 辅助函数
+│   │
+│   ├── 📁 visualization/            # 可视化模块
+│   │   ├── dashboard.py             # 仪表盘
+│   │   ├── interactive_visualizer.py # 交互式可视化
+│   │   └── static_visualizer.py     # 静态可视化
+│   │
+│   └── config.py                    # 全局配置文件
+│
+├── 📁 data/                         # 数据存储目录
+│   ├── evaluations.json             # 评估结果数据
+│   ├── submissions.json             # 提交记录数据
+│   ├── students.json                # 学生信息数据
+│   ├── media_files.json             # 媒体文件记录
+│   └── dimension_scores.json        # 维度评分数据
+│
+├── 📁 uploads/                      # 上传文件存储目录
+│   └── SUB_xxx_xxx.pdf/docx         # 用户上传的文件
+│
+├── 📁 derived_standards/            # 衍生评价标准
+│   └── algorithm_derived.json       # 算法类项目评价标准
+│
+├── 📁 extracted_indicators/         # 提取的评价指标
+│   └── 《毕业设计（论文）》课程达成度评价报告_extracted.json
+│
+├── 📁 评价大纲/                     # 评价大纲文档
+│   └── 《毕业设计（论文）》课程达成度评价报告.docx
+│
+├── 📁 alembic/                      # 数据库迁移工具
+│   ├── env.py
+│   └── script.py.mako
+│
+├── 📁 scripts/                      # 脚本工具
+│   └── migrate_add_submission_purpose.py
+│
+├── main.py                          # 程序入口
+├── requirements.txt                 # Python依赖
+├── ability_matrix.json              # 能力矩阵配置
+├── alembic.ini                      # 数据库迁移配置
+└── student_profiler_new.db          # SQLite数据库文件

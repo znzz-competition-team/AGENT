@@ -1,0 +1,313 @@
+{
+  "name": "校方毕业设计固有评价体系",
+  "description": "校方毕业设计/学位论文固有评价体系，用于评估论文的核心质量维度。本体系作为额外权重/系数融入现有评价体系。",
+  "version": "1.0",
+  "dimensions": [
+    {
+      "dimension_id": "innovation",
+      "name": "创新度",
+      "weight": 0.36,
+      "description": "评估论文的创新性，区分搭积木式创新与原创性创新，判断是否有针对性的设计改进",
+      "evaluation_points": [
+        {
+          "point_name": "创新类型识别",
+          "weight": 0.4,
+          "description": "判断是搭积木式组合创新还是原创性创新",
+          "grade_criteria": {
+            "excellent": "原创性创新：提出全新的理论方法、技术路线或解决方案，具有显著的学术价值或应用价值，创新点明确且具有突破性",
+            "good": "改进型创新：在现有方法基础上进行针对性改进，改进点明确且效果显著，有一定创新性",
+            "medium": "组合式创新：将现有技术/方法进行合理组合应用，有一定新意但创新程度有限",
+            "pass": "简单应用：仅将现有方法应用于新场景，缺乏实质性改进",
+            "fail": "无创新：完全照搬现有方法，无任何改进或创新"
+          }
+        },
+        {
+          "point_name": "针对性改进",
+          "weight": 0.35,
+          "description": "是否有针对性的设计改进，改进是否合理有效",
+          "grade_criteria": {
+            "excellent": "改进针对性强，充分解决现有问题，改进方案科学合理，效果显著且经过充分验证",
+            "good": "改进针对性较强，较好解决现有问题，改进方案合理，效果明显",
+            "medium": "有一定针对性，部分解决现有问题，改进方案基本合理",
+            "pass": "针对性不足，改进效果有限，改进方案有待完善",
+            "fail": "无针对性改进，或改进方案不合理"
+          }
+        },
+        {
+          "point_name": "创新价值",
+          "weight": 0.25,
+          "description": "创新的学术价值或应用价值",
+          "grade_criteria": {
+            "excellent": "创新具有显著的学术价值或应用价值，可推动领域发展或解决实际问题",
+            "good": "创新有较好的学术价值或应用价值，有一定推广意义",
+            "medium": "创新有一定价值，但影响范围有限",
+            "pass": "创新价值较小，仅适用于特定场景",
+            "fail": "创新无实际价值或价值极低"
+          }
+        }
+      ]
+    },
+    {
+      "dimension_id": "research_depth",
+      "name": "研究分析深度",
+      "weight": 0.29,
+      "description": "评估对研究现状的分析深度、文献引用新颖度、能否归纳现存问题",
+      "evaluation_points": [
+        {
+          "point_name": "现状分析深度",
+          "weight": 0.35,
+          "description": "对研究领域现状的分析深度",
+          "grade_criteria": {
+            "excellent": "深入分析研究现状，准确把握研究脉络和发展趋势，对关键问题有深刻见解",
+            "good": "较好分析研究现状，能把握研究脉络，对关键问题有较好理解",
+            "medium": "基本分析研究现状，能识别主要研究方向，理解基本到位",
+            "pass": "现状分析较浅，仅罗列文献，缺乏深入分析",
+            "fail": "现状分析缺失或严重不足，无法体现对领域的理解"
+          }
+        },
+        {
+          "point_name": "文献引用新颖度",
+          "weight": 0.3,
+          "description": "引用文献的时效性和权威性",
+          "grade_criteria": {
+            "excellent": "引用大量近3年高水平文献，涵盖领域最新进展，文献来源权威",
+            "good": "引用较多近5年文献，能反映领域主要进展，文献来源较权威",
+            "medium": "引用文献时效性一般，基本能反映领域现状",
+            "pass": "引用文献较旧，未能反映领域最新进展",
+            "fail": "文献引用严重不足或过于陈旧"
+          }
+        },
+        {
+          "point_name": "问题归纳能力",
+          "weight": 0.35,
+          "description": "能否归纳现存问题，问题分析是否准确",
+          "grade_criteria": {
+            "excellent": "准确归纳现存问题，问题分析深入透彻，能识别关键瓶颈和挑战",
+            "good": "较好归纳现存问题，问题分析较深入，能识别主要问题",
+            "medium": "基本归纳现存问题，问题分析基本到位",
+            "pass": "问题归纳不够准确，分析较浅",
+            "fail": "未能归纳现存问题，或问题分析错误"
+          }
+        }
+      ]
+    },
+    {
+      "dimension_id": "structure",
+      "name": "文章结构",
+      "weight": 0.21,
+      "description": "评估章节安排合理性、章节内逻辑连贯性",
+      "evaluation_points": [
+        {
+          "point_name": "章节安排合理性",
+          "weight": 0.4,
+          "description": "章节结构是否合理，是否符合学术论文规范",
+          "grade_criteria": {
+            "excellent": "章节安排科学合理，结构完整，层次分明，完全符合学术论文规范",
+            "good": "章节安排较合理，结构完整，层次较清晰，符合学术论文规范",
+            "medium": "章节安排基本合理，结构基本完整，基本符合规范",
+            "pass": "章节安排有待改进，结构不够完整，部分不符合规范",
+            "fail": "章节安排混乱，结构缺失，严重不符合规范"
+          }
+        },
+        {
+          "point_name": "逻辑连贯性",
+          "weight": 0.35,
+          "description": "章节内和章节间的逻辑连贯性",
+          "grade_criteria": {
+            "excellent": "逻辑严密，前后呼应，论证充分，过渡自然流畅",
+            "good": "逻辑较严密，前后较连贯，论证较充分，过渡较自然",
+            "medium": "逻辑基本通顺，前后基本连贯，论证基本充分",
+            "pass": "逻辑不够严密，前后连贯性不足，论证不够充分",
+            "fail": "逻辑混乱，前后矛盾，论证缺失"
+          }
+        },
+        {
+          "point_name": "表达规范性",
+          "weight": 0.25,
+          "description": "语言表达是否规范、准确、清晰",
+          "grade_criteria": {
+            "excellent": "语言表达准确规范，专业术语使用恰当，表述清晰流畅",
+            "good": "语言表达较规范，专业术语使用较恰当，表述较清晰",
+            "medium": "语言表达基本规范，专业术语使用基本恰当",
+            "pass": "语言表达有待改进，存在不规范或不清晰之处",
+            "fail": "语言表达严重不规范，影响理解"
+          }
+        }
+      ]
+    },
+    {
+      "dimension_id": "method_experiment",
+      "name": "研究方法与实验",
+      "weight": 0.14,
+      "description": "评估方法阐述详细度、实验步骤完整性、实验分布合理性",
+      "evaluation_points": [
+        {
+          "point_name": "方法阐述详细度",
+          "weight": 0.35,
+          "description": "研究方法的阐述是否详细、清晰",
+          "grade_criteria": {
+            "excellent": "方法阐述非常详细，原理清晰，步骤明确，可复现性强",
+            "good": "方法阐述较详细，原理较清晰，步骤较明确，有一定可复现性",
+            "medium": "方法阐述基本详细，原理基本清晰，步骤基本明确",
+            "pass": "方法阐述不够详细，部分步骤不明确",
+            "fail": "方法阐述严重不足或缺失，无法理解研究方法"
+          }
+        },
+        {
+          "point_name": "实验步骤完整性",
+          "weight": 0.35,
+          "description": "实验设计是否完整，步骤是否清晰",
+          "grade_criteria": {
+            "excellent": "实验设计完整科学，步骤详细清晰，变量控制严格，可重复性强",
+            "good": "实验设计较完整，步骤较清晰，变量控制较好",
+            "medium": "实验设计基本完整，步骤基本清晰，变量控制基本到位",
+            "pass": "实验设计不够完整，部分步骤不清晰",
+            "fail": "实验设计缺失或严重不完整"
+          }
+        },
+        {
+          "point_name": "实验分布合理性",
+          "weight": 0.3,
+          "description": "实验设置是否合理，数据量是否充足",
+          "grade_criteria": {
+            "excellent": "实验设置科学合理，数据量充足，覆盖全面，结论可靠",
+            "good": "实验设置较合理，数据量较充足，覆盖较全面",
+            "medium": "实验设置基本合理，数据量基本充足",
+            "pass": "实验设置有待改进，数据量不够充足",
+            "fail": "实验设置不合理或数据量严重不足"
+          }
+        }
+      ]
+    }
+  ],
+  "indicator_mapping": {
+    "innovation": {
+      "related_indicators": [
+        "3.3"
+      ],
+      "indicator_names": [
+        "创新与权衡"
+      ],
+      "coefficient_range": {
+        "excellent": {
+          "min": 1.1,
+          "max": 1.2
+        },
+        "good": {
+          "min": 1.0,
+          "max": 1.1
+        },
+        "medium": {
+          "min": 0.95,
+          "max": 1.0
+        },
+        "pass": {
+          "min": 0.85,
+          "max": 0.95
+        },
+        "fail": {
+          "min": 0.7,
+          "max": 0.85
+        }
+      }
+    },
+    "research_depth": {
+      "related_indicators": [
+        "2.3"
+      ],
+      "indicator_names": [
+        "文献分析"
+      ],
+      "coefficient_range": {
+        "excellent": {
+          "min": 1.1,
+          "max": 1.2
+        },
+        "good": {
+          "min": 1.0,
+          "max": 1.1
+        },
+        "medium": {
+          "min": 0.95,
+          "max": 1.0
+        },
+        "pass": {
+          "min": 0.85,
+          "max": 0.95
+        },
+        "fail": {
+          "min": 0.7,
+          "max": 0.85
+        }
+      }
+    },
+    "structure": {
+      "related_indicators": [
+        "10.1"
+      ],
+      "indicator_names": [
+        "专业沟通"
+      ],
+      "coefficient_range": {
+        "excellent": {
+          "min": 1.1,
+          "max": 1.2
+        },
+        "good": {
+          "min": 1.0,
+          "max": 1.1
+        },
+        "medium": {
+          "min": 0.95,
+          "max": 1.0
+        },
+        "pass": {
+          "min": 0.85,
+          "max": 0.95
+        },
+        "fail": {
+          "min": 0.7,
+          "max": 0.85
+        }
+      }
+    },
+    "method_experiment": {
+      "related_indicators": [
+        "3.1",
+        "3.2"
+      ],
+      "indicator_names": [
+        "设计方法",
+        "针对需求设计"
+      ],
+      "coefficient_range": {
+        "excellent": {
+          "min": 1.1,
+          "max": 1.2
+        },
+        "good": {
+          "min": 1.0,
+          "max": 1.1
+        },
+        "medium": {
+          "min": 0.95,
+          "max": 1.0
+        },
+        "pass": {
+          "min": 0.85,
+          "max": 0.95
+        },
+        "fail": {
+          "min": 0.7,
+          "max": 0.85
+        }
+      }
+    }
+  },
+  "fusion_method": {
+    "description": "权重融合方法说明",
+    "formula": "最终分数 = 原始指标分数 × 固有维度调节系数",
+    "coefficient_calculation": "根据固有维度评分确定调节系数，评分90-100对应1.10-1.20，80-89对应1.00-1.10，70-79对应0.95-1.00，60-69对应0.85-0.95，<60对应0.70-0.85",
+    "overall_adjustment": "综合调节系数 = 各维度调节系数的加权平均（按维度权重计算）"
+  }
+}

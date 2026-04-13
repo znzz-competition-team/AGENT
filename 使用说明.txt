@@ -1,0 +1,4 @@
+在终端（powershell）中打开该项目文件夹目录
+输入 uvicorn src.api.main:app --reload 打开后端
+另开终端，同样进入该项目目录
+输入 streamlit run src/frontend/app.py --server.port 8507 打开前端（输入850几都可以）
