@@ -49,12 +49,7 @@ class Submission(Base):
     status = Column(String(20), default="pending")  # pending, processing, completed, failed
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-<<<<<<< HEAD
     
-=======
-    course_type = Column(String(50), default="理论课")
-
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
     student = relationship("Student", back_populates="submissions")
     media_files = relationship("MediaFile", back_populates="submission")
     evaluation_result = relationship("EvaluationResult", back_populates="submission", uselist=False)

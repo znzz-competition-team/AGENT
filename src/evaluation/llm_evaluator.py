@@ -7,27 +7,6 @@ import openai
 from src.config import get_ai_config
 import json
 import logging
-<<<<<<< HEAD
-import hashlib
-
-from src.prompts import (
-    THESIS_SYSTEM_PROMPT,
-    THESIS_USER_PROMPT_TEMPLATE,
-    THESIS_DETERMINISTIC_SYSTEM_PROMPT,
-    THESIS_DETERMINISTIC_USER_PROMPT_TEMPLATE,
-    THESIS_EVALUATION_EXPLANATION_SYSTEM_PROMPT,
-    THESIS_EVALUATION_EXPLANATION_USER_PROMPT_TEMPLATE,
-    COURSEWORK_SYSTEM_PROMPT,
-    COURSEWORK_USER_PROMPT_TEMPLATE,
-    GUIDANCE_ANALYSIS_SYSTEM_PROMPT,
-    GUIDANCE_ANALYSIS_USER_PROMPT_TEMPLATE,
-    DERIVED_STANDARDS_SYSTEM_PROMPT_TEMPLATE,
-    DERIVED_STANDARDS_USER_PROMPT_TEMPLATE,
-    INSTITUTIONAL_SYSTEM_PROMPT,
-    INSTITUTIONAL_USER_PROMPT_TEMPLATE,
-)
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +17,7 @@ class LLMEvaluator:
         # 初始化时不获取配置，每次评估时动态获取
         self.client = None
         self.ability_matrix = None
-<<<<<<< HEAD
-        self.institutional_criteria = None
         self._load_ability_matrix()
-        self._load_institutional_criteria()
-        self._evaluation_cache = {}
-=======
-        self._load_ability_matrix()
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
     
     def _load_ability_matrix(self):
         """加载能力矩阵"""
@@ -56,31 +28,6 @@ class LLMEvaluator:
             with open(ability_matrix_path, 'r', encoding='utf-8') as f:
                 self.ability_matrix = json.load(f)
     
-<<<<<<< HEAD
-    def _load_institutional_criteria(self):
-        """加载校方固有评价体系配置"""
-        import os
-        criteria_path = os.path.join(os.path.dirname(__file__), '..', '..', 'institutional_criteria.json')
-        if os.path.exists(criteria_path):
-            with open(criteria_path, 'r', encoding='utf-8') as f:
-                self.institutional_criteria = json.load(f)
-                logger.info("校方固有评价体系配置加载成功")
-        else:
-            logger.warning("未找到校方固有评价体系配置文件: " + criteria_path)
-    
-    def reload_institutional_criteria(self):
-        """重新加载校方固有评价体系配置（用于前端修改配置后刷新）"""
-        self._load_institutional_criteria()
-        logger.info("校方固有评价体系配置已重新加载")
-        return self.institutional_criteria is not None
-    
-    def _get_content_hash(self, content: str, indicators: Dict) -> str:
-        """生成内容和指标的哈希值，用于缓存"""
-        combined = content + json.dumps(indicators, sort_keys=True, ensure_ascii=False)
-        return hashlib.md5(combined.encode('utf-8')).hexdigest()
-    
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
     def _initialize_client(self, ai_config):
         """初始化大模型客户端"""
         try:
@@ -125,11 +72,7 @@ class LLMEvaluator:
         prompt = self._build_evaluation_prompt(submission_content, stage_progress, student_info, syllabus_analysis)
         
         # 使用自定义提示词或默认提示词
-<<<<<<< HEAD
-        system_prompt = custom_prompts.get("system_prompt") if custom_prompts else COURSEWORK_SYSTEM_PROMPT
-=======
         system_prompt = custom_prompts.get("system_prompt") if custom_prompts else "你是一位资深的教育评估专家，拥有10年以上的学生能力评估经验。请以专业、客观、严谨的态度对学生提交的内容进行全面评估。评估过程中需注意：\n1. 严格按照给定的评分标准和评估维度进行评估\n2. 评估结果需基于提交内容的实际表现，避免主观臆断\n3. 优势分析和改进建议需具体、可操作，具有实际指导意义\n4. 综合评分需反映学生的整体表现，与各维度评分保持一致\n5. 评估结果需以JSON格式返回，确保格式正确、内容完整"
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         user_prompt = custom_prompts.get("user_prompt") if custom_prompts else prompt
         
         # 替换用户提示词中的占位符
@@ -253,9 +196,6 @@ class LLMEvaluator:
             guidance_content
         )
         
-<<<<<<< HEAD
-        system_prompt = THESIS_SYSTEM_PROMPT
-=======
         system_prompt = """你是一位资深的教育评估专家，专门负责毕业设计评价工作。
 你的职责是严格按照给定的评价标准，客观、公正地评价学生的毕业设计。
 
@@ -267,7 +207,6 @@ class LLMEvaluator:
 5. **排除项处理**：对于不在评价范围内的内容，不得扣分
 
 请以专业、客观、严谨的态度进行评价，确保评价结果的一致性和可靠性。"""
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         response = self.client.chat.completions.create(
             model=self.ai_config["model"],
@@ -321,11 +260,6 @@ class LLMEvaluator:
         if not self.client:
             raise Exception("大模型客户端未初始化，请检查API配置")
         
-<<<<<<< HEAD
-        prompt = GUIDANCE_ANALYSIS_USER_PROMPT_TEMPLATE.format(file_content=file_content)
-        
-        system_prompt = GUIDANCE_ANALYSIS_SYSTEM_PROMPT
-=======
         prompt = f"""请分析以下毕业设计评价指导文件，完成两个任务：
 
 ## 任务一：提取原始评价指标
@@ -431,7 +365,6 @@ class LLMEvaluator:
 - 扩展指标具有可操作性，评价要点具体明确
 - 评分标准客观公正，等级划分清晰
 - 评价表格格式规范，便于实际使用"""
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         response = self.client.chat.completions.create(
             model=self.ai_config["model"],
@@ -509,16 +442,6 @@ class LLMEvaluator:
         type_name = project_type_names.get(project_type, "混合类")
         type_desc = project_type_descriptions.get(project_type, "")
         
-<<<<<<< HEAD
-        prompt = DERIVED_STANDARDS_USER_PROMPT_TEMPLATE.format(
-            type_name=type_name,
-            type_desc=type_desc,
-            file_content=file_content,
-            project_type=project_type
-        )
-        
-        system_prompt = DERIVED_STANDARDS_SYSTEM_PROMPT_TEMPLATE.format(type_name=type_name)
-=======
         prompt = f"""请根据以下原始评价指标文件，为{type_name}项目生成非常详细的衍生评价指标体系。
 
 ## 项目类型说明
@@ -723,7 +646,6 @@ class LLMEvaluator:
 - 总体评分等级：每个等级100字以上
 
 请严格按照要求生成详细的评价标准，确保评价体系完整、科学、可操作。"""
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         response = self.client.chat.completions.create(
             model=self.ai_config["model"],
@@ -732,11 +654,7 @@ class LLMEvaluator:
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2,
-<<<<<<< HEAD
-            max_tokens=8192,
-=======
             max_tokens=12000,
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
             response_format={"type": "json_object"}
         )
         
@@ -843,17 +761,6 @@ class LLMEvaluator:
                 else:
                     criteria_guidelines += f"**{i}. {criterion}**\n\n"
         
-<<<<<<< HEAD
-        prompt = COURSEWORK_USER_PROMPT_TEMPLATE.format(
-            student_info=student_info_str,
-            submission_content=submission_content,
-            stage_description=stage_description,
-            stage_progress=stage_progress_str,
-            scoring_guidance=scoring_guidance,
-            ability_guidelines=ability_guidelines,
-            criteria_guidelines=criteria_guidelines
-        )
-=======
         prompt = f"""# 角色定位
 
 你是一位经验丰富的大学任课教师，拥有10年以上的教学经验。你的职责是客观、公正地评价学生的作业，给出符合学生实际表现的分数。
@@ -948,7 +855,6 @@ class LLMEvaluator:
 7. **不需要改进建议**，只需要客观评价
 8. **必须评估大纲任务完成情况**，说明哪些完成了，哪些没完成
 """
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         return prompt
     
@@ -1121,324 +1027,6 @@ class LLMEvaluator:
         # 返回生成的报告
         return response.choices[0].message.content
 
-<<<<<<< HEAD
-    def generate_evaluation_explanation(
-        self, 
-        content: str, 
-        eval_summary: List[Dict], 
-        overall_score: float, 
-        grade_level: str
-    ) -> Dict:
-        """
-        使用LLM生成详细的评估说明
-        注意：此方法只生成说明文字，不改变分数（分数由规则引擎确定）
-        
-        Args:
-            content: 论文内容
-            eval_summary: 各指标评分摘要
-            overall_score: 总分
-            grade_level: 等级
-            
-        Returns:
-            详细评估说明
-        """
-        self.ai_config = get_ai_config()
-        self.client = self._initialize_client(self.ai_config)
-        
-        if not self.client:
-            return {"error": "大模型客户端未初始化"}
-        
-        eval_summary_text = ""
-        for item in eval_summary:
-            ind_name = item.get("indicator_name", item.get("indicator_id", ""))
-            score = item.get("score", 0)
-            grade = item.get("grade_level", "")
-            rule_details = item.get("rule_details", [])
-            
-            eval_summary_text += f"\n### {ind_name} ({score}分, {grade})\n"
-            
-            for rd in rule_details:
-                desc = rd.get("description", "")
-                rd_score = rd.get("score", 0)
-                details = rd.get("details", "")
-                evidence = rd.get("evidence", [])
-                
-                eval_summary_text += f"- **{desc}**: {rd_score}分\n"
-                if details:
-                    eval_summary_text += f"  - {details}\n"
-                if evidence:
-                    eval_summary_text += f"  - 匹配项: {', '.join(evidence[:5])}\n"
-        
-        system_prompt = THESIS_EVALUATION_EXPLANATION_SYSTEM_PROMPT
-
-        user_prompt = THESIS_EVALUATION_EXPLANATION_USER_PROMPT_TEMPLATE.format(
-            content=content[:8000],
-            overall_score=overall_score,
-            grade_level=grade_level,
-            eval_summary_text=eval_summary_text
-        )
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.ai_config["model"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.3,
-                max_tokens=4096,
-                response_format={"type": "json_object"}
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            return result
-            
-        except Exception as e:
-            logger.error(f"生成评估说明失败: {str(e)}")
-            return {"error": str(e)}
-
-    def evaluate_with_llm_deterministic(
-        self,
-        content: str,
-        indicators: Dict,
-        student_info: Dict = None,
-        use_cache: bool = True
-    ) -> Dict:
-        """
-        使用LLM进行确定性评分
-        通过temperature=0和严格评分标准确保相同输入产生相同输出
-        
-        Args:
-            content: 论文内容
-            indicators: 评价指标
-            student_info: 学生信息
-            use_cache: 是否使用缓存（True=相同内容返回缓存结果，False=每次重新评估）
-            
-        Returns:
-            评分结果
-            
-        注意：
-            - use_cache=True: 相同内容100%返回相同结果
-            - use_cache=False: 每次重新评估，分数可能有1-3分波动
-        """
-        content_hash = self._get_content_hash(content, indicators)
-        
-        if use_cache and content_hash in self._evaluation_cache:
-            logger.info(f"使用缓存的评估结果: {content_hash}")
-            return self._evaluation_cache[content_hash]
-        
-        self.ai_config = get_ai_config()
-        self.client = self._initialize_client(self.ai_config)
-        
-        if not self.client:
-            return {"error": "大模型客户端未初始化", "overall_score": 0}
-        
-        indicator_list = indicators.get("indicators", [])
-        indicators_text = ""
-        for idx, ind in enumerate(indicator_list):
-            ind_id = ind.get("indicator_id") or ind.get("id", f"IND_{idx:02d}")
-            ind_name = ind.get("name", "")
-            ind_desc = ind.get("description", "")
-            ind_weight = ind.get("weight", 10)
-            
-            indicators_text += f"""
-### 指标 {ind_id}: {ind_name}
-- 权重: {ind_weight}%
-- 描述: {ind_desc}
-"""
-            
-            eval_points = ind.get("evaluation_points", [])
-            if eval_points:
-                indicators_text += "- 评价要点:\n"
-                for ep in eval_points:
-                    point_name = ep.get("point_name", "")
-                    point_desc = ep.get("description", "")
-                    grade_criteria = ep.get("grade_criteria", {})
-                    indicators_text += f"  - {point_name}: {point_desc}\n"
-                    if grade_criteria:
-                        for grade, criteria in grade_criteria.items():
-                            indicators_text += f"    - {grade}: {criteria}\n"
-        
-        content_preview = content[:15000] if len(content) > 15000 else content
-        
-        system_prompt = THESIS_DETERMINISTIC_SYSTEM_PROMPT
-
-        user_prompt = THESIS_DETERMINISTIC_USER_PROMPT_TEMPLATE.format(
-            content=content_preview,
-            indicators_text=indicators_text
-        )
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.ai_config["model"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0,
-                max_tokens=4096,
-                response_format={"type": "json_object"}
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            
-            result["evaluation_method"] = "llm_deterministic"
-            result["is_deterministic"] = True
-            result["student_info"] = student_info or {}
-            
-            institutional_result = self._evaluate_institutional_dimensions(content_preview)
-            if institutional_result and "institutional_scores" in institutional_result:
-                result["institutional_evaluation"] = institutional_result
-                
-                fused_result = self._apply_fusion_coefficient(result, institutional_result)
-                result["original_score"] = result.get("overall_score", 0)
-                result["overall_score"] = fused_result["fused_score"]
-                result["fusion_coefficient"] = fused_result["fusion_coefficient"]
-                result["fusion_details"] = fused_result["fusion_details"]
-            
-            self._evaluation_cache[content_hash] = result
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"LLM确定性评分失败: {str(e)}")
-            return {
-                "error": str(e),
-                "overall_score": 0,
-                "grade_level": "无法评价",
-                "dimension_scores": [],
-                "evaluation_method": "llm_deterministic",
-                "is_deterministic": True
-            }
-
-    def _evaluate_institutional_dimensions(self, content: str) -> Dict:
-        """
-        评估校方固有评价体系维度
-        
-        Args:
-            content: 论文内容
-            
-        Returns:
-            固有体系评分结果
-        """
-        if not self.institutional_criteria:
-            logger.warning("校方固有评价体系配置未加载，跳过固有体系评估")
-            return None
-        
-        try:
-            system_prompt = INSTITUTIONAL_SYSTEM_PROMPT
-            user_prompt = INSTITUTIONAL_USER_PROMPT_TEMPLATE.format(content=content)
-            
-            response = self.client.chat.completions.create(
-                model=self.ai_config["model"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0,
-                max_tokens=4096,
-                response_format={"type": "json_object"}
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            logger.info(f"固有体系评估完成: 总分 {result.get('overall_institutional_score', 0)}")
-            return result
-            
-        except Exception as e:
-            logger.error(f"固有体系评估失败: {str(e)}")
-            return None
-
-    def _apply_fusion_coefficient(self, original_result: Dict, institutional_result: Dict) -> Dict:
-        """
-        应用权重融合算法，将固有体系评分作为调节系数
-        
-        Args:
-            original_result: 原始评分结果
-            institutional_result: 固有体系评分结果
-            
-        Returns:
-            融合后的评分结果
-        """
-        if not self.institutional_criteria:
-            return {
-                "fused_score": original_result.get("overall_score", 0),
-                "fusion_coefficient": 1.0,
-                "fusion_details": {}
-            }
-        
-        indicator_mapping = self.institutional_criteria.get("indicator_mapping", {})
-        institutional_scores = institutional_result.get("institutional_scores", [])
-        
-        score_by_dimension = {}
-        for score_item in institutional_scores:
-            dim_id = score_item.get("dimension_id", "")
-            score_by_dimension[dim_id] = {
-                "score": score_item.get("score", 70),
-                "grade_level": score_item.get("grade_level", "中等")
-            }
-        
-        dimension_coefficients = {}
-        for dim_id, mapping_info in indicator_mapping.items():
-            if dim_id in score_by_dimension:
-                score = score_by_dimension[dim_id]["score"]
-                grade = score_by_dimension[dim_id]["grade_level"]
-                
-                coefficient_range = mapping_info.get("coefficient_range", {})
-                if grade == "优秀":
-                    coef_range = coefficient_range.get("excellent", {"min": 1.10, "max": 1.20})
-                elif grade == "良好":
-                    coef_range = coefficient_range.get("good", {"min": 1.00, "max": 1.10})
-                elif grade == "中等":
-                    coef_range = coefficient_range.get("medium", {"min": 0.95, "max": 1.00})
-                elif grade == "及格":
-                    coef_range = coefficient_range.get("pass", {"min": 0.85, "max": 0.95})
-                else:
-                    coef_range = coefficient_range.get("fail", {"min": 0.70, "max": 0.85})
-                
-                min_coef = coef_range.get("min", 0.95)
-                max_coef = coef_range.get("max", 1.00)
-                score_ratio = (score - 60) / 40 if score >= 60 else (score / 60) * 0.5
-                score_ratio = max(0, min(1, score_ratio))
-                coefficient = min_coef + (max_coef - min_coef) * score_ratio
-                
-                dimension_coefficients[dim_id] = {
-                    "coefficient": round(coefficient, 4),
-                    "score": score,
-                    "grade_level": grade,
-                    "related_indicators": mapping_info.get("related_indicators", [])
-                }
-        
-        dimensions_config = self.institutional_criteria.get("dimensions", [])
-        total_weight = 0
-        weighted_coefficient = 0
-        
-        for dim_config in dimensions_config:
-            dim_id = dim_config.get("dimension_id", "")
-            dim_weight = dim_config.get("weight", 0.25)
-            
-            if dim_id in dimension_coefficients:
-                coef = dimension_coefficients[dim_id]["coefficient"]
-                weighted_coefficient += coef * dim_weight
-                total_weight += dim_weight
-        
-        overall_coefficient = weighted_coefficient / total_weight if total_weight > 0 else 1.0
-        
-        original_score = original_result.get("overall_score", 0)
-        fused_score = round(original_score * overall_coefficient, 1)
-        fused_score = max(0, min(100, fused_score))
-        
-        return {
-            "fused_score": fused_score,
-            "fusion_coefficient": round(overall_coefficient, 4),
-            "fusion_details": {
-                "dimension_coefficients": dimension_coefficients,
-                "original_score": original_score,
-                "adjustment": round(fused_score - original_score, 1)
-            }
-        }
-
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
 
 
 

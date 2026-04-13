@@ -2,58 +2,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import logging
 import pypdf
-<<<<<<< HEAD
 import re
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
-from docx import Document
-import pandas as pd
-from .base_processor import BaseProcessor
-
-logger = logging.getLogger(__name__)
-
-<<<<<<< HEAD
-def clean_pdf_text(text):
-    """清理PDF提取的文本，去除字符间的多余空格"""
-    if not text:
-        return ""
-    
-    clean_text = ''.join(c if c.isprintable() or c in '\n\t\r' else ' ' for c in text)
-    
-    lines = clean_text.split('\n')
-    cleaned_lines = []
-    
-    for line in lines:
-        if not line.strip():
-            continue
-            
-        if re.search(r'[\u4e00-\u9fff]', line):
-            chars = list(line)
-            result = []
-            i = 0
-            while i < len(chars):
-                char = chars[i]
-                if '\u4e00' <= char <= '\u9fff':
-                    result.append(char)
-                    i += 1
-                    while i < len(chars) and chars[i] == ' ':
-                        i += 1
-                    while i < len(chars) and '\u4e00' <= chars[i] <= '\u9fff':
-                        result.append(chars[i])
-                        i += 1
-                        while i < len(chars) and chars[i] == ' ':
-                            i += 1
-                else:
-                    result.append(char)
-                    i += 1
-            cleaned_lines.append(''.join(result))
-        else:
-            cleaned_lines.append(re.sub(r' +', ' ', line))
-    
-    return '\n'.join(cleaned_lines)
-
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
 class DocumentProcessor(BaseProcessor):
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config)
@@ -103,18 +52,11 @@ class DocumentProcessor(BaseProcessor):
             
             for page_num, page in enumerate(pdf_reader.pages):
                 page_text = page.extract_text()
-<<<<<<< HEAD
                 cleaned_text = clean_pdf_text(page_text) if page_text else ""
                 text_content.append({
                     "page_number": page_num + 1,
                     "text": cleaned_text,
                     "char_count": len(cleaned_text)
-=======
-                text_content.append({
-                    "page_number": page_num + 1,
-                    "text": page_text,
-                    "char_count": len(page_text)
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
                 })
             
             if pdf_reader.metadata:

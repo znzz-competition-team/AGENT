@@ -7,11 +7,8 @@ from datetime import datetime
 import sys
 import time
 import logging
-<<<<<<< HEAD
 import re
-=======
 from src.course_classifier import classify_course_type
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
 
 # 配置日志
 logging.basicConfig(
@@ -107,7 +104,6 @@ def extract_document_content(file_path: str) -> str:
         return ""
 
 def extract_pdf_content(file_path: str) -> str:
-<<<<<<< HEAD
     """
     提取PDF文件内容（改进版）
     
@@ -160,9 +156,6 @@ def extract_pdf_content(file_path: str) -> str:
     except Exception as e:
         logger.warning(f"pdfplumber提取失败: {str(e)}")
     
-=======
-    """提取PDF文件内容"""
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
     try:
         import PyPDF2
         with open(file_path, 'rb') as file:
@@ -171,12 +164,8 @@ def extract_pdf_content(file_path: str) -> str:
             for page_num in range(len(reader.pages)):
                 page = reader.pages[page_num]
                 text += page.extract_text()
-<<<<<<< HEAD
         logger.info(f"PyPDF2提取成功，共{len(text)}字符")
         return text
-=======
-            return text
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
     except Exception as e:
         logger.error(f"提取PDF内容失败: {str(e)}")
         return ""
@@ -213,7 +202,6 @@ def extract_txt_content(file_path: str) -> str:
         logger.error(f"提取TXT内容失败: {str(e)}")
         return ""
 
-<<<<<<< HEAD
 def extract_abstract(content: str) -> str:
     """
     从论文内容中提取中文摘要（改进版）
@@ -345,8 +333,6 @@ def detect_project_type_by_llm(abstract: str, title: str = "", content: str = ""
     
     return {"type": "mixed", "type_name": "混合类", "confidence": 0.5, "reason": "无法确定具体类型"}
 
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
 # 初始化数据库
 init_db()
 
@@ -806,13 +792,6 @@ async def handwriting_recognize(
 
 # 文件上传路由
 @app.post("/submissions/{submission_id}/files", response_model=MediaFileResponse)
-<<<<<<< HEAD
-async def upload_file(
-    submission_id: str,
-    file: UploadFile = File(...),
-    db_service: DatabaseService = Depends(get_database_service)
-):
-=======
 async def upload_file(submission_id: int, file: UploadFile, db: Session = Depends(get_db)):
     # ... 之前原有的保存文件、提取 text_content 的代码 ...
     # 假设你已经把大纲内容提取到了变量 extracted_text 中
@@ -826,7 +805,6 @@ async def upload_file(submission_id: int, file: UploadFile, db: Session = Depend
         submission.course_type = detected_type
         db.commit()
         
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
     # 检查提交是否存在
     submission = db_service.get_submission_by_id(submission_id)
     if not submission:
@@ -1375,27 +1353,15 @@ async def evaluate_with_rule_engine(
     request: Dict = Body(...)
 ):
     """
-<<<<<<< HEAD
-    使用LLM进行确定性评分
-    通过temperature=0、缓存机制和严格评分标准确保相同输入产生相同输出
-    """
-    try:
-        from src.evaluation.llm_evaluator import llm_evaluator
-=======
     使用规则引擎进行确定性评分
     确保相同输入产生相同输出，解决评价结果不一致问题
     """
     try:
         from src.evaluation.rule_engine import rule_engine
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         submission_content = request.get('submission_content', '')
         indicators = request.get('indicators', {})
         student_info = request.get('student_info', {})
-<<<<<<< HEAD
-        use_cache = request.get('use_cache', True)
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         if not submission_content:
             raise HTTPException(status_code=400, detail="提交内容不能为空")
@@ -1403,14 +1369,6 @@ async def evaluate_with_rule_engine(
         if not indicators:
             raise HTTPException(status_code=400, detail="评价指标不能为空，请先选择评价指标")
         
-<<<<<<< HEAD
-        result = llm_evaluator.evaluate_with_llm_deterministic(
-            submission_content,
-            indicators,
-            student_info,
-            use_cache
-        )
-=======
         rule_engine.load_rules_from_indicators(indicators)
         
         result = rule_engine.evaluate(submission_content)
@@ -1430,17 +1388,12 @@ async def evaluate_with_rule_engine(
         
         result["strengths"] = strengths if strengths else ["整体表现符合要求"]
         result["weaknesses"] = weaknesses if weaknesses else ["无明显短板"]
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
         
         return result
         
     except Exception as e:
         error_message = str(e)
-<<<<<<< HEAD
-        raise HTTPException(status_code=500, detail=f"LLM确定性评分失败: {error_message}")
-=======
         raise HTTPException(status_code=500, detail=f"规则引擎评分失败: {error_message}")
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
 
 @app.post("/evaluate", response_model=EvaluationResponse)
 async def evaluate_submission(
@@ -2384,99 +2337,6 @@ async def test_ai_connection():
             error=f"连接测试失败: {str(e)}"
         )
 
-<<<<<<< HEAD
-@app.get("/institutional-config")
-async def get_institutional_config():
-    """获取融合评价体系配置"""
-    try:
-        import os
-        config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'institutional_criteria.json')
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            return config
-        else:
-            raise HTTPException(status_code=404, detail="融合评价配置文件不存在")
-    except Exception as e:
-        logger.error(f"获取融合评价配置失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取融合评价配置失败: {str(e)}")
-
-@app.post("/institutional-config/reload")
-async def reload_institutional_config():
-    """重新加载融合评价体系配置"""
-    try:
-        success = llm_evaluator.reload_institutional_criteria()
-        if success:
-            return {"message": "融合评价配置已重新加载", "success": True}
-        else:
-            raise HTTPException(status_code=500, detail="融合评价配置重新加载失败")
-    except Exception as e:
-        logger.error(f"重新加载融合评价配置失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"重新加载融合评价配置失败: {str(e)}")
-
-@app.post("/institutional-config/reset")
-async def reset_institutional_config():
-    """重置融合评价体系配置为默认值"""
-    try:
-        import os
-        config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'institutional_criteria.json')
-        
-        default_config = {
-            "name": "校方毕业设计固有评价体系",
-            "description": "校方毕业设计/学位论文固有评价体系，用于评估论文的核心质量维度。本体系作为额外权重/系数融入现有评价体系。",
-            "version": "1.0",
-            "dimensions": [
-                {"dimension_id": "innovation", "name": "创新度", "weight": 0.25, "description": "评估论文的创新性"},
-                {"dimension_id": "research_depth", "name": "研究分析深度", "weight": 0.25, "description": "评估对研究现状的分析深度"},
-                {"dimension_id": "structure", "name": "文章结构", "weight": 0.25, "description": "评估章节安排合理性"},
-                {"dimension_id": "method_experiment", "name": "研究方法与实验", "weight": 0.25, "description": "评估方法阐述详细度"}
-            ],
-            "indicator_mapping": {
-                "innovation": {"related_indicators": ["3.3"], "indicator_names": ["创新与权衡"], "coefficient_range": {"excellent": {"min": 1.10, "max": 1.20}, "good": {"min": 1.00, "max": 1.10}, "medium": {"min": 0.95, "max": 1.00}, "pass": {"min": 0.85, "max": 0.95}, "fail": {"min": 0.70, "max": 0.85}}},
-                "research_depth": {"related_indicators": ["2.3"], "indicator_names": ["文献分析"], "coefficient_range": {"excellent": {"min": 1.10, "max": 1.20}, "good": {"min": 1.00, "max": 1.10}, "medium": {"min": 0.95, "max": 1.00}, "pass": {"min": 0.85, "max": 0.95}, "fail": {"min": 0.70, "max": 0.85}}},
-                "structure": {"related_indicators": ["10.1"], "indicator_names": ["专业沟通"], "coefficient_range": {"excellent": {"min": 1.10, "max": 1.20}, "good": {"min": 1.00, "max": 1.10}, "medium": {"min": 0.95, "max": 1.00}, "pass": {"min": 0.85, "max": 0.95}, "fail": {"min": 0.70, "max": 0.85}}},
-                "method_experiment": {"related_indicators": ["3.1", "3.2"], "indicator_names": ["设计方法", "针对需求设计"], "coefficient_range": {"excellent": {"min": 1.10, "max": 1.20}, "good": {"min": 1.00, "max": 1.10}, "medium": {"min": 0.95, "max": 1.00}, "pass": {"min": 0.85, "max": 0.95}, "fail": {"min": 0.70, "max": 0.85}}}
-            },
-            "fusion_method": {
-                "description": "权重融合方法说明",
-                "formula": "最终分数 = 原始指标分数 × 固有维度调节系数",
-                "coefficient_calculation": "根据固有维度评分确定调节系数",
-                "overall_adjustment": "综合调节系数 = 各维度调节系数的加权平均"
-            }
-        }
-        
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(default_config, f, ensure_ascii=False, indent=2)
-        
-        llm_evaluator.reload_institutional_criteria()
-        
-        return {"message": "融合评价配置已重置为默认值", "success": True}
-    except Exception as e:
-        logger.error(f"重置融合评价配置失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"重置融合评价配置失败: {str(e)}")
-
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
-# 主入口
-@app.delete("/evaluations/{evaluation_id}")
-async def delete_evaluation(
-    evaluation_id: str,
-    db_service: DatabaseService = Depends(get_database_service)
-):
-    """
-    删除评估记录
-    """
-    try:
-        # 删除评估记录
-        if db_service.delete_evaluation_result(evaluation_id):
-            return {"message": "评估记录删除成功"}
-        else:
-            raise HTTPException(status_code=404, detail="评估记录不存在")
-    except Exception as e:
-        logger.error(f"删除评估记录失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"删除评估记录失败: {str(e)}")
-
-<<<<<<< HEAD
 class AnalyzeThesisRequest(BaseModel):
     content: str
     title: str = ""
@@ -2517,8 +2377,25 @@ async def analyze_thesis_abstract(request: AnalyzeThesisRequest):
         logger.error(f"分析论文摘要失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"分析论文摘要失败: {str(e)}")
 
-=======
->>>>>>> 13733ce0a70eef683f89b9c58cf4bdf335da8e17
+# 主入口
+@app.delete("/evaluations/{evaluation_id}")
+async def delete_evaluation(
+    evaluation_id: str,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """
+    删除评估记录
+    """
+    try:
+        # 删除评估记录
+        if db_service.delete_evaluation_result(evaluation_id):
+            return {"message": "评估记录删除成功"}
+        else:
+            raise HTTPException(status_code=404, detail="评估记录不存在")
+    except Exception as e:
+        logger.error(f"删除评估记录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除评估记录失败: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
