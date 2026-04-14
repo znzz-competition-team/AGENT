@@ -81,7 +81,7 @@ class DatabaseService:
     # Submission operations
     def create_submission(self, title: str, description: Optional[str] = None, student_id: Optional[str] = None,
                          submission_type: str = "file", submission_purpose: str = "normal", 
-                         text_content: Optional[str] = None) -> Submission:
+                         text_content: Optional[str] = None, syllabus_name: Optional[str] = None) -> Submission:
         student_id_int = None
         if student_id:
             student = self.get_student_by_id(student_id)
@@ -96,7 +96,8 @@ class DatabaseService:
             description=description,
             submission_type=submission_type,
             submission_purpose=submission_purpose,
-            text_content=text_content
+            text_content=text_content,
+            syllabus_name=syllabus_name
         )
         self.db.add(submission)
         self.db.commit()
@@ -198,6 +199,7 @@ class DatabaseService:
     def delete_media_file(self, file_id: int) -> bool:
         """删除媒体文件"""
         import logging
+        import os
         logger = logging.getLogger(__name__)
         media_file = self.get_media_file_by_id(file_id)
         if not media_file:

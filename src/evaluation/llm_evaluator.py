@@ -7,6 +7,7 @@ import openai
 from src.config import get_ai_config
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,21 @@ class LLMEvaluator:
         # 构建评估提示词
         prompt = self._build_evaluation_prompt(submission_content, stage_progress, student_info, syllabus_analysis)
         
-        # 使用自定义提示词或默认提示词
-        system_prompt = custom_prompts.get("system_prompt") if custom_prompts else "你是一位资深的教育评估专家，拥有10年以上的学生能力评估经验。请以专业、客观、严谨的态度对学生提交的内容进行全面评估。评估过程中需注意：\n1. 严格按照给定的评分标准和评估维度进行评估\n2. 评估结果需基于提交内容的实际表现，避免主观臆断\n3. 优势分析和改进建议需具体、可操作，具有实际指导意义\n4. 综合评分需反映学生的整体表现，与各维度评分保持一致\n5. 评估结果需以JSON格式返回，确保格式正确、内容完整"
-        user_prompt = custom_prompts.get("user_prompt") if custom_prompts else prompt
+        # 默认系统提示词：对齐当前课程作业最新评分策略
+        default_system_prompt = """你是一位高校课程作业评估专家。请严格执行以下评分政策并返回JSON：
+1. 理论课总分=50%能力点评分+25%知识点理解+25%知识点使用；
+2. 实践课总分=50%能力点评分+50%阶段完成度（按进度阶段重点评估）；
+3. 维度评分必须有证据支撑，理由完整，结论客观；
+4. 不得脱离课程大纲能力点与评价标准随意评分；
+5. 输出字段必须完整、可解析、分值范围0-100。"""
+
+        system_prompt = custom_prompts.get("system_prompt") if custom_prompts and custom_prompts.get("system_prompt") else default_system_prompt
+
+        # 关键改动：自定义用户提示词作为“补充要求”，不覆盖默认评分主提示词
+        if custom_prompts and custom_prompts.get("user_prompt"):
+            user_prompt = prompt + "\n\n# 自定义补充要求（优先级低于评分政策）\n" + custom_prompts.get("user_prompt", "")
+        else:
+            user_prompt = prompt
         
         # 替换用户提示词中的占位符
         if student_info:
@@ -701,11 +714,15 @@ class LLMEvaluator:
         # 从大纲分析结果中提取能力点
         ability_points = []
         evaluation_criteria = []
+        knowledge_points = []
+        course_type = "理论课"
         
         if syllabus_analysis:
             # 使用大纲分析结果
             ability_points = syllabus_analysis.get('ability_points', [])
             evaluation_criteria = syllabus_analysis.get('evaluation_criteria', [])
+            knowledge_points = syllabus_analysis.get('knowledge_points', [])
+            course_type = syllabus_analysis.get('course_type', '理论课')
         elif self.ability_matrix:
             # 使用能力矩阵
             for syllabus_name, data in self.ability_matrix.items():
@@ -726,7 +743,7 @@ class LLMEvaluator:
         ability_guidelines += "以下是课程大纲中规定的能力点，必须对每一项进行详细评估：\n\n"
         for i, ability in enumerate(ability_points, 1):
             if isinstance(ability, dict):
-                name = ability.get('name', '未知能力点')
+                name = ability.get('name') or ability.get('description') or f'能力点{i}'
                 description = ability.get('description', '')
                 level = ability.get('level', '')
                 ability_guidelines += f"**{i}. {name}**\n"
@@ -745,10 +762,15 @@ class LLMEvaluator:
             criteria_guidelines += "以下是课程大纲中规定的评价标准，评估时必须参考：\n\n"
             for i, criterion in enumerate(evaluation_criteria, 1):
                 if isinstance(criterion, dict):
-                    name = criterion.get('name', '未知评价项目')
+                    name = criterion.get('name') or criterion.get('ability_description') or f'能力点{i}评价标准'
                     weight = criterion.get('weight', '')
-                    description = criterion.get('description', '')
+                    description = criterion.get('description') or criterion.get('ability_description', '')
+                    standards = criterion.get('standards', [])
+                    if isinstance(standards, str):
+                        standards = [s.strip() for s in re.split(r"[；;\n]+", standards) if s.strip()]
                     standard = criterion.get('standard', '')
+                    if not standard and isinstance(standards, list) and standards:
+                        standard = "\n".join([f"{idx + 1}. {s}" for idx, s in enumerate(standards)])
                     criteria_guidelines += f"**{i}. {name}**"
                     if weight:
                         criteria_guidelines += f" (权重: {weight})"
@@ -760,6 +782,36 @@ class LLMEvaluator:
                     criteria_guidelines += "\n"
                 else:
                     criteria_guidelines += f"**{i}. {criterion}**\n\n"
+
+        knowledge_guidelines = ""
+        if knowledge_points:
+            knowledge_guidelines = "# 课程知识点（来自课程内容表）\n\n"
+            knowledge_guidelines += "以下知识点用于考察学生对知识点的理解与使用程度：\n\n"
+            for i, kp in enumerate(knowledge_points, 1):
+                knowledge_guidelines += f"{i}. {kp}\n"
+            knowledge_guidelines += "\n"
+
+        stage_focus = "理解与规划" if stage_progress < 0.33 else ("执行与规范" if stage_progress < 0.66 else "测试与优化")
+        if "实践" in str(course_type):
+            course_scoring_policy = f"""# 课程作业评分政策（实践课）
+
+总分计算：50%能力点评分 + 50%阶段性考核完成度。
+当前阶段重点：{stage_focus}。
+
+请在输出中额外提供：
+- phase_completion_score（0-100）：按当前阶段重点评估完成度
+- stage_focus_assessment：说明本次作业在当前阶段的达成情况和依据
+"""
+        else:
+            course_scoring_policy = """# 课程作业评分政策（理论课）
+
+总分计算：50%能力点评分 + 25%知识点理解 + 25%知识点使用。
+
+请在输出中额外提供：
+- knowledge_understanding_score（0-100）：对知识点理解程度
+- knowledge_application_score（0-100）：对知识点使用程度
+- knowledge_assessment：说明知识点掌握情况与评分依据
+"""
         
         prompt = f"""# 角色定位
 
@@ -809,6 +861,10 @@ class LLMEvaluator:
 
 {criteria_guidelines}
 
+{knowledge_guidelines}
+
+{course_scoring_policy}
+
 # 输出要求
 
 请以JSON格式返回评估结果，结构如下：
@@ -842,6 +898,15 @@ class LLMEvaluator:
         "completion_details": "详细说明大纲任务的完成情况，哪些完成了，哪些没完成，完成质量如何（至少150字）"
     }},
     "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分"
+    "knowledge_understanding_score": 75,
+    "knowledge_application_score": 72,
+    "phase_completion_score": 78,
+    "knowledge_assessment": {{
+        "understanding_score": 75,
+        "application_score": 72,
+        "details": "知识点理解与使用的判定依据"
+    }},
+    "stage_focus_assessment": "按当前阶段重点的完成度评语"
 }}
 ```
 # 特别提醒
@@ -854,6 +919,8 @@ class LLMEvaluator:
 6. **分数分布要合理**，不要让所有学生都得高分
 7. **不需要改进建议**，只需要客观评价
 8. **必须评估大纲任务完成情况**，说明哪些完成了，哪些没完成
+9. **理论课必须给出 knowledge_understanding_score 与 knowledge_application_score**
+10. **实践课必须给出 phase_completion_score 并围绕当前阶段重点评估**
 """
         
         return prompt
@@ -903,6 +970,11 @@ class LLMEvaluator:
             "overall_score": min(100.0, max(0.0, raw_overall_score)),
             "dimension_scores": result.get("dimension_scores", []),
             "ability_scores": result.get("ability_scores", []),
+            "knowledge_understanding_score": result.get("knowledge_understanding_score"),
+            "knowledge_application_score": result.get("knowledge_application_score"),
+            "phase_completion_score": result.get("phase_completion_score"),
+            "knowledge_assessment": result.get("knowledge_assessment", {}),
+            "stage_focus_assessment": result.get("stage_focus_assessment", ""),
             "strengths": result.get("strengths", []),
             "weaknesses": result.get("weaknesses", result.get("areas_for_improvement", [])),
             "task_completion": result.get("task_completion", {
@@ -916,6 +988,14 @@ class LLMEvaluator:
             "areas_for_improvement": result.get("weaknesses", result.get("areas_for_improvement", [])),
             "recommendations": result.get("recommendations", [])
         }
+
+        for score_field in ["knowledge_understanding_score", "knowledge_application_score", "phase_completion_score"]:
+            raw_score = normalized.get(score_field)
+            try:
+                if raw_score is not None:
+                    normalized[score_field] = min(100.0, max(0.0, float(raw_score)))
+            except Exception:
+                normalized[score_field] = None
         
         # 确保维度评分是列表格式，并且在0-100之间
         dimension_scores = normalized["dimension_scores"]

@@ -50,6 +50,7 @@ class Submission(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     course_type = Column(String(50), default="理论课")
+    syllabus_name = Column(String(255), nullable=True)  # 关联课程大纲分析文件名（如 xxx.json）
 
     student = relationship("Student", back_populates="submissions")
     media_files = relationship("MediaFile", back_populates="submission")

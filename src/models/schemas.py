@@ -118,6 +118,7 @@ class SubmissionCreate(BaseModel):
     submission_type: SubmissionType = SubmissionType.FILE
     submission_purpose: SubmissionPurpose = SubmissionPurpose.NORMAL
     text_content: Optional[str] = None
+    syllabus_name: Optional[str] = None
 
 class SubmissionResponse(BaseModel):
     id: int
@@ -128,6 +129,7 @@ class SubmissionResponse(BaseModel):
     submission_type: SubmissionType
     submission_purpose: SubmissionPurpose = SubmissionPurpose.NORMAL
     text_content: Optional[str] = None
+    syllabus_name: Optional[str] = None
     status: SubmissionStatus
     created_at: datetime
     updated_at: datetime
@@ -173,6 +175,11 @@ class EvaluationResponse(BaseModel):
     student_id: str
     overall_score: float
     dimension_scores: List[DimensionScoreResponse]
+    knowledge_understanding_score: Optional[float] = None
+    knowledge_application_score: Optional[float] = None
+    phase_completion_score: Optional[float] = None
+    score_policy: Optional[str] = None
+    score_breakdown: Optional[Dict[str, Any]] = None
     strengths: List[str]
     areas_for_improvement: List[str]
     recommendations: List[str]

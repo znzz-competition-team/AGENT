@@ -7,7 +7,8 @@ from datetime import datetime
 import sys
 import time
 import logging
-from src.course_classifier import classify_course_type
+import uuid
+from src.course_classifier import classify_course_type, classify_course_type_with_meta
 
 # 配置日志
 logging.basicConfig(
@@ -52,6 +53,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 import json
+import re
 from typing import Union
 
 # 增加文件大小限制
@@ -81,6 +83,466 @@ def process_string_list(value: Union[str, list, None]) -> list:
     else:
         # 如果是None或其他类型，返回空列表
         return []
+
+def _get_course_weight_profile(course_type: str) -> Dict[str, Any]:
+    """根据课程类型返回动态评价权重"""
+    if "实践" in course_type:
+        weights = [
+            {"dimension": "工程实践与实现质量", "weight": 0.30, "description": "实现完整性、可运行性、工程规范"},
+            {"dimension": "问题解决与调试能力", "weight": 0.25, "description": "定位问题、修复问题、方案有效性"},
+            {"dimension": "设计与创新能力", "weight": 0.20, "description": "方案设计合理性、创新点与优化"},
+            {"dimension": "文档表达与汇报", "weight": 0.15, "description": "报告质量、表达清晰度、论证逻辑"},
+            {"dimension": "理论基础与分析", "weight": 0.10, "description": "关键原理理解与分析深度"}
+        ]
+    else:
+        weights = [
+            {"dimension": "理论基础与概念体系", "weight": 0.30, "description": "核心概念、原理和体系化理解"},
+            {"dimension": "分析推理与批判思维", "weight": 0.25, "description": "论证严谨性、推理链条、对比分析"},
+            {"dimension": "知识应用与问题解决", "weight": 0.20, "description": "理论迁移、案例分析、问题拆解"},
+            {"dimension": "学习成果表达", "weight": 0.15, "description": "报告结构、表达清晰度、证据引用"},
+            {"dimension": "实践理解与拓展", "weight": 0.10, "description": "实践环节认知、改进方向与拓展"}
+        ]
+    return {"course_type": course_type, "weights": weights}
+
+def _is_valid_ability_description(text: str) -> bool:
+    """过滤掉章节标题，保留毕业要求指标点内容。"""
+    if not text:
+        return False
+    normalized = re.sub(r"\s+", "", str(text))
+    if len(normalized) < 16:
+        return False
+
+    blocked_keywords = [
+        "课程教学目标与毕业要求对应关系",
+        "课程内容教学要求学时分配和教学手段",
+        "实验教学项目学时分配",
+        "课程立德树人内涵",
+        "考核方式与成绩评定",
+        "教学方法与手段",
+    ]
+    if any(k in normalized for k in blocked_keywords):
+        return False
+
+    # 能力点内容通常是陈述性句子，而不是章节标题
+    semantic_keywords = ["能够", "使学生", "学生", "掌握", "理解", "具备", "应用", "分析", "设计", "建模"]
+    if not any(k in normalized for k in semantic_keywords):
+        return False
+    return True
+
+def _extract_text_based_ability_points(syllabus_content: str, max_items: int = 10) -> List[Dict[str, Any]]:
+    """仅从“3.课程所支撑的毕业要求指标点”下方表格提取能力点描述。"""
+    raw_lines = [ln for ln in re.split(r"[\r\n]+", syllabus_content) if ln and ln.strip()]
+    lines: List[str] = []
+    for ln in raw_lines:
+        cleaned = str(ln).replace("↵", " ").replace("\u00a0", " ")
+        cleaned = re.sub(r"[│¦]", "|", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" |")
+        if cleaned:
+            lines.append(cleaned)
+
+    results: List[Dict[str, Any]] = []
+    seen = set()
+    serial_only_pattern = re.compile(r"^\d{1,2}$")
+    indicator_cell_pattern = re.compile(r"^[A-Za-z]?\d+(?:[\.．-]\d+){1,2}")
+
+    # 优先：直接定位“毕业要求指标点内容”表头所在行
+    table_header_idx = -1
+    for idx, line in enumerate(lines):
+        compact = re.sub(r"\s+", "", line)
+        if "毕业要求指标点" in compact and "毕业要求指标点内容" in compact and "序号" in compact:
+            table_header_idx = idx
+            break
+
+    if table_header_idx == -1:
+        return results
+
+    i = table_header_idx + 1
+    started = False
+    while i < len(lines):
+        line = lines[i]
+        cells = [c.strip() for c in re.split(r"\s*\|\s*", line) if c.strip()]
+        if len(cells) < 3:
+            # 未开始提取前跳过噪声；开始后遇到非表格行则终止
+            if started:
+                break
+            i += 1
+            continue
+
+        first_cell = re.sub(r"\s+", "", cells[0])
+        second_cell = re.sub(r"\s+", "", cells[1])
+        if not (serial_only_pattern.fullmatch(first_cell) and indicator_cell_pattern.match(second_cell)):
+            if started:
+                break
+            i += 1
+            continue
+
+        started = True
+        second_raw = cells[1].strip()
+        ability_name = re.sub(r"^[A-Za-z]?\d+(?:[\.．-]\d+){1,2}\s*", "", second_raw).strip()
+        ability_name = re.sub(r"\s+", "", ability_name) or re.sub(r"\s+", "", second_raw)
+
+        candidate = re.sub(r"\s+", "", cells[2]).strip("：:;；-— ")
+        if _is_valid_ability_description(candidate) and candidate not in seen:
+            seen.add(candidate)
+            results.append({
+                "name": ability_name,
+                "description": candidate
+            })
+            if len(results) >= max_items:
+                break
+        i += 1
+
+    return results
+
+def _extract_text_based_evaluation_criteria(ability_points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """按能力点兜底生成三条评价标准。"""
+    def _focus_triplet(ability_name: str, ability_desc: str) -> List[str]:
+        text = f"{ability_name}{ability_desc}"
+        if any(k in text for k in ["建模", "模型"]):
+            return [
+                "问题抽象、关键变量与约束定义是否完整且准确",
+                "模型或方法选择是否有依据，过程是否可复现",
+                "结果解释、误差分析与改进建议是否充分"
+            ]
+        if any(k in text for k in ["分析", "推理", "评价"]):
+            return [
+                "分析框架是否清晰，核心结论是否建立在有效证据上",
+                "论证链条是否完整，是否能够对比不同方案并说明取舍",
+                "是否能识别局限并提出具有可操作性的优化路径"
+            ]
+        if any(k in text for k in ["设计", "开发", "实现"]):
+            return [
+                "方案设计是否满足需求，结构划分是否合理",
+                "实现过程是否规范，关键步骤与结果是否可验证",
+                "是否完成性能、稳定性或可维护性层面的改进说明"
+            ]
+        return [
+            "核心概念与关键要求理解是否准确，表达是否专业清晰",
+            "是否能将能力点要求落实到具体任务，过程与结果是否可信",
+            "是否能基于结果进行反思与优化，并给出明确改进依据"
+        ]
+
+    results: List[Dict[str, Any]] = []
+    for idx, ability in enumerate(ability_points, 1):
+        desc = ""
+        ability_name = ""
+        if isinstance(ability, dict):
+            desc = str(ability.get("description", "")).strip()
+            ability_name = str(ability.get("name", "")).strip()
+        elif isinstance(ability, str):
+            desc = ability.strip()
+        if not desc:
+            continue
+
+        display_name = ability_name or f"能力点{idx}"
+        f1, f2, f3 = _focus_triplet(display_name, desc)
+        standards = [
+            f"基础达成：围绕“{display_name}”，学生应准确理解并清晰表述{f1}，提交内容中需体现术语使用规范、要点完整，且无明显事实或逻辑错误。",
+            f"应用达成：学生应能在具体任务中落实“{display_name}”要求，重点考查{f2}；评分依据包括关键步骤说明、方法选择理由、过程记录与结果质量。",
+            f"高阶达成：学生应基于任务结果开展反思与优化，重点体现{f3}；高分表现需给出对比分析、改进策略及可验证的效果说明。"
+        ]
+        results.append({
+            "ability_description": desc,
+            "name": f"{display_name}评价标准",
+            "description": f"围绕能力点“{display_name}”的分层评价标准",
+            "standards": standards,
+            "standard": "\n".join([f"{i + 1}. {s}" for i, s in enumerate(standards)])
+        })
+    return results
+
+def _extract_text_based_knowledge_points(syllabus_content: str, max_items: int = 20) -> List[str]:
+    """从“二、课程内容、教学要求、学时分配和教学手段”下方表格提取知识点/能力点。"""
+    raw_lines = [ln for ln in re.split(r"[\r\n]+", syllabus_content) if ln and ln.strip()]
+    lines: List[str] = []
+    for ln in raw_lines:
+        cleaned = str(ln).replace("↵", " ").replace("\u00a0", " ")
+        cleaned = re.sub(r"[│¦]", "|", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" |")
+        if cleaned:
+            lines.append(cleaned)
+
+    section_started = False
+    header_idx = -1
+    kp_col_idx = -1
+    for idx, line in enumerate(lines):
+        compact = re.sub(r"\s+", "", line)
+        if ("二" in compact and "课程内容" in compact and "教学要求" in compact) or ("课程内容、教学要求、学时分配和教学手段" in compact):
+            section_started = True
+            continue
+        if section_started and "|" in line and "知识点" in line and "能力点" in line:
+            header_cells = [c.strip() for c in re.split(r"\s*\|\s*", line) if c.strip()]
+            for ci, hc in enumerate(header_cells):
+                hc_compact = re.sub(r"\s+", "", hc)
+                if "知识点" in hc_compact and "能力点" in hc_compact:
+                    kp_col_idx = ci
+                    header_idx = idx
+                    break
+            if header_idx != -1:
+                break
+
+    if header_idx == -1 or kp_col_idx == -1:
+        return []
+
+    knowledge_points: List[str] = []
+    seen = set()
+    serial_pattern = re.compile(r"^\d{1,2}$")
+    non_table_count = 0
+    for line in lines[header_idx + 1:]:
+        if "|" not in line:
+            non_table_count += 1
+            if non_table_count >= 3 and knowledge_points:
+                break
+            continue
+        non_table_count = 0
+        cells = [c.strip() for c in re.split(r"\s*\|\s*", line)]
+        if len(cells) <= kp_col_idx:
+            continue
+        first = re.sub(r"\s+", "", cells[0]) if cells else ""
+        if first and not serial_pattern.fullmatch(first):
+            # 课程内容表通常首列是序号
+            if knowledge_points:
+                break
+            continue
+
+        point = re.sub(r"\s+", "", str(cells[kp_col_idx])).strip("：:;；-— ")
+        if not point or len(point) < 2:
+            continue
+        if point in seen:
+            continue
+        seen.add(point)
+        knowledge_points.append(point)
+        if len(knowledge_points) >= max_items:
+            break
+    return knowledge_points
+
+def _parse_score_value(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return min(100.0, max(0.0, float(value)))
+    except Exception:
+        return None
+
+def _calculate_ability_average_score(dimension_scores: List[Dict[str, Any]], ability_points: List[Dict[str, Any]], fallback_score: float = 0.0) -> float:
+    valid_scores: List[float] = []
+    for item in dimension_scores:
+        if isinstance(item, dict):
+            score = _parse_score_value(item.get("score"))
+            if score is not None:
+                valid_scores.append(score)
+    avg_all = sum(valid_scores) / len(valid_scores) if valid_scores else fallback_score
+
+    if not ability_points:
+        return avg_all
+
+    matched_scores: List[float] = []
+    for ability in ability_points:
+        if not isinstance(ability, dict):
+            continue
+        ability_name = str(ability.get("name", "")).strip()
+        ability_desc = str(ability.get("description", "")).strip()
+        key = re.sub(r"\s+", "", ability_name or ability_desc)
+        if not key:
+            continue
+
+        matched = None
+        for dim in dimension_scores:
+            if not isinstance(dim, dict):
+                continue
+            dim_name = re.sub(r"\s+", "", str(dim.get("dimension", "")).strip())
+            if dim_name and (key in dim_name or dim_name in key):
+                matched = _parse_score_value(dim.get("score"))
+                if matched is not None:
+                    break
+        matched_scores.append(matched if matched is not None else avg_all)
+
+    if not matched_scores:
+        return avg_all
+    return round(sum(matched_scores) / len(matched_scores), 2)
+
+def _calculate_course_assignment_overall_score(
+    evaluation_result: Dict[str, Any],
+    syllabus_analysis: Optional[Dict[str, Any]],
+    stage_progress: float
+) -> Optional[float]:
+    """课程作业评分策略：
+    - 理论课：50%能力点平均分 + 25%知识理解 + 25%知识应用
+    - 实践课：50%能力点平均分 + 50%阶段完成度
+    """
+    if not isinstance(evaluation_result, dict) or not isinstance(syllabus_analysis, dict):
+        return None
+
+    course_type = str(syllabus_analysis.get("course_type", "理论课"))
+    ability_points = syllabus_analysis.get("ability_points", []) if isinstance(syllabus_analysis.get("ability_points"), list) else []
+    dimension_scores = evaluation_result.get("dimension_scores", []) if isinstance(evaluation_result.get("dimension_scores"), list) else []
+    base_overall = _parse_score_value(evaluation_result.get("overall_score")) or 0.0
+    ability_avg = _calculate_ability_average_score(dimension_scores, ability_points, fallback_score=base_overall)
+
+    if "实践" in course_type:
+        phase_completion_score = _parse_score_value(evaluation_result.get("phase_completion_score"))
+        if phase_completion_score is None:
+            completion_rate = _parse_score_value(
+                (evaluation_result.get("task_completion", {}) or {}).get("completion_rate", 0.0)
+            )
+            # completion_rate 通常是 0~1
+            if completion_rate is not None:
+                phase_completion_score = completion_rate * 100.0 if completion_rate <= 1 else completion_rate
+        if phase_completion_score is None:
+            phase_completion_score = base_overall
+
+        final_score = round(ability_avg * 0.5 + phase_completion_score * 0.5, 2)
+        evaluation_result["score_policy"] = "practice_stage_process"
+        evaluation_result["score_breakdown"] = {
+            "course_type": course_type,
+            "stage_progress": stage_progress,
+            "ability_component": round(ability_avg, 2),
+            "phase_completion_component": round(phase_completion_score, 2),
+            "formula": "overall = 0.5 * ability_component + 0.5 * phase_completion_component"
+        }
+        return final_score
+
+    understanding_score = _parse_score_value(evaluation_result.get("knowledge_understanding_score"))
+    application_score = _parse_score_value(evaluation_result.get("knowledge_application_score"))
+
+    knowledge_assessment = evaluation_result.get("knowledge_assessment", {})
+    if understanding_score is None and isinstance(knowledge_assessment, dict):
+        understanding_score = _parse_score_value(knowledge_assessment.get("understanding_score"))
+    if application_score is None and isinstance(knowledge_assessment, dict):
+        application_score = _parse_score_value(knowledge_assessment.get("application_score"))
+
+    if understanding_score is None:
+        understanding_score = base_overall
+    if application_score is None:
+        application_score = base_overall
+
+    final_score = round(ability_avg * 0.5 + understanding_score * 0.25 + application_score * 0.25, 2)
+    evaluation_result["score_policy"] = "theory_ability_knowledge_split"
+    evaluation_result["score_breakdown"] = {
+        "course_type": course_type,
+        "ability_component": round(ability_avg, 2),
+        "knowledge_understanding_component": round(understanding_score, 2),
+        "knowledge_application_component": round(application_score, 2),
+        "formula": "overall = 0.5 * ability_component + 0.25 * knowledge_understanding + 0.25 * knowledge_application"
+    }
+    return final_score
+
+def _analysis_results_dir() -> str:
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(project_root, "analysis_results")
+
+def _parse_weight_to_ratio(weight_value: Any) -> Optional[float]:
+    if weight_value is None:
+        return None
+    if isinstance(weight_value, (int, float)):
+        value = float(weight_value)
+        if value <= 0:
+            return None
+        return value if value <= 1 else value / 100.0
+
+    text = str(weight_value).strip()
+    if not text:
+        return None
+
+    percent_match = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
+    if percent_match:
+        return float(percent_match.group(1)) / 100.0
+
+    score_match = re.search(r"(\d+(?:\.\d+)?)\s*分", text)
+    if score_match:
+        # 按总分100近似换算
+        return float(score_match.group(1)) / 100.0
+
+    num_match = re.search(r"\d+(?:\.\d+)?", text)
+    if num_match:
+        value = float(num_match.group(0))
+        return value if value <= 1 else value / 100.0
+    return None
+
+def _load_syllabus_analysis(syllabus_name: str) -> Optional[Dict[str, Any]]:
+    if not syllabus_name:
+        return None
+
+    analysis_dir = _analysis_results_dir()
+    if not os.path.exists(analysis_dir):
+        return None
+
+    candidate_files = []
+    if syllabus_name.endswith(".json"):
+        candidate_files.append(syllabus_name)
+    else:
+        base_name = os.path.splitext(syllabus_name)[0]
+        candidate_files.append(f"{base_name}.json")
+        candidate_files.append(syllabus_name)
+
+    for file_name in candidate_files:
+        file_path = os.path.join(analysis_dir, file_name)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    return None
+
+def _calculate_weighted_overall_score(dimension_scores: List[Dict[str, Any]], syllabus_analysis: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not dimension_scores or not syllabus_analysis:
+        return None
+
+    raw_weight_pairs: List[tuple[str, float]] = []
+
+    for criterion in syllabus_analysis.get("evaluation_criteria", []) if isinstance(syllabus_analysis, dict) else []:
+        if isinstance(criterion, dict):
+            name = str(criterion.get("name", "")).strip()
+            ratio = _parse_weight_to_ratio(criterion.get("weight"))
+            if name and ratio:
+                raw_weight_pairs.append((name, ratio))
+
+    if not raw_weight_pairs:
+        profile = syllabus_analysis.get("evaluation_weights", {}) if isinstance(syllabus_analysis, dict) else {}
+        for item in profile.get("weights", []) if isinstance(profile, dict) else []:
+            if isinstance(item, dict):
+                name = str(item.get("dimension", "")).strip()
+                ratio = _parse_weight_to_ratio(item.get("weight"))
+                if name and ratio:
+                    raw_weight_pairs.append((name, ratio))
+
+    if not raw_weight_pairs:
+        return None
+
+    total_ratio = sum(w for _, w in raw_weight_pairs)
+    if total_ratio <= 0:
+        return None
+    normalized_weights = [(name, w / total_ratio) for name, w in raw_weight_pairs]
+
+    weighted_sum = 0.0
+    matched_weight_sum = 0.0
+    unmatched_scores: List[float] = []
+
+    for score_info in dimension_scores:
+        if not isinstance(score_info, dict):
+            continue
+        dim_name = str(score_info.get("dimension", "")).strip()
+        score = float(score_info.get("score", 0.0))
+        matched = False
+
+        for weight_name, weight_ratio in normalized_weights:
+            if dim_name and (dim_name in weight_name or weight_name in dim_name):
+                weighted_sum += score * weight_ratio
+                matched_weight_sum += weight_ratio
+                matched = True
+                break
+        if not matched:
+            unmatched_scores.append(score)
+
+    remaining_ratio = max(0.0, 1.0 - matched_weight_sum)
+    if unmatched_scores and remaining_ratio > 0:
+        avg_unmatched = sum(unmatched_scores) / len(unmatched_scores)
+        weighted_sum += avg_unmatched * remaining_ratio
+        matched_weight_sum += remaining_ratio
+
+    if matched_weight_sum <= 0:
+        return None
+    return round(weighted_sum / matched_weight_sum, 2)
 
 # 文档内容提取函数
 def extract_document_content(file_path: str) -> str:
@@ -122,10 +584,14 @@ def extract_docx_content(file_path: str) -> str:
     try:
         from docx import Document
         doc = Document(file_path)
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
-        return text
+        paragraph_texts = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+        table_lines: List[str] = []
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip().replace("\n", " ") for cell in row.cells if cell.text and cell.text.strip()]
+                if cells:
+                    table_lines.append(" | ".join(cells))
+        return "\n".join(paragraph_texts + table_lines)
     except Exception as e:
         logger.error(f"提取DOCX内容失败: {str(e)}")
         return ""
@@ -330,6 +796,11 @@ async def create_submission(
     # 验证提交类型
     if submission.submission_type == SubmissionType.TEXT and not submission.text_content:
         raise HTTPException(status_code=400, detail="文字提交必须提供内容")
+
+    # 验证课程大纲分析文件是否可用
+    if submission.syllabus_name:
+        if not _load_syllabus_analysis(submission.syllabus_name):
+            raise HTTPException(status_code=400, detail=f"课程大纲分析结果不存在或不可读: {submission.syllabus_name}")
     
     # 创建提交
     new_submission = db_service.create_submission(
@@ -338,7 +809,8 @@ async def create_submission(
         student_id=submission.student_id,
         submission_type=submission.submission_type.value,
         submission_purpose=submission.submission_purpose.value,
-        text_content=submission.text_content
+        text_content=submission.text_content,
+        syllabus_name=submission.syllabus_name
     )
     
     return SubmissionResponse(
@@ -350,6 +822,7 @@ async def create_submission(
         submission_type=SubmissionType(new_submission.submission_type),
         submission_purpose=SubmissionPurpose(new_submission.submission_purpose),
         text_content=new_submission.text_content,
+        syllabus_name=new_submission.syllabus_name,
         status=SubmissionStatus(new_submission.status),
         created_at=new_submission.created_at,
         updated_at=new_submission.updated_at
@@ -378,6 +851,7 @@ async def get_all_submissions(
             submission_type=SubmissionType(submission.submission_type),
             submission_purpose=SubmissionPurpose(getattr(submission, 'submission_purpose', 'normal')),
             text_content=submission.text_content,
+            syllabus_name=getattr(submission, "syllabus_name", None),
             status=SubmissionStatus(submission.status),
             created_at=submission.created_at,
             updated_at=submission.updated_at
@@ -409,6 +883,7 @@ async def get_submission(
         submission_type=SubmissionType(submission.submission_type),
         submission_purpose=SubmissionPurpose(getattr(submission, 'submission_purpose', 'normal')),
         text_content=submission.text_content,
+        syllabus_name=getattr(submission, "syllabus_name", None),
         status=SubmissionStatus(submission.status),
         created_at=submission.created_at,
         updated_at=submission.updated_at
@@ -433,6 +908,7 @@ async def get_student_submissions(
             submission_type=SubmissionType(submission.submission_type),
             submission_purpose=SubmissionPurpose(getattr(submission, 'submission_purpose', 'normal')),
             text_content=submission.text_content,
+            syllabus_name=getattr(submission, "syllabus_name", None),
             status=SubmissionStatus(submission.status),
             created_at=submission.created_at,
             updated_at=submission.updated_at
@@ -608,32 +1084,19 @@ async def handwriting_recognize(
 
 # 文件上传路由
 @app.post("/submissions/{submission_id}/files", response_model=MediaFileResponse)
-async def upload_file(submission_id: int, file: UploadFile, db: Session = Depends(get_db)):
-    # ... 之前原有的保存文件、提取 text_content 的代码 ...
-    # 假设你已经把大纲内容提取到了变量 extracted_text 中
-
-    # [新增逻辑] 自动分析课程类型
-    detected_type = classify_course_type(extracted_text)
-
-    # [新增逻辑] 将分类结果更新到数据库中
-    submission = db.query(Submission).filter(Submission.id == submission_id).first()
-    if submission:
-        submission.course_type = detected_type
-        db.commit()
-        
-    # 检查提交是否存在
+async def upload_file(
+    submission_id: str,
+    file: UploadFile = File(...),
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    # 检查提交是否存在（submission_id 为 SUB_XXXXXX 格式）
     submission = db_service.get_submission_by_id(submission_id)
     if not submission:
         raise HTTPException(status_code=404, detail="提交不存在")
-    
-    # 保存文件
-    file_path = os.path.join(UPLOAD_DIR, f"{submission_id}_{file.filename}")
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    # 确定文件类型
+
+    # 文件类型判断
     file_ext = os.path.splitext(file.filename)[1].lower()
-    if file_ext in [".pdf", ".docx", ".doc", ".txt"]:
+    if file_ext in [".pdf", ".docx", ".doc", ".txt", ".ppt", ".pptx"]:
         media_type = "document"
     elif file_ext in [".mp4", ".mov"]:
         media_type = "video"
@@ -641,19 +1104,45 @@ async def upload_file(submission_id: int, file: UploadFile, db: Session = Depend
         media_type = "audio"
     else:
         raise HTTPException(status_code=400, detail="不支持的文件类型")
-    
+
+    # 保存文件（避免重名覆盖）
+    safe_name = os.path.basename(file.filename)
+    unique_name = f"{submission_id}_{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(UPLOAD_DIR, unique_name)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
     # 获取文件大小
     size_bytes = os.path.getsize(file_path)
-    
+
     # 创建媒体文件记录
     media_file = db_service.create_media_file(
         submission_id=submission_id,
         file_path=file_path,
-        file_name=file.filename,
+        file_name=safe_name,
         media_type=media_type,
         size_bytes=size_bytes
     )
-    
+
+    # 尝试提取文档内容并自动判别课程类型（失败不影响上传主流程）
+    if media_type == "document":
+        try:
+            extracted_text = ""
+            if file_ext in [".pdf", ".docx", ".doc", ".txt"]:
+                extracted_text = extract_document_content(file_path)
+
+            if extracted_text:
+                existing_content = submission.text_content or ""
+                submission.text_content = (existing_content + "\n\n" + extracted_text).strip() if existing_content else extracted_text
+
+                detected_type = classify_course_type(extracted_text)
+                submission.course_type = detected_type
+
+                db_service.db.commit()
+                db_service.db.refresh(submission)
+        except Exception as e:
+            logger.warning(f"文件上传后自动提取/分类失败，不影响主流程: {str(e)}")
+
     return MediaFileResponse(
         id=media_file.id,
         submission_id=media_file.submission_id,
@@ -750,72 +1239,206 @@ async def analyze_syllabus(
     自动检测文档类型并使用对应的提示词进行分析
     """
     try:
-        # 导入大模型评估器
         from src.evaluation.llm_evaluator import llm_evaluator
         from src.evaluation.syllabus_analyzer import SyllabusAnalyzer
-        
-        # 从请求中获取参数
-        syllabus_content = request.get('syllabus_content', '')
-        syllabus_name = request.get('syllabus_name', '')
-        
-        # 使用 SyllabusAnalyzer 检测文档类型并构建对应提示词
+
+        syllabus_content = (request.get("syllabus_content", "") or "").strip()
+        syllabus_name = request.get("syllabus_name", "")
+        if not syllabus_content:
+            raise HTTPException(status_code=400, detail="大纲内容为空，无法分析")
+
+        # 规则提取（严格文本依据）
+        rule_ability_points = _extract_text_based_ability_points(syllabus_content)
+        rule_knowledge_points = _extract_text_based_knowledge_points(syllabus_content)
+        manual_course_type = (request.get("course_type_override", "") or "").strip()
+        course_type_meta = classify_course_type_with_meta(syllabus_content)
+        if manual_course_type in ["理论课", "实践课"]:
+            course_type = manual_course_type
+            course_type_source = "manual"
+        else:
+            course_type = course_type_meta.get("course_type", "理论课")
+            course_type_source = "auto"
+
         analyzer = SyllabusAnalyzer("")
         doc_type = analyzer.detect_document_type(syllabus_content)
-        
-        print(f"检测到文档类型: {doc_type}")
-        
-        # 根据文档类型选择对应的提示词
-        if doc_type == 'graduation_requirements':
+        logger.info(
+            f"检测到文档类型: {doc_type}, 课程类型: {course_type}, 来源: {course_type_source}, "
+            f"理论分: {course_type_meta.get('theory_score')}, 实践分: {course_type_meta.get('practice_score')}"
+        )
+
+        if doc_type == "graduation_requirements":
             prompt = analyzer.build_graduation_requirements_prompt(syllabus_content)
-        elif doc_type == 'course_evaluation':
+        elif doc_type == "course_evaluation":
             prompt = analyzer.build_course_evaluation_prompt(syllabus_content)
         else:
-            # 未知类型使用通用提示词
             prompt = analyzer.build_syllabus_analysis_prompt(syllabus_content)
-        
-        # 调用大模型（增加max_tokens以获取更详细的分析结果）
-        result = llm_evaluator.generate_report(prompt, max_tokens=4000)
-        
-        # 解析大模型返回结果
+
+        strict_suffix = """
+
+【严格约束】
+1) ability_points 仅能来自“毕业要求指标点”表格；每项只保留 description（可做等价改写），不得输出 level。
+2) evaluation_criteria 必须按能力点逐一生成，每个能力点恰好3条标准（standards数组长度=3）。
+3) 不得返回“课程教学目标与毕业要求对应关系、课程内容/学时分配、立德树人”等章节标题作为能力点。
+4) 评价标准禁止使用重复套话模板（如“能准确说明并正确应用……”的机械复用），三条标准需体现层次递进（基础理解→应用实施→分析改进）。
+5) 每条标准都要包含：评价对象、达成条件、判定依据，语言要自然、专业、可执行。
+6) knowledge_points 应优先从“二、课程内容、教学要求、学时分配和教学手段”表格中的“知识点/能力点”列提取。
+7) 可结合课程场景补充合理细节，但不得偏离能力点原意。
+8) 不得虚构文档不存在的毕业要求指标点；若无法定位则返回空数组。
+9) 结果优先准确性，不追求数量。
+"""
+        analysis_result: Dict[str, Any] = {}
+        llm_error = None
         try:
-            # 尝试直接解析JSON
-            analysis_result = json.loads(result)
-            # 添加文档类型信息
-            analysis_result['document_type'] = doc_type
-            # 检查分析结果是否为空
-            has_content = (
-                analysis_result.get('ability_points') or 
-                analysis_result.get('evaluation_criteria') or 
-                analysis_result.get('graduation_requirements')
-            )
-            if not analysis_result or not has_content:
-                raise Exception("未获取到有效的分析结果")
-            return analysis_result
-        except Exception as e:
-            # 如果解析失败，尝试从文本中提取JSON
+            result = llm_evaluator.generate_report(prompt + strict_suffix, max_tokens=4000)
             try:
-                # 查找JSON开始和结束的位置
-                start_idx = result.find('{')
-                end_idx = result.rfind('}') + 1
+                analysis_result = json.loads(result)
+            except Exception:
+                start_idx = result.find("{")
+                end_idx = result.rfind("}") + 1
                 if start_idx != -1 and end_idx != -1:
-                    json_str = result[start_idx:end_idx]
-                    analysis_result = json.loads(json_str)
-                    # 添加文档类型信息
-                    analysis_result['document_type'] = doc_type
-                    # 检查分析结果是否为空
-                    has_content = (
-                        analysis_result.get('ability_points') or 
-                        analysis_result.get('evaluation_criteria') or 
-                        analysis_result.get('graduation_requirements')
-                    )
-                    if not analysis_result or not has_content:
-                        raise Exception("未获取到有效的分析结果")
-                    return analysis_result
-                else:
-                    raise Exception("未找到有效的JSON格式结果")
-            except Exception as e2:
-                # 如果仍然解析失败，直接报错
-                raise Exception(f"解析大模型返回结果失败: {str(e2)}")
+                    analysis_result = json.loads(result[start_idx:end_idx])
+        except Exception as e:
+            llm_error = str(e)
+            logger.warning(f"大模型分析失败，回退到文本规则提取: {llm_error}")
+
+        llm_ability_points = analysis_result.get("ability_points", []) if isinstance(analysis_result, dict) else []
+        llm_evaluation_criteria = analysis_result.get("evaluation_criteria", []) if isinstance(analysis_result, dict) else []
+        llm_knowledge_points = analysis_result.get("knowledge_points", []) if isinstance(analysis_result, dict) else []
+        graduation_requirements = analysis_result.get("graduation_requirements", []) if isinstance(analysis_result, dict) else []
+
+        normalized_ability_points: List[Dict[str, Any]] = []
+        # 优先采用规则提取（可稳定拿到“毕业要求指标点”列中的能力点名称）
+        source_points = rule_ability_points if rule_ability_points else llm_ability_points
+        for item in source_points:
+            if isinstance(item, dict):
+                desc = item.get("description") or item.get("name") or ""
+                if not desc:
+                    continue
+                ability_name = str(item.get("name", "")).strip()
+                desc = re.sub(r"\s+", "", str(desc)).strip()
+                if not _is_valid_ability_description(desc):
+                    continue
+                normalized_ability_points.append({
+                    "name": re.sub(r"\s+", "", ability_name) if ability_name else "",
+                    "description": desc
+                })
+            elif isinstance(item, str) and item.strip():
+                text = re.sub(r"\s+", "", item).strip()
+                if _is_valid_ability_description(text):
+                    normalized_ability_points.append({
+                        "name": "",
+                        "description": text
+                    })
+
+        if not normalized_ability_points:
+            normalized_ability_points = rule_ability_points
+
+        # 评价标准兜底：若模型缺失或不完整，按能力点补齐每项三条
+        rule_evaluation_criteria = _extract_text_based_evaluation_criteria(normalized_ability_points)
+        normalized_evaluation_criteria: List[Dict[str, Any]] = []
+        source_criteria = llm_evaluation_criteria if llm_evaluation_criteria else rule_evaluation_criteria
+
+        llm_criteria_map: Dict[str, Dict[str, Any]] = {}
+        for item in source_criteria:
+            if isinstance(item, dict):
+                desc = item.get("ability_description") or item.get("description") or item.get("standard") or item.get("name") or ""
+                if not desc:
+                    continue
+                standards = item.get("standards", [])
+                if isinstance(standards, str):
+                    standards = [s.strip() for s in re.split(r"[；;\n]+", standards) if s.strip()]
+                if not isinstance(standards, list):
+                    standards = []
+                standards = [str(s).strip() for s in standards if str(s).strip()]
+                if len(standards) < 3:
+                    fallback = item.get("standard", "")
+                    if fallback:
+                        standards.append(str(fallback).strip())
+                llm_criteria_map[re.sub(r"\s+", "", desc)] = {
+                    "ability_description": desc,
+                    "standards": standards[:3]
+                }
+            elif isinstance(item, str) and item.strip():
+                text = item.strip()
+                llm_criteria_map[re.sub(r"\s+", "", text)] = {
+                    "ability_description": text,
+                    "standards": [text]
+                }
+
+        rule_criteria_map = {
+            re.sub(r"\s+", "", str(item.get("ability_description", ""))): item
+            for item in rule_evaluation_criteria
+            if isinstance(item, dict) and item.get("ability_description")
+        }
+
+        for idx, ability in enumerate(normalized_ability_points, 1):
+            ability_desc = str(ability.get("description", "")).strip() if isinstance(ability, dict) else str(ability).strip()
+            if not ability_desc:
+                continue
+            key = re.sub(r"\s+", "", ability_desc)
+            matched = llm_criteria_map.get(key) or next(
+                (v for k, v in llm_criteria_map.items() if key in k or k in key),
+                None
+            )
+            fallback_item = rule_criteria_map.get(key) or next(
+                (v for k, v in rule_criteria_map.items() if key in k or k in key),
+                None
+            )
+
+            standards: List[str] = []
+            if matched:
+                standards = matched.get("standards", [])
+            if len(standards) < 3 and fallback_item:
+                for s in fallback_item.get("standards", []):
+                    if s and s not in standards:
+                        standards.append(s)
+            if len(standards) < 3:
+                standards.extend([
+                    f"能准确理解并表达“{ability_desc}”对应的核心要求。",
+                    f"能在作业中正确应用“{ability_desc}”并给出有效过程与结果。",
+                    f"能基于“{ability_desc}”完成自检与改进，结果可验证。"
+                ])
+            standards = standards[:3]
+            normalized_evaluation_criteria.append({
+                "ability_description": ability_desc,
+                "name": f"能力点{idx}评价标准",
+                "description": f"围绕能力点“{ability_desc}”的评价标准",
+                "standards": standards,
+                "standard": "\n".join([f"{i + 1}. {s}" for i, s in enumerate(standards)])
+            })
+
+        normalized_knowledge_points: List[str] = []
+        source_knowledge_points = llm_knowledge_points if isinstance(llm_knowledge_points, list) and llm_knowledge_points else rule_knowledge_points
+        seen_kp = set()
+        for item in source_knowledge_points:
+            if isinstance(item, dict):
+                point = str(item.get("name") or item.get("description") or "").strip()
+            else:
+                point = str(item).strip()
+            point = re.sub(r"\s+", "", point)
+            if not point or len(point) < 2 or point in seen_kp:
+                continue
+            seen_kp.add(point)
+            normalized_knowledge_points.append(point)
+
+        has_content = bool(normalized_ability_points or normalized_evaluation_criteria or graduation_requirements)
+        if not has_content:
+            raise Exception("未获取到有效的分析结果")
+
+        return {
+            "syllabus_name": syllabus_name,
+            "document_type": doc_type,
+            "course_type": course_type,
+            "course_type_source": course_type_source,
+            "course_type_meta": course_type_meta,
+            "strict_text_based": True,
+            "ability_points": normalized_ability_points,
+            "evaluation_criteria": normalized_evaluation_criteria,
+            "knowledge_points": normalized_knowledge_points,
+            "graduation_requirements": graduation_requirements if isinstance(graduation_requirements, list) else [],
+            "evaluation_weights": _get_course_weight_profile(course_type),
+            "llm_error": llm_error
+        }
     except Exception as e:
         # 直接返回错误，不使用模拟数据
         error_message = str(e)
@@ -1122,6 +1745,44 @@ async def get_syllabus_files():
     
     return {"files": files, "folder_path": syllabus_folder}
 
+@app.post("/syllabus_files/upload")
+async def upload_syllabus_file(file: UploadFile = File(...)):
+    """
+    上传课程大纲文件到 `评价大纲` 目录
+    """
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    syllabus_folder = os.path.join(project_root, "评价大纲")
+    os.makedirs(syllabus_folder, exist_ok=True)
+
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="未选择文件")
+
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    allowed_ext = {".docx", ".doc", ".pdf", ".txt", ".json"}
+    if file_ext not in allowed_ext:
+        raise HTTPException(status_code=400, detail="不支持的文件格式，仅支持 docx/doc/pdf/txt/json")
+
+    safe_name = os.path.basename(file.filename)
+    target_path = os.path.join(syllabus_folder, safe_name)
+
+    if os.path.exists(target_path):
+        base_name, ext = os.path.splitext(safe_name)
+        safe_name = f"{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+        target_path = os.path.join(syllabus_folder, safe_name)
+
+    try:
+        with open(target_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        return {
+            "message": "大纲上传成功",
+            "file_name": safe_name,
+            "path": target_path,
+            "size": os.path.getsize(target_path)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"大纲上传失败: {str(e)}")
+
 @app.post("/read_syllabus_file")
 async def read_syllabus_file(
     request: Dict = Body(...)
@@ -1145,7 +1806,14 @@ async def read_syllabus_file(
         if file_name.endswith('.docx'):
             from docx import Document
             doc = Document(file_path)
-            content = "\n".join([para.text for para in doc.paragraphs])
+            paragraph_text = [para.text.strip() for para in doc.paragraphs if para.text and para.text.strip()]
+            table_text = []
+            for table in doc.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip().replace("\n", " ") for cell in row.cells if cell.text and cell.text.strip()]
+                    if cells:
+                        table_text.append(" | ".join(cells))
+            content = "\n".join(paragraph_text + table_text)
         elif file_name.endswith('.txt'):
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -1280,8 +1948,21 @@ async def evaluate_submission(
         # 获取自定义提示词（如果有）
         custom_prompts = getattr(request, 'custom_prompts', None)
         
-        # 获取大纲分析结果（如果有）
-        syllabus_analysis = getattr(request, 'syllabus_analysis', None)
+        # 优先使用提交绑定的大纲分析结果（确保评估严格按绑定课程大纲执行）
+        syllabus_analysis = None
+        if getattr(submission, "syllabus_name", None):
+            syllabus_analysis = _load_syllabus_analysis(submission.syllabus_name)
+
+        # 向后兼容：如果提交未绑定大纲，才允许请求传入
+        if not syllabus_analysis:
+            syllabus_analysis = getattr(request, 'syllabus_analysis', None)
+
+        # 普通作业必须绑定课程大纲
+        if submission.submission_purpose == SubmissionPurpose.NORMAL.value and not syllabus_analysis:
+            raise HTTPException(
+                status_code=400,
+                detail="该提交未绑定可用课程大纲分析结果，请在作业上传时选择课程大纲后重试"
+            )
         
         # 使用大模型进行评估
         evaluation_result = llm_evaluator.evaluate_submission(
@@ -1291,6 +1972,28 @@ async def evaluate_submission(
             custom_prompts=custom_prompts,
             syllabus_analysis=syllabus_analysis
         )
+
+        # 课程作业评分策略：
+        # - 理论课：50%能力点评分 + 25%知识理解 + 25%知识应用
+        # - 实践课：50%能力点评分 + 50%阶段完成度
+        policy_overall = None
+        if submission.submission_purpose == SubmissionPurpose.NORMAL.value:
+            policy_overall = _calculate_course_assignment_overall_score(
+                evaluation_result=evaluation_result,
+                syllabus_analysis=syllabus_analysis,
+                stage_progress=stage_progress
+            )
+
+        if policy_overall is not None:
+            evaluation_result["overall_score"] = policy_overall
+        else:
+            # 非课程作业或缺少策略数据时，按大纲权重重算（若可用）
+            weighted_overall = _calculate_weighted_overall_score(
+                evaluation_result.get("dimension_scores", []),
+                syllabus_analysis
+            )
+            if weighted_overall is not None:
+                evaluation_result["overall_score"] = weighted_overall
         
         # 记录API接收到的评估结果
         print("=== API接收到的评估结果 ===")
@@ -1415,6 +2118,11 @@ async def evaluate_submission(
             areas_for_improvement=response_areas_for_improvement,
             recommendations=response_recommendations,
             dimension_scores=dimension_scores_response,
+            knowledge_understanding_score=evaluation_result.get("knowledge_understanding_score"),
+            knowledge_application_score=evaluation_result.get("knowledge_application_score"),
+            phase_completion_score=evaluation_result.get("phase_completion_score"),
+            score_policy=evaluation_result.get("score_policy"),
+            score_breakdown=evaluation_result.get("score_breakdown"),
             evaluated_at=datetime.utcnow().isoformat(),
             evaluator_agent="llm_evaluator",
             stage=f"progress_{stage_progress:.2f}",
