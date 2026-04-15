@@ -6,7 +6,7 @@
     {
       "dimension_id": "innovation",
       "name": "创新度",
-      "weight": 0.36,
+      "weight": 0.42,
       "description": "评估论文的创新性，区分搭积木式创新与原创性创新，判断是否有针对性的设计改进",
       "evaluation_points": [
         {
@@ -50,7 +50,7 @@
     {
       "dimension_id": "research_depth",
       "name": "研究分析深度",
-      "weight": 0.29,
+      "weight": 0.17,
       "description": "评估对研究现状的分析深度、文献引用新颖度、能否归纳现存问题",
       "evaluation_points": [
         {
@@ -94,7 +94,7 @@
     {
       "dimension_id": "structure",
       "name": "文章结构",
-      "weight": 0.21,
+      "weight": 0.33,
       "description": "评估章节安排合理性、章节内逻辑连贯性",
       "evaluation_points": [
         {
@@ -138,7 +138,7 @@
     {
       "dimension_id": "method_experiment",
       "name": "研究方法与实验",
-      "weight": 0.14,
+      "weight": 0.08,
       "description": "评估方法阐述详细度、实验步骤完整性、实验分布合理性",
       "evaluation_points": [
         {

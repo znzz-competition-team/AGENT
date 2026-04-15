@@ -14,6 +14,7 @@ def clean_pdf_text(text):
     1. 保留合理的空格（区分中英文）
     2. 保留段落结构（双换行）
     3. 智能处理行内多余空白
+    4. 清理中文文本中的多余空格
     """
     if not text:
         return ""
@@ -34,6 +35,53 @@ def clean_pdf_text(text):
     text = '\n'.join(cleaned_lines)
     
     text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    text = clean_chinese_spaces(text)
+    
+    return text
+
+def clean_chinese_spaces(text):
+    """
+    清理中文文本中的多余空格
+    
+    规则：
+    1. 移除中文字符之间的空格
+    2. 移除中文标点前后的空格
+    3. 保留英文单词之间的空格
+    4. 保留数字与英文之间的空格
+    """
+    if not text:
+        return ""
+    
+    chinese_punctuation = '，。！？、；：""''（）【】《》—…·'
+    
+    for _ in range(5):
+        old_text = text
+        text = re.sub(r'([\u4e00-\u9fff])\s+([\u4e00-\u9fff])', r'\1\2', text)
+        if text == old_text:
+            break
+    
+    for _ in range(5):
+        old_text = text
+        text = re.sub(r'([\u4e00-\u9fff])\s+([' + re.escape(chinese_punctuation) + r'])', r'\1\2', text)
+        text = re.sub(r'([' + re.escape(chinese_punctuation) + r'])\s+([\u4e00-\u9fff])', r'\1\2', text)
+        if text == old_text:
+            break
+    
+    for _ in range(5):
+        old_text = text
+        text = re.sub(r'\s+([' + re.escape(chinese_punctuation) + r'])', r'\1', text)
+        text = re.sub(r'([' + re.escape(chinese_punctuation) + r'])\s+', r'\1', text)
+        if text == old_text:
+            break
+    
+    text = re.sub(r'([\u4e00-\u9fff])\s+([a-zA-Z])', r'\1 \2', text)
+    text = re.sub(r'([a-zA-Z])\s+([\u4e00-\u9fff])', r'\1 \2', text)
+    
+    text = re.sub(r'([\u4e00-\u9fff])\s+(\d)', r'\1\2', text)
+    text = re.sub(r'(\d)\s+([\u4e00-\u9fff])', r'\1\2', text)
+    
+    text = re.sub(r' +', ' ', text)
     
     return text
 
@@ -303,7 +351,7 @@ st.markdown("---")
 st.subheader("📄 选择毕业设计论文")
 st.markdown("从已上传的毕业设计提交中选择论文进行评估")
 
-submission_content = ""
+submission_content = st.session_state.get('submission_content', "")
 student_info = {}
 selected_submission_data = None
 
@@ -382,6 +430,7 @@ try:
                             
                             if all_content:
                                 submission_content = "\n\n".join(all_content)
+                                st.session_state['submission_content'] = submission_content
                                 st.success(f"✅ 已读取论文内容 ({len(submission_content)} 字符)")
                                 
                                 with st.spinner("正在分析论文摘要和类型..."):
@@ -429,6 +478,8 @@ try:
                                                         chapter_features = features.get('chapter_features', {})
                                                         tech_terms = features.get('tech_terms', {})
                                                         final_scores = features.get('final_scores', {})
+                                                        matched_keywords = features.get('matched_keywords', {})
+                                                        matched_chapters = features.get('matched_chapters', {})
                                                         
                                                         type_labels = {
                                                             'algorithm': '算法类',
@@ -448,6 +499,13 @@ try:
                                                                     "得分条": "█" * int(score * 20)
                                                                 })
                                                             st.table(kw_data)
+                                                            
+                                                            if matched_keywords:
+                                                                st.markdown("**匹配到的关键词详情：**")
+                                                                for type_key, keywords in matched_keywords.items():
+                                                                    if keywords:
+                                                                        kw_detail = "、".join([f"「{k[0]}」(权重{k[1]}, 出现{k[2]}次)" for k in keywords[:5]])
+                                                                        st.markdown(f"- **{type_labels.get(type_key, type_key)}**: {kw_detail}")
                                                         
                                                         st.markdown("##### 2️⃣ 章节结构分析 (权重30%)")
                                                         if chapter_features:
@@ -459,13 +517,18 @@ try:
                                                                     "得分条": "█" * int(score * 20)
                                                                 })
                                                             st.table(ch_data)
+                                                            
+                                                            if matched_chapters:
+                                                                st.markdown("**匹配到的章节标题：**")
+                                                                for type_key, chapters in matched_chapters.items():
+                                                                    if chapters:
+                                                                        st.markdown(f"- **{type_labels.get(type_key, type_key)}**: {', '.join(chapters)}")
                                                         
                                                         st.markdown("##### 3️⃣ 技术术语识别 (权重10%)")
                                                         if tech_terms:
                                                             for type_key, terms in tech_terms.items():
                                                                 if terms:
-                                                                    st.markdown(f"**{type_labels.get(type_key, type_key)}**:")
-                                                                    st.write(", ".join(terms[:5]))
+                                                                    st.markdown(f"**{type_labels.get(type_key, type_key)}**: {', '.join(terms[:5])}")
                                                         
                                                         st.markdown("##### 4️⃣ 综合评分")
                                                         if final_scores:
@@ -482,21 +545,74 @@ try:
                                                     st.markdown("---")
                                                     st.markdown("##### 📝 检测说明")
                                                     st.markdown("""
-                                                    - **关键词特征**：分析论文中出现的技术关键词，如"深度学习"、"仿真"、"硬件"等
-                                                    - **章节结构**：识别论文章节标题，如"算法设计"、"仿真分析"、"硬件制作"等
+                                                    - **关键词特征**：分析论文中出现的技术关键词，根据权重和出现次数计算得分
+                                                    - **章节结构**：识别论文章节标题，匹配典型章节模式
                                                     - **技术术语**：识别具体的技术名词，如CNN、ANSYS、STM32等
                                                     - **综合评分**：关键词60% + 章节结构30% + 技术术语10%
+                                                    - **判断依据**：得分最高的类型即为检测结果
                                                     """)
                                                 
                                                 st.session_state['detected_project_type'] = project_type
                                                 st.session_state['detected_project_type_name'] = project_type_name
                                                 
                                                 with st.expander("📖 查看论文内容片段（确认提取正确）"):
-                                                    st.text_area("内容预览", submission_content[:3000] + "..." if len(submission_content) > 3000 else submission_content, height=300, disabled=True)
+                                                    chapter_options = ["全文预览", "摘要", "引言", "绪论", "结论", "总结", "参考文献", "致谢"]
+                                                    
+                                                    if 'selected_chapter' not in st.session_state:
+                                                        st.session_state['selected_chapter'] = "全文预览"
+                                                    
+                                                    selected_chapter = st.selectbox("选择要查看的章节", chapter_options, key="chapter_selector_main")
+                                                    
+                                                    current_content = st.session_state.get('submission_content', submission_content)
+                                                    
+                                                    if selected_chapter == "全文预览":
+                                                        st.text_area("内容预览", current_content[:3000] + "..." if len(current_content) > 3000 else current_content, height=300, disabled=True, key="full_content_preview")
+                                                    else:
+                                                        try:
+                                                            chapter_response = requests.post(
+                                                                f"{API_BASE_URL}/extract_chapter",
+                                                                json={"content": current_content, "chapter_name": selected_chapter},
+                                                                timeout=30
+                                                            )
+                                                            if chapter_response.status_code == 200:
+                                                                chapter_data = chapter_response.json()
+                                                                if chapter_data.get("has_content"):
+                                                                    st.text_area(f"{selected_chapter}内容", chapter_data.get("content", ""), height=300, disabled=True, key=f"chapter_content_{selected_chapter}")
+                                                                else:
+                                                                    st.info(f"未能提取到「{selected_chapter}」内容")
+                                                            else:
+                                                                st.warning(f"提取章节失败: {chapter_response.status_code}")
+                                                        except Exception as e:
+                                                            st.warning(f"提取章节出错: {str(e)}")
+                                                            st.text_area("内容预览", current_content[:3000] + "..." if len(current_content) > 3000 else current_content, height=300, disabled=True, key="fallback_preview")
                                             else:
                                                 st.warning("⚠️ 未能从论文中提取到摘要")
                                                 with st.expander("📖 查看论文内容片段"):
-                                                    st.text_area("内容预览", submission_content[:3000] + "..." if len(submission_content) > 3000 else submission_content, height=300, disabled=True)
+                                                    chapter_options = ["全文预览", "摘要", "引言", "绪论", "结论", "总结", "参考文献", "致谢"]
+                                                    selected_chapter = st.selectbox("选择要查看的章节", chapter_options, key="chapter_selector_no_abstract")
+                                                    
+                                                    current_content = st.session_state.get('submission_content', submission_content)
+                                                    
+                                                    if selected_chapter == "全文预览":
+                                                        st.text_area("内容预览", current_content[:3000] + "..." if len(current_content) > 3000 else current_content, height=300, disabled=True, key="full_content_preview_no_abstract")
+                                                    else:
+                                                        try:
+                                                            chapter_response = requests.post(
+                                                                f"{API_BASE_URL}/extract_chapter",
+                                                                json={"content": current_content, "chapter_name": selected_chapter},
+                                                                timeout=30
+                                                            )
+                                                            if chapter_response.status_code == 200:
+                                                                chapter_data = chapter_response.json()
+                                                                if chapter_data.get("has_content"):
+                                                                    st.text_area(f"{selected_chapter}内容", chapter_data.get("content", ""), height=300, disabled=True, key=f"chapter_content_{selected_chapter}_no_abstract")
+                                                                else:
+                                                                    st.info(f"未能提取到「{selected_chapter}」内容")
+                                                            else:
+                                                                st.warning(f"提取章节失败: {chapter_response.status_code}")
+                                                        except Exception as e:
+                                                            st.warning(f"提取章节出错: {str(e)}")
+                                                            st.text_area("内容预览", current_content[:3000] + "..." if len(current_content) > 3000 else current_content, height=300, disabled=True, key="fallback_preview_no_abstract")
                                                 st.session_state['detected_project_type'] = None
                                         else:
                                             st.warning("⚠️ 论文分析失败")
@@ -559,6 +675,8 @@ with st.expander("⚖️ 融合评价设置", expanded=False):
             st.error(f"❌ 加载配置文件失败: {str(e)}")
             st.session_state.institutional_config = None
     
+    dimension_weights = {}
+    
     if st.session_state.institutional_config:
         config = st.session_state.institutional_config
         dimensions = config.get('dimensions', [])
@@ -605,6 +723,8 @@ with st.expander("⚖️ 融合评价设置", expanded=False):
             for dim in dimensions:
                 dimension_weights[dim.get('dimension_id', '')] = 25
         
+        st.session_state['dimension_weights'] = dimension_weights
+        
         st.divider()
         st.subheader("📈 自动计算权重")
         
@@ -616,6 +736,70 @@ with st.expander("⚖️ 融合评价设置", expanded=False):
             
             with weight_display_cols[i]:
                 st.metric(dim_name, f"{weight}%")
+        
+        st.divider()
+        st.subheader("🔧 融合系数设置")
+        st.markdown("""
+        设置各评分等级对应的融合系数。融合系数用于调整最终分数。
+        
+        💡 **说明：**
+        - **融合系数 > 1**：分数提升（表现好的维度）
+        - **融合系数 = 1**：分数不变
+        - **融合系数 < 1**：分数降低（表现差的维度）
+        - 最终分数 = 原始分数 × 平均融合系数
+        """)
+        
+        use_custom_coefficients = st.checkbox("使用自定义融合系数", value=False, key="use_custom_coefficients_checkbox")
+        
+        if use_custom_coefficients:
+            st.markdown("**各等级融合系数设置：**")
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.markdown("**优秀**")
+                st.markdown("(90-100分)")
+                excellent_coef = st.number_input("系数", min_value=0.50, max_value=2.00, value=1.15, step=0.01, key="coef_excellent")
+            
+            with col2:
+                st.markdown("**良好**")
+                st.markdown("(80-89分)")
+                good_coef = st.number_input("系数", min_value=0.50, max_value=2.00, value=1.05, step=0.01, key="coef_good")
+            
+            with col3:
+                st.markdown("**中等**")
+                st.markdown("(70-79分)")
+                medium_coef = st.number_input("系数", min_value=0.50, max_value=2.00, value=0.98, step=0.01, key="coef_medium")
+            
+            with col4:
+                st.markdown("**及格**")
+                st.markdown("(60-69分)")
+                pass_coef = st.number_input("系数", min_value=0.50, max_value=2.00, value=0.90, step=0.01, key="coef_pass")
+            
+            with col5:
+                st.markdown("**不及格**")
+                st.markdown("(<60分)")
+                fail_coef = st.number_input("系数", min_value=0.50, max_value=2.00, value=0.78, step=0.01, key="coef_fail")
+            
+            coefficient_config = {
+                "excellent": excellent_coef,
+                "good": good_coef,
+                "medium": medium_coef,
+                "pass": pass_coef,
+                "fail": fail_coef
+            }
+            st.info(f"📊 自定义融合系数：优秀{excellent_coef:.2f}, 良好{good_coef:.2f}, 中等{medium_coef:.2f}, 及格{pass_coef:.2f}, 不及格{fail_coef:.2f}")
+        else:
+            coefficient_config = {
+                "excellent": 1.15,
+                "good": 1.05,
+                "medium": 0.98,
+                "pass": 0.90,
+                "fail": 0.78
+            }
+            st.info("📊 使用默认融合系数：优秀1.15, 良好1.05, 中等0.98, 及格0.90, 不及格0.78")
+        
+        st.session_state['coefficient_config'] = coefficient_config
         
         col_save, col_reset = st.columns(2)
         with col_save:
@@ -651,21 +835,6 @@ with st.expander("⚖️ 融合评价设置", expanded=False):
                     st.error(f"❌ 重置失败: {str(e)}")
         
         st.divider()
-        
-        st.subheader("🔢 融合系数说明")
-        st.markdown("""
-        融合系数根据各维度评分等级自动确定，用于调节最终评分：
-        
-        | 等级 | 融合系数 | 效果 |
-        |------|---------|------|
-        | 优秀 (90-100分) | 1.10 - 1.20 | 分数增加10%-20% |
-        | 良好 (80-89分) | 1.00 - 1.10 | 分数增加0%-10% |
-        | 中等 (70-79分) | 0.95 - 1.00 | 分数减少0%-5% |
-        | 及格 (60-69分) | 0.85 - 0.95 | 分数减少5%-15% |
-        | 不及格 (<60分) | 0.70 - 0.85 | 分数减少15%-30% |
-        
-        **计算公式**：最终分数 = 原始指标分数 × 综合调节系数
-        """)
 
 st.markdown("---")
 
@@ -675,6 +844,10 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
     elif method_value == "rule_engine" and not extracted_guidance:
         st.error("❌ 规则引擎评分需要先选择评价指标")
     else:
+        current_dimension_weights = st.session_state.get('dimension_weights', {})
+        current_coefficient_config = st.session_state.get('coefficient_config', {})
+        current_use_custom_coefficients = st.session_state.get('use_custom_coefficients_checkbox', False)
+        
         if method_value == "rule_engine":
             with st.spinner("正在进行LLM确定性评分（这可能需要1-2分钟）..."):
                 try:
@@ -684,7 +857,10 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                             "submission_content": submission_content,
                             "indicators": extracted_guidance,
                             "student_info": student_info,
-                            "use_cache": use_cache
+                            "use_cache": use_cache,
+                            "dimension_weights": current_dimension_weights,
+                            "coefficient_config": current_coefficient_config,
+                            "use_custom_coefficients": current_use_custom_coefficients
                         },
                         timeout=180
                     )
@@ -694,128 +870,202 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                         
                         st.success("✅ 评估完成！（确定性评分，结果可复现）")
                         
-                        overall_score = result.get('overall_score', 0)
+                        st.markdown("---")
+                        st.header("📊 评估结果总览")
+                        
+                        original_score = result.get('original_score', 0)
+                        fusion_score = result.get('overall_score', 0)
                         grade_level = result.get('grade_level', '')
-                        evaluation_method = result.get('evaluation_method', 'llm_deterministic')
+                        fusion_coefficient = result.get('fusion_coefficient', 1.0)
                         
-                        col1, col2, col3 = st.columns(3)
+                        col1, col2, col3, col4 = st.columns(4)
                         with col1:
-                            st.metric("综合评分", f"{overall_score}分")
+                            st.metric("原始评分", f"{original_score}分")
                         with col2:
-                            st.metric("等级", grade_level)
+                            st.metric("融合系数", f"{fusion_coefficient:.4f}")
                         with col3:
-                            st.metric("评分方式", "LLM确定性评分")
+                            st.metric("最终评分", f"{fusion_score}分")
+                        with col4:
+                            st.metric("等级", grade_level)
                         
-                        overall_comment = result.get('overall_comment', '')
-                        if overall_comment:
-                            st.subheader("📝 总体评价")
-                            st.markdown(overall_comment)
+                        st.markdown("---")
                         
-                        dimension_scores = result.get('dimension_scores', [])
-                        if dimension_scores:
-                            st.subheader("📈 各指标评分")
+                        with st.expander("📋 第一部分：原始大模型评分结果", expanded=True):
+                            st.subheader("🤖 规则引擎评分详情")
+                            st.info("以下是基于评价指标的原始大模型评分结果，包含各指标的评分理由和论文证据。")
                             
-                            for ds in dimension_scores:
-                                indicator_id = ds.get('indicator_id', '未知指标')
-                                indicator_name = ds.get('indicator_name', indicator_id)
-                                score = ds.get('score', 0)
-                                grade = ds.get('grade_level', '')
-                                score_reason = ds.get('score_reason', '')
-                                evidence = ds.get('evidence', '')
-                                suggestions = ds.get('improvement_suggestions', [])
+                            overall_comment = result.get('overall_comment', '')
+                            if overall_comment:
+                                st.markdown("**总体评价:**")
+                                st.markdown(overall_comment)
+                                st.markdown("")
+                            
+                            dimension_scores = result.get('dimension_scores', [])
+                            if dimension_scores:
+                                st.markdown("**各指标评分详情:**")
                                 
-                                with st.expander(f"**{indicator_name}** ({indicator_id}) - {score}分 ({grade})", expanded=False):
-                                    if score_reason:
-                                        st.markdown(f"**评分理由:**")
-                                        st.markdown(score_reason)
-                                        st.markdown("")
+                                for ds in dimension_scores:
+                                    indicator_id = ds.get('indicator_id', '未知指标')
+                                    indicator_name = ds.get('indicator_name', indicator_id)
+                                    score = ds.get('score', 0)
+                                    grade = ds.get('grade_level', '')
+                                    score_reason = ds.get('score_reason', '')
+                                    evidence = ds.get('evidence', '')
+                                    suggestions = ds.get('improvement_suggestions', [])
                                     
-                                    if evidence:
-                                        st.markdown(f"**论文证据:**")
-                                        st.markdown(f"> {evidence}")
-                                        st.markdown("")
-                                    
-                                    if suggestions:
-                                        st.markdown(f"**改进建议:**")
-                                        for s in suggestions:
-                                            st.markdown(f"- {s}")
-                        
-                        strengths = result.get('strengths', [])
-                        weaknesses = result.get('weaknesses', [])
-                        
-                        if strengths:
-                            st.subheader("💪 优势")
-                            for s in strengths:
-                                st.markdown(f"✅ {s}")
-                        
-                        if weaknesses:
-                            st.subheader("📌 待改进")
-                            for w in weaknesses:
-                                st.markdown(f"⚠️ {w}")
+                                    with st.expander(f"**{indicator_name}** ({indicator_id}) - {score}分 ({grade})", expanded=False):
+                                        if score_reason:
+                                            st.markdown(f"**评分理由:**")
+                                            st.markdown(score_reason)
+                                            st.markdown("")
+                                        
+                                        if evidence:
+                                            st.markdown(f"**论文证据:**")
+                                            st.markdown(f"> {evidence}")
+                                            st.markdown("")
+                                        
+                                        if suggestions:
+                                            st.markdown(f"**改进建议:**")
+                                            for s in suggestions:
+                                                st.markdown(f"- {s}")
+                            
+                            strengths = result.get('strengths', [])
+                            weaknesses = result.get('weaknesses', [])
+                            
+                            st.markdown("---")
+                            col_s, col_w = st.columns(2)
+                            with col_s:
+                                if strengths:
+                                    st.markdown("**💪 优势:**")
+                                    for s in strengths:
+                                        st.markdown(f"✅ {s}")
+                            with col_w:
+                                if weaknesses:
+                                    st.markdown("**📌 待改进:**")
+                                    for w in weaknesses:
+                                        st.markdown(f"⚠️ {w}")
                         
                         institutional_eval = result.get('institutional_evaluation', {})
                         if institutional_eval and institutional_eval.get('institutional_scores'):
-                            st.divider()
-                            st.subheader("🏛️ 校方固有评价体系评分")
-                            st.info("📋 校方固有评价体系包含四个核心维度：创新度、研究分析深度、文章结构、研究方法与实验")
-                            
-                            inst_scores = institutional_eval.get('institutional_scores', [])
-                            overall_inst_score = institutional_eval.get('overall_institutional_score', 0)
-                            overall_inst_grade = institutional_eval.get('overall_institutional_grade', '')
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("固有体系总分", f"{overall_inst_score}分")
-                            with col2:
-                                st.metric("总体等级", overall_inst_grade)
-                            
-                            for inst_score in inst_scores:
-                                dim_name = inst_score.get('dimension_name', '未知维度')
-                                dim_score = inst_score.get('score', 0)
-                                dim_grade = inst_score.get('grade_level', '')
-                                dim_reason = inst_score.get('score_reason', '')
-                                dim_evidence = inst_score.get('evidence', '')
+                            with st.expander("🏛️ 第二部分：校方固有评价体系评分", expanded=True):
+                                st.subheader("🎓 四维度综合评价")
+                                st.info("📋 校方固有评价体系包含四个核心维度，根据用户设置的权重进行评分。")
                                 
-                                with st.expander(f"**{dim_name}** - {dim_score}分 ({dim_grade})"):
-                                    if dim_reason:
-                                        st.markdown(f"**评分理由:** {dim_reason}")
-                                    if dim_evidence:
-                                        st.markdown(f"**论文证据:**")
-                                        st.markdown(f"> {dim_evidence}")
+                                dimension_weights = st.session_state.get('dimension_weights', {})
+                                if dimension_weights:
+                                    st.markdown("**用户设置的维度权重:**")
+                                    weight_cols = st.columns(4)
+                                    dim_name_map = {
+                                        "innovation": "创新度",
+                                        "research_depth": "研究分析深度",
+                                        "structure": "文章结构",
+                                        "method_experiment": "研究方法与实验"
+                                    }
+                                    for i, (dim_id, weight) in enumerate(dimension_weights.items()):
+                                        with weight_cols[i]:
+                                            dim_name = dim_name_map.get(dim_id, dim_id)
+                                            st.metric(dim_name, f"{weight}%")
+                                    st.markdown("")
+                                
+                                inst_scores = institutional_eval.get('institutional_scores', [])
+                                overall_inst_score = institutional_eval.get('overall_institutional_score', 0)
+                                overall_inst_grade = institutional_eval.get('overall_institutional_grade', '')
+                                
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.metric("固有体系加权总分", f"{overall_inst_score}分")
+                                with col2:
+                                    st.metric("总体等级", overall_inst_grade)
+                                
+                                st.markdown("---")
+                                st.markdown("**各维度评分详情:**")
+                                
+                                for inst_score in inst_scores:
+                                    dim_id = inst_score.get('dimension_id', '')
+                                    dim_name = inst_score.get('dimension_name', '未知维度')
+                                    dim_score = inst_score.get('score', 0)
+                                    dim_grade = inst_score.get('grade_level', '')
+                                    dim_reason = inst_score.get('score_reason', '')
+                                    dim_evidence = inst_score.get('evidence', '')
+                                    user_weight = dimension_weights.get(dim_id, 25)
+                                    
+                                    with st.expander(f"**{dim_name}** - {dim_score}分 ({dim_grade}) | 权重: {user_weight}%", expanded=False):
+                                        st.markdown(f"**评分等级:** {dim_grade} (分数区间对应)")
+                                        st.markdown(f"**评分理由:**")
+                                        st.markdown(dim_reason if dim_reason else "无")
+                                        if dim_evidence:
+                                            st.markdown(f"**论文证据:**")
+                                            st.markdown(f"> {dim_evidence}")
                             
                             fusion_details = result.get('fusion_details', {})
                             if fusion_details:
-                                st.subheader("⚖️ 权重融合详情")
-                                original_score = result.get('original_score', overall_score)
-                                fusion_coefficient = result.get('fusion_coefficient', 1.0)
-                                adjustment = fusion_details.get('adjustment', 0)
-                                
-                                col1, col2, col3 = st.columns(3)
-                                with col1:
-                                    st.metric("原始评分", f"{original_score}分")
-                                with col2:
-                                    st.metric("融合系数", f"{fusion_coefficient:.4f}")
-                                with col3:
-                                    if adjustment >= 0:
-                                        st.metric("分数调整", f"+{adjustment}分")
-                                    else:
-                                        st.metric("分数调整", f"{adjustment}分")
-                                
-                                dim_coefs = fusion_details.get('dimension_coefficients', {})
-                                if dim_coefs:
-                                    st.markdown("**各维度调节系数:**")
-                                    for dim_id, coef_info in dim_coefs.items():
-                                        dim_name_map = {
-                                            "innovation": "创新度",
-                                            "research_depth": "研究分析深度",
-                                            "structure": "文章结构",
-                                            "method_experiment": "研究方法与实验"
+                                with st.expander("⚖️ 第三部分：融合计算详情", expanded=True):
+                                    st.subheader("🔢 融合系数计算过程")
+                                    st.info("根据各维度评分等级，使用用户设置的融合系数计算最终分数。")
+                                    
+                                    coefficient_config_used = fusion_details.get('coefficient_config_used', {})
+                                    if coefficient_config_used:
+                                        st.markdown("**使用的融合系数配置:**")
+                                        grade_names = {
+                                            "excellent": "优秀 (90-100分)",
+                                            "good": "良好 (80-89分)",
+                                            "medium": "中等 (70-79分)",
+                                            "pass": "及格 (60-69分)",
+                                            "fail": "不及格 (<60分)"
                                         }
-                                        display_name = dim_name_map.get(dim_id, dim_id)
-                                        coef = coef_info.get('coefficient', 1.0)
-                                        score = coef_info.get('score', 0)
-                                        grade = coef_info.get('grade_level', '')
-                                        st.markdown(f"- **{display_name}**: 系数 {coef:.4f} (评分: {score}分, 等级: {grade})")
+                                        coef_cols = st.columns(5)
+                                        for i, (grade_key, coef_value) in enumerate(coefficient_config_used.items()):
+                                            with coef_cols[i]:
+                                                grade_name = grade_names.get(grade_key, grade_key)
+                                                if isinstance(coef_value, dict):
+                                                    min_coef = coef_value.get('min', 1.0)
+                                                    max_coef = coef_value.get('max', 1.0)
+                                                    st.metric(grade_name, f"{min_coef:.2f}-{max_coef:.2f}")
+                                                else:
+                                                    st.metric(grade_name, f"{coef_value:.2f}")
+                                        st.markdown("")
+                                    
+                                    dim_coefs = fusion_details.get('dimension_coefficients', {})
+                                    if dim_coefs:
+                                        st.markdown("**各维度融合系数计算:**")
+                                        
+                                        coef_data = []
+                                        for dim_id, coef_info in dim_coefs.items():
+                                            dim_name_map = {
+                                                "innovation": "创新度",
+                                                "research_depth": "研究分析深度",
+                                                "structure": "文章结构",
+                                                "method_experiment": "研究方法与实验"
+                                            }
+                                            display_name = dim_name_map.get(dim_id, dim_id)
+                                            coef = coef_info.get('coefficient', 1.0)
+                                            score = coef_info.get('score', 0)
+                                            grade = coef_info.get('grade_level', '')
+                                            coef_data.append({
+                                                "维度": display_name,
+                                                "评分": f"{score}分",
+                                                "等级": grade,
+                                                "融合系数": f"{coef:.4f}"
+                                            })
+                                        
+                                        st.table(coef_data)
+                                        
+                                        st.markdown("**计算公式:**")
+                                        st.markdown(f"```\n平均融合系数 = ({' + '.join([str(c['融合系数']) for c in coef_data])}) / {len(coef_data)} = {fusion_coefficient:.4f}\n```")
+                                        st.markdown(f"```\n最终分数 = 原始分数 × 平均融合系数 = {original_score} × {fusion_coefficient:.4f} = {fusion_score:.1f}分\n```")
+                                    
+                                    adjustment = fusion_details.get('adjustment', 0)
+                                    st.markdown("---")
+                                    col1, col2, col3 = st.columns(3)
+                                    with col1:
+                                        st.metric("原始评分", f"{original_score}分")
+                                    with col2:
+                                        st.metric("分数调整", f"{'+' if adjustment >= 0 else ''}{adjustment}分")
+                                    with col3:
+                                        st.metric("最终评分", f"{fusion_score}分")
+                        
+                        if not (institutional_eval and institutional_eval.get('institutional_scores')):
+                            st.info("💡 未进行校方固有评价体系评分，仅显示原始大模型评分结果。")
                     else:
                         st.error(f"❌ 评估失败: {response.json().get('detail', '未知错误')}")
                 except Exception as e:

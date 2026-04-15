@@ -153,13 +153,16 @@ class ThesisTypeDetector:
                 "keyword_scores": keyword_scores,
                 "chapter_features": chapter_features,
                 "tech_terms": tech_terms,
-                "final_scores": final_scores
+                "final_scores": final_scores,
+                "matched_keywords": getattr(self, '_matched_keywords_detail', {}),
+                "matched_chapters": getattr(self, '_matched_chapters_detail', {})
             }
         }
     
     def _analyze_keywords(self, text: str) -> Dict[str, float]:
         """分析关键词特征"""
         scores = {}
+        matched_keywords_detail = {}
         text_lower = text.lower()
         
         for type_key, features in self.TYPE_FEATURES.items():
@@ -169,7 +172,7 @@ class ThesisTypeDetector:
             for keyword, weight in features.keywords.items():
                 if keyword.lower() in text_lower:
                     score += weight
-                    matched_keywords.append(keyword)
+                    matched_keywords.append((keyword, weight, text_lower.count(keyword.lower())))
             
             if features.required:
                 required_match = any(
@@ -185,23 +188,31 @@ class ThesisTypeDetector:
             
             max_possible = sum(features.keywords.values())
             scores[type_key] = score / max_possible if max_possible > 0 else 0
+            matched_keywords_detail[type_key] = sorted(matched_keywords, key=lambda x: -x[1])[:10]
         
+        self._matched_keywords_detail = matched_keywords_detail
         return scores
     
     def _analyze_chapters(self, content: str) -> Dict[str, float]:
         """分析章节结构"""
         scores = {}
+        matched_chapters_detail = {}
         
         for type_key, features in self.TYPE_FEATURES.items():
             score = 0
+            matched_chapters = []
             patterns = self._chapter_pattern_cache.get(type_key, [])
             
             for pattern in patterns:
                 matches = pattern.findall(content)
+                if matches:
+                    matched_chapters.extend(matches)
                 score += len(matches)
             
             scores[type_key] = score / max(len(patterns), 1)
+            matched_chapters_detail[type_key] = list(set(matched_chapters))
         
+        self._matched_chapters_detail = matched_chapters_detail
         return scores
     
     def _analyze_tech_terms(self, text: str) -> Dict[str, List[str]]:

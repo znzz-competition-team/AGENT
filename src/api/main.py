@@ -207,44 +207,191 @@ def extract_abstract(content: str) -> str:
     从论文内容中提取中文摘要（改进版）
     
     改进点：
-    1. 支持多种摘要格式（标准格式、带编号格式、单独成段）
-    2. 保留合理的空白，提高可读性
-    3. 支持中英文混合论文
+    1. 精确定位中文摘要，排除标题、关键词、英文摘要
+    2. 在关键词、ABSTRACT等标记处停止
+    3. 处理各种格式变体
     """
     if not content:
         return ""
     
-    chinese_abstract_patterns = [
-        r'摘\s*要[：:\s]*\n?(.*?)(?=\n\s*(?:关键词|Key\s*words|Keyword|ABSTRACT|Abstract|目录|引言|绪论|第一章|密\s*级))',
-        r'(?:^|\n)\s*(?:1\s*[.．、]?\s*)?摘\s*要[：:\s]*\n?(.*?)(?=\n\s*(?:2\s*[.．、]|关键词|Key\s*words|ABSTRACT|Abstract))',
-        r'摘\s*要\s*\n+(.*?)(?=\n\s*(?:关键词|Key\s*words|ABSTRACT|Abstract))',
+    def clean_abstract_text(text: str) -> str:
+        """清理摘要文本"""
+        text = re.sub(r'[ \t]+', '', text)
+        text = re.sub(r'\n+', '', text)
+        text = text.strip()
+        return text
+    
+    patterns = [
+        r'摘\s*要\s*[：:]*\s*\n?(.*?)(?=\s*(?:关键词|Key\s*words|Keyword|ABSTRACT|Abstract|目录|引言|绪论|第一章|第1章))',
+        r'(?:^|\n)\s*摘\s*要\s*[：:]*\s*\n?(.*?)(?=\n\s*(?:关键词|ABSTRACT|Abstract))',
     ]
     
-    for pattern in chinese_abstract_patterns:
+    for pattern in patterns:
         match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
         if match:
             abstract = match.group(1).strip()
-            abstract = re.sub(r'[ \t]+', ' ', abstract)
-            abstract = re.sub(r'\n+', '\n', abstract)
-            abstract = re.sub(r'^[A-Za-z0-9\s.,;:!?()\[\]{}\-]+$', '', abstract.strip())
+            abstract = clean_abstract_text(abstract)
+            
             if len(abstract) > 50:
                 return abstract
     
     lines = content.split('\n')
+    abstract_start = -1
+    abstract_end = -1
+    
     for i, line in enumerate(lines):
-        if '摘要' in line and 'ABSTRACT' not in line.upper():
-            abstract_lines = []
-            for j in range(i + 1, min(i + 30, len(lines))):
-                text = lines[j].strip()
-                if 'ABSTRACT' in text.upper() or '关键词' in text or 'Keyword' in text or 'Key words' in text:
-                    break
-                if text and '目录' not in text and '引言' not in text and '绪论' not in text:
-                    abstract_lines.append(text)
-            if abstract_lines:
-                abstract = ' '.join(abstract_lines)
-                abstract = re.sub(r'[ \t]+', ' ', abstract)
-                if len(abstract) > 50:
-                    return abstract
+        line_stripped = line.strip()
+        
+        if '摘要' in line_stripped and 'ABSTRACT' not in line_stripped.upper():
+            if '关键词' not in line_stripped:
+                abstract_start = i + 1
+                break
+    
+    if abstract_start == -1:
+        return ""
+    
+    for j in range(abstract_start, min(abstract_start + 60, len(lines))):
+        line_stripped = lines[j].strip()
+        
+        if not line_stripped:
+            continue
+        
+        if re.search(r'关键词|Key\s*words|Keyword', line_stripped, re.IGNORECASE):
+            abstract_end = j
+            break
+        
+        if 'ABSTRACT' in line_stripped.upper() and '摘要' not in line_stripped:
+            abstract_end = j
+            break
+        
+        if re.match(r'^第[一二三四五六七八九十\d]+\s*章', line_stripped):
+            abstract_end = j
+            break
+        
+        if '目录' in line_stripped or '引言' in line_stripped or '绪论' in line_stripped:
+            abstract_end = j
+            break
+        
+        if re.match(r'^[IVXivx]+$', line_stripped) and len(line_stripped) <= 3:
+            if j > abstract_start + 5:
+                abstract_end = j
+                break
+    
+    if abstract_end == -1:
+        abstract_end = min(abstract_start + 50, len(lines))
+    
+    abstract_lines = []
+    for k in range(abstract_start, abstract_end):
+        line = lines[k].strip()
+        if not line:
+            continue
+        
+        if re.match(r'^[IVXivx]+$', line) and len(line) <= 3:
+            continue
+        if re.match(r'^\d+$', line) and len(line) <= 3:
+            continue
+        
+        abstract_lines.append(line)
+    
+    if abstract_lines:
+        abstract = ''.join(abstract_lines)
+        abstract = clean_abstract_text(abstract)
+        
+        if len(abstract) > 50:
+            return abstract
+    
+    return ""
+
+def clean_text_content(text: str) -> str:
+    """
+    清理文本内容，移除多余空格
+    
+    与摘要提取使用相同的清理逻辑
+    """
+    if not text:
+        return ""
+    
+    text = re.sub(r'[ \t]+', '', text)
+    text = re.sub(r'\n+', '\n', text)
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
+def extract_chapter(content: str, chapter_name: str) -> str:
+    """
+    从论文内容中提取指定章节
+    
+    Args:
+        content: 论文全文内容
+        chapter_name: 章节名称，如 "引言"、"绪论"、"结论" 等
+        
+    Returns:
+        提取的章节内容
+    """
+    if not content or not chapter_name:
+        return ""
+    
+    chapter_patterns = {
+        "摘要": [r'摘\s*要\s*[：:]*\s*\n?(.*?)(?=\s*(?:关键词|Key\s*words|Keyword|ABSTRACT|Abstract))'],
+        "引言": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?引言\s*\n?(.*?)(?=\n\s*(?:第[一二三四五六七八九十\d]+\s*章|参考文献|致谢|结论|总结))'],
+        "绪论": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?绪论\s*\n?(.*?)(?=\n\s*(?:第[一二三四五六七八九十\d]+\s*章|参考文献|致谢|结论|总结))'],
+        "结论": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?结论\s*\n?(.*?)(?=\n\s*(?:参考文献|致谢|附录))'],
+        "总结": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?总结\s*\n?(.*?)(?=\n\s*(?:参考文献|致谢|附录))'],
+        "参考文献": [r'参考\s*文献\s*\n?(.*?)(?=\n\s*(?:致谢|附录|$))'],
+        "致谢": [r'致\s*谢\s*\n?(.*?)(?=\n\s*(?:附录|作者简介|$))'],
+    }
+    
+    patterns = chapter_patterns.get(chapter_name, [re.escape(chapter_name) + r'\s*\n?(.*?)(?=\n\s*(?:第[一二三四五六七八九十\d]+\s*章|参考文献|致谢))'])
+    
+    for pattern in patterns:
+        match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+        if match:
+            chapter_content = match.group(1).strip()
+            chapter_content = clean_text_content(chapter_content)
+            if len(chapter_content) > 50:
+                return chapter_content[:3000]
+    
+    lines = content.split('\n')
+    chapter_start = -1
+    chapter_end = -1
+    
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if chapter_name in line_stripped:
+            chapter_start = i + 1
+            break
+    
+    if chapter_start == -1:
+        return ""
+    
+    for j in range(chapter_start, min(chapter_start + 100, len(lines))):
+        line_stripped = lines[j].strip()
+        
+        if re.match(r'^第[一二三四五六七八九十\d]+\s*章', line_stripped):
+            chapter_end = j
+            break
+        if '参考文献' in line_stripped or '致谢' in line_stripped:
+            chapter_end = j
+            break
+    
+    if chapter_end == -1:
+        chapter_end = min(chapter_start + 50, len(lines))
+    
+    chapter_lines = []
+    for k in range(chapter_start, chapter_end):
+        line = lines[k].strip()
+        if line:
+            chapter_lines.append(line)
+    
+    if chapter_lines:
+        chapter_content = '\n'.join(chapter_lines)
+        return chapter_content[:3000]
     
     return ""
 
@@ -1353,15 +1500,17 @@ async def evaluate_with_rule_engine(
     request: Dict = Body(...)
 ):
     """
-    使用规则引擎进行确定性评分
-    确保相同输入产生相同输出，解决评价结果不一致问题
+    使用大模型进行评分（根据评价指标）
+    支持校方固有评价体系融合评分
+    总共调用2次大模型：
+    1. 原始评分：根据评价指标评分
+    2. 融合系数：固有评价体系评分
     """
     try:
-        from src.evaluation.rule_engine import rule_engine
-        
         submission_content = request.get('submission_content', '')
         indicators = request.get('indicators', {})
         student_info = request.get('student_info', {})
+        dimension_weights = request.get('dimension_weights', {})
         
         if not submission_content:
             raise HTTPException(status_code=400, detail="提交内容不能为空")
@@ -1369,31 +1518,82 @@ async def evaluate_with_rule_engine(
         if not indicators:
             raise HTTPException(status_code=400, detail="评价指标不能为空，请先选择评价指标")
         
-        rule_engine.load_rules_from_indicators(indicators)
+        from src.evaluation.llm_evaluator import llm_evaluator
         
-        result = rule_engine.evaluate(submission_content)
+        print("正在进行原始评分（第1次大模型调用）...")
+        result = llm_evaluator.evaluate_with_indicators(
+            submission_content=submission_content,
+            indicators=indicators,
+            student_info=student_info
+        )
         
         result["student_info"] = student_info
-        result["evaluation_method"] = "rule_engine"
-        result["is_deterministic"] = True
         
         strengths = []
         weaknesses = []
         
         for dim in result.get("dimension_scores", []):
             if dim.get("score", 0) >= 80:
-                strengths.append(f"{dim.get('indicator_id', '')}表现良好({dim.get('score')}分)")
+                strengths.append(f"{dim.get('indicator_name', dim.get('indicator_id', ''))}表现良好({dim.get('score')}分)")
             elif dim.get("score", 0) < 60:
-                weaknesses.append(f"{dim.get('indicator_id', '')}需要改进({dim.get('score')}分)")
+                weaknesses.append(f"{dim.get('indicator_name', dim.get('indicator_id', ''))}需要改进({dim.get('score')}分)")
         
         result["strengths"] = strengths if strengths else ["整体表现符合要求"]
         result["weaknesses"] = weaknesses if weaknesses else ["无明显短板"]
+        
+        coefficient_config = request.get('coefficient_config', {})
+        use_custom_coefficients = request.get('use_custom_coefficients', False)
+        
+        if dimension_weights:
+            try:
+                print("正在进行校方固有评价体系评分（第2次大模型调用）...")
+                institutional_result = llm_evaluator.evaluate_institutional_dimensions(
+                    submission_content=submission_content,
+                    dimension_weights=dimension_weights
+                )
+                
+                result["institutional_evaluation"] = institutional_result
+                
+                original_score = result.get("overall_score", 0)
+                fusion_result = llm_evaluator.calculate_fusion_score(
+                    rule_engine_score=original_score,
+                    institutional_result=institutional_result,
+                    coefficient_config=coefficient_config if use_custom_coefficients else None
+                )
+                
+                result["original_score"] = fusion_result["original_score"]
+                result["fusion_coefficient"] = fusion_result["fusion_coefficient"]
+                result["adjustment"] = fusion_result["adjustment"]
+                result["fusion_details"] = {
+                    "adjustment": fusion_result["adjustment"],
+                    "dimension_coefficients": fusion_result["dimension_coefficients"],
+                    "coefficient_config_used": fusion_result.get("coefficient_config_used", {})
+                }
+                
+                result["overall_score"] = fusion_result["fusion_score"]
+                
+                if fusion_result["fusion_score"] >= 90:
+                    result["grade_level"] = "优秀"
+                elif fusion_result["fusion_score"] >= 80:
+                    result["grade_level"] = "良好"
+                elif fusion_result["fusion_score"] >= 70:
+                    result["grade_level"] = "中等"
+                elif fusion_result["fusion_score"] >= 60:
+                    result["grade_level"] = "及格"
+                else:
+                    result["grade_level"] = "不及格"
+                
+                print(f"融合评分完成: 原始{fusion_result['original_score']}分 -> 融合后{fusion_result['fusion_score']}分")
+                
+            except Exception as e:
+                print(f"固有评价体系评分失败: {str(e)}")
+                result["institutional_evaluation_error"] = str(e)
         
         return result
         
     except Exception as e:
         error_message = str(e)
-        raise HTTPException(status_code=500, detail=f"规则引擎评分失败: {error_message}")
+        raise HTTPException(status_code=500, detail=f"评分失败: {error_message}")
 
 @app.post("/evaluate", response_model=EvaluationResponse)
 async def evaluate_submission(
@@ -2376,6 +2576,34 @@ async def analyze_thesis_abstract(request: AnalyzeThesisRequest):
     except Exception as e:
         logger.error(f"分析论文摘要失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"分析论文摘要失败: {str(e)}")
+
+class ExtractChapterRequest(BaseModel):
+    content: str
+    chapter_name: str
+
+@app.post("/extract_chapter")
+async def api_extract_chapter(request: ExtractChapterRequest):
+    """
+    提取论文指定章节内容
+    
+    Args:
+        content: 论文全文内容
+        chapter_name: 章节名称（摘要、引言、绪论、结论、总结、参考文献、致谢）
+        
+    Returns:
+        提取的章节内容
+    """
+    try:
+        chapter_content = extract_chapter(request.content, request.chapter_name)
+        
+        return {
+            "chapter_name": request.chapter_name,
+            "content": chapter_content,
+            "has_content": len(chapter_content) > 0
+        }
+    except Exception as e:
+        logger.error(f"提取章节内容失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"提取章节内容失败: {str(e)}")
 
 # 主入口
 @app.delete("/evaluations/{evaluation_id}")

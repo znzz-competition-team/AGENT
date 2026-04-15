@@ -9,6 +9,52 @@ import re
 # API 基础 URL
 API_BASE_URL = "http://localhost:8000"
 
+# AI 提供商配置
+AI_PROVIDERS = {
+    "deepseek": {
+        "name": "DeepSeek",
+        "description": "国产大模型，性价比高",
+        "base_url": "https://api.deepseek.com/v1",
+        "models": ["deepseek-chat", "deepseek-coder"],
+        "default_model": "deepseek-chat"
+    },
+    "openai": {
+        "name": "OpenAI",
+        "description": "国际领先的AI模型提供商",
+        "base_url": "https://api.openai.com/v1",
+        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+        "default_model": "gpt-4o"
+    },
+    "zhipu": {
+        "name": "智谱AI",
+        "description": "国产大模型，GLM系列",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "models": ["glm-4", "glm-4-flash", "glm-3-turbo"],
+        "default_model": "glm-4"
+    },
+    "qwen": {
+        "name": "通义千问",
+        "description": "阿里云大模型",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+        "default_model": "qwen-plus"
+    },
+    "moonshot": {
+        "name": "Moonshot",
+        "description": "月之暗面，长文本处理能力强",
+        "base_url": "https://api.moonshot.cn/v1",
+        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+        "default_model": "moonshot-v1-8k"
+    },
+    "custom": {
+        "name": "自定义",
+        "description": "自定义API配置",
+        "base_url": "",
+        "models": [],
+        "default_model": ""
+    }
+}
+
 def clean_pdf_text(text):
     """清理PDF提取的文本，去除字符间的多余空格"""
     if not text:

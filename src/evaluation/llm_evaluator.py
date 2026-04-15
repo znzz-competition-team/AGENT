@@ -1024,8 +1024,266 @@ class LLMEvaluator:
             response_format={"type": "text"}
         )
         
-        # 返回生成的报告
         return response.choices[0].message.content
+    
+    def evaluate_with_indicators(
+        self,
+        submission_content: str,
+        indicators: Dict,
+        student_info: Dict = None
+    ) -> Dict:
+        """
+        根据评价指标使用大模型进行评分
+        
+        Args:
+            submission_content: 提交内容（论文内容）
+            indicators: 评价指标字典
+            student_info: 学生信息
+            
+        Returns:
+            评分结果字典
+        """
+        self.ai_config = get_ai_config()
+        self.client = self._initialize_client(self.ai_config)
+        
+        if not self.client:
+            raise Exception("大模型客户端未初始化，请检查API配置")
+        
+        indicators_str = json.dumps(indicators, ensure_ascii=False, indent=2)
+        
+        student_info_str = ""
+        if student_info:
+            student_info_str = f"""
+学生信息：
+- 学号：{student_info.get('student_id', '未知')}
+- 姓名：{student_info.get('name', '未知')}
+- 题目：{student_info.get('title', '未知')}
+"""
+        
+        system_prompt = """你是一位资深的教育评估专家，专门负责毕业设计评价工作。
+你的职责是严格按照给定的评价指标，客观、公正地评价学生的毕业设计论文。
+
+重要规则：
+1. **严格按标准评分**：必须严格按照提示词中给出的评价指标进行评分
+2. **一致性原则**：相同质量的作品必须得到相近的分数
+3. **证据支撑**：每个评分必须有学生提交内容中的具体证据支撑
+4. **等级对应**：根据学生表现确定等级，然后给出对应分数
+5. **客观公正**：评分需基于论文实际内容，避免主观臆断
+
+请以专业、客观、严谨的态度进行评价，确保评价结果的一致性和可靠性。"""
+
+        user_prompt = f"""请根据以下评价指标，对学生的毕业设计论文进行评分。
+
+{student_info_str}
+
+## 评价指标
+
+{indicators_str}
+
+## 论文内容
+
+{submission_content[:12000]}
+
+## 评分要求
+
+1. 对每个评价指标进行评分（0-100分）
+2. 提供评分理由（为什么给这个分数）
+3. 引用论文中的具体内容作为证据
+4. 计算加权总分
+
+请严格按照以下JSON格式返回评分结果：
+{{
+    "overall_score": 加权总分（保留1位小数）,
+    "grade_level": "总体等级（优秀/良好/中等/及格/不及格）",
+    "overall_comment": "总体评价（100-200字）",
+    "dimension_scores": [
+        {{
+            "indicator_id": "指标编号",
+            "indicator_name": "指标名称",
+            "score": 分数（0-100）,
+            "grade_level": "等级（优秀/良好/中等/及格/不及格）",
+            "score_reason": "评分理由（100-200字）",
+            "evidence": "论文中的具体证据",
+            "improvement_suggestions": ["改进建议1", "改进建议2"]
+        }}
+    ]
+}}"""
+
+        response = self.client.chat.completions.create(
+            model=self.ai_config["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=6000,
+            response_format={"type": "json_object"}
+        )
+        
+        raw_content = response.choices[0].message.content
+        
+        logger.info("=== 评价指标评分原始响应 ===")
+        logger.info(f"响应长度: {len(raw_content)}")
+        
+        try:
+            result = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {str(e)}")
+            start_idx = raw_content.find('{')
+            end_idx = raw_content.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_str = raw_content[start_idx:end_idx]
+                result = json.loads(json_str)
+            else:
+                raise Exception(f"解析大模型返回结果失败: {str(e)}")
+        
+        result["evaluation_method"] = "llm_indicators"
+        result["is_deterministic"] = True
+        
+        return result
+    
+    def evaluate_institutional_dimensions(
+        self,
+        submission_content: str,
+        dimension_weights: Dict = None
+    ) -> Dict:
+        """
+        评估校方固有评价体系维度（创新度、研究分析深度、文章结构、研究方法与实验）
+        
+        Args:
+            submission_content: 提交内容
+            dimension_weights: 维度权重配置，如 {"innovation": 25, "research_depth": 25, ...}
+            
+        Returns:
+            固有评价体系评分结果
+        """
+        from src.prompts.thesis_prompts import INSTITUTIONAL_SYSTEM_PROMPT, build_institutional_user_prompt
+        
+        self.ai_config = get_ai_config()
+        self.client = self._initialize_client(self.ai_config)
+        
+        if not self.client:
+            raise Exception("大模型客户端未初始化，请检查API配置")
+        
+        user_prompt = build_institutional_user_prompt(
+            content=submission_content[:15000],
+            dimension_weights=dimension_weights
+        )
+        
+        response = self.client.chat.completions.create(
+            model=self.ai_config["model"],
+            messages=[
+                {"role": "system", "content": INSTITUTIONAL_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=4000,
+            response_format={"type": "json_object"}
+        )
+        
+        raw_content = response.choices[0].message.content
+        
+        try:
+            result = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {str(e)}")
+            start_idx = raw_content.find('{')
+            end_idx = raw_content.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_str = raw_content[start_idx:end_idx]
+                result = json.loads(json_str)
+            else:
+                raise Exception(f"解析固有评价体系结果失败: {str(e)}")
+        
+        if dimension_weights:
+            total_weight = sum(dimension_weights.values())
+            if total_weight > 0:
+                weighted_score = 0
+                for score_item in result.get("institutional_scores", []):
+                    dim_id = score_item.get("dimension_id", "")
+                    dim_score = score_item.get("score", 0)
+                    weight = dimension_weights.get(dim_id, 25)
+                    weighted_score += dim_score * (weight / total_weight)
+                result["weighted_overall_score"] = round(weighted_score, 1)
+        
+        return result
+    
+    def calculate_fusion_score(
+        self,
+        rule_engine_score: float,
+        institutional_result: Dict,
+        coefficient_config: Dict = None
+    ) -> Dict:
+        """
+        计算融合评分
+        
+        Args:
+            rule_engine_score: 规则引擎评分
+            institutional_result: 固有评价体系评分结果
+            coefficient_config: 融合系数配置，如 {"excellent": 1.15, "good": 1.05, ...}
+            
+        Returns:
+            融合结果字典
+        """
+        default_config = {
+            "excellent": 1.15,
+            "good": 1.05,
+            "medium": 0.98,
+            "pass": 0.90,
+            "fail": 0.78
+        }
+        
+        config = coefficient_config if coefficient_config else default_config
+        
+        institutional_scores = institutional_result.get("institutional_scores", [])
+        
+        dimension_coefficients = {}
+        total_coefficient = 0
+        count = 0
+        
+        for score_item in institutional_scores:
+            dim_id = score_item.get("dimension_id", "")
+            dim_score = score_item.get("score", 0)
+            dim_grade = score_item.get("grade_level", "")
+            
+            if dim_score >= 90:
+                coef = config.get("excellent", default_config["excellent"])
+            elif dim_score >= 80:
+                coef = config.get("good", default_config["good"])
+            elif dim_score >= 70:
+                coef = config.get("medium", default_config["medium"])
+            elif dim_score >= 60:
+                coef = config.get("pass", default_config["pass"])
+            else:
+                coef = config.get("fail", default_config["fail"])
+            
+            dimension_coefficients[dim_id] = {
+                "coefficient": round(coef, 4),
+                "score": dim_score,
+                "grade_level": dim_grade
+            }
+            
+            total_coefficient += coef
+            count += 1
+        
+        if count > 0:
+            avg_coefficient = total_coefficient / count
+        else:
+            avg_coefficient = 1.0
+        
+        adjustment = rule_engine_score * (avg_coefficient - 1)
+        fusion_score = rule_engine_score + adjustment
+        
+        fusion_score = max(0, min(100, fusion_score))
+        
+        return {
+            "original_score": round(rule_engine_score, 1),
+            "fusion_coefficient": round(avg_coefficient, 4),
+            "adjustment": round(adjustment, 1),
+            "fusion_score": round(fusion_score, 1),
+            "dimension_coefficients": dimension_coefficients,
+            "coefficient_config_used": config
+        }
 
 
 
