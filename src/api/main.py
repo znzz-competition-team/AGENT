@@ -1595,6 +1595,93 @@ async def evaluate_with_rule_engine(
         error_message = str(e)
         raise HTTPException(status_code=500, detail=f"评分失败: {error_message}")
 
+@app.post("/evaluate_sectioned")
+async def evaluate_sectioned(
+    request: Dict = Body(...)
+):
+    """
+    分段评估论文（智能分段 + 章节衔接检测）
+    适用于长篇论文，解决内容丢失问题
+    
+    调用流程：
+    1. 大模型识别论文结构
+    2. 提取各章节内容
+    3. 各章节独立评估（带上下文）
+    4. 章节衔接检测
+    5. 固有评价体系评分
+    6. 生成最终评价
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        indicators = request.get('indicators', {})
+        student_info = request.get('student_info', {})
+        dimension_weights = request.get('dimension_weights', {})
+        coefficient_config = request.get('coefficient_config', {})
+        use_custom_coefficients = request.get('use_custom_coefficients', False)
+        
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+        
+        from src.evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.sectioned_evaluator import SectionedEvaluator
+        
+        print("开始分段评估论文...")
+        print("=" * 50)
+        
+        sectioned_evaluator = SectionedEvaluator(llm_evaluator)
+        
+        result = sectioned_evaluator.evaluate_thesis_sectioned(
+            content=submission_content,
+            indicators=indicators,
+            student_info=student_info,
+            dimension_weights=dimension_weights if dimension_weights else None
+        )
+        
+        if dimension_weights and result.get("institutional_evaluation"):
+            institutional_result = result["institutional_evaluation"]
+            original_score = result.get("overall_score", 0)
+            
+            fusion_result = llm_evaluator.calculate_fusion_score(
+                rule_engine_score=original_score,
+                institutional_result=institutional_result,
+                coefficient_config=coefficient_config if use_custom_coefficients else None
+            )
+            
+            result["original_score"] = fusion_result["original_score"]
+            result["fusion_coefficient"] = fusion_result["fusion_coefficient"]
+            result["adjustment"] = fusion_result["adjustment"]
+            result["fusion_details"] = {
+                "adjustment": fusion_result["adjustment"],
+                "dimension_coefficients": fusion_result["dimension_coefficients"],
+                "coefficient_config_used": fusion_result.get("coefficient_config_used", {})
+            }
+            
+            result["overall_score"] = fusion_result["fusion_score"]
+            
+            if fusion_result["fusion_score"] >= 90:
+                result["grade_level"] = "优秀"
+            elif fusion_result["fusion_score"] >= 80:
+                result["grade_level"] = "良好"
+            elif fusion_result["fusion_score"] >= 70:
+                result["grade_level"] = "中等"
+            elif fusion_result["fusion_score"] >= 60:
+                result["grade_level"] = "及格"
+            else:
+                result["grade_level"] = "不及格"
+            
+            print(f"融合评分完成: 原始{fusion_result['original_score']}分 -> 融合后{fusion_result['fusion_score']}分")
+        
+        print("=" * 50)
+        print(f"分段评估完成: {result.get('overall_score', 0)}分")
+        
+        return result
+        
+    except Exception as e:
+        error_message = str(e)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"分段评估失败: {error_message}")
+
 @app.post("/evaluate", response_model=EvaluationResponse)
 async def evaluate_submission(
     request: EvaluationRequest,

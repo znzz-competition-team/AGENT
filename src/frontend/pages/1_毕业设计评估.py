@@ -333,16 +333,19 @@ evaluation_method = st.radio(
     "选择评分方式",
     options=[
         ("LLM确定性评分（结果一致，可复现）", "rule_engine"),
+        ("分段评估（智能分段，适合长篇论文）", "sectioned"),
         ("LLM灵活评分（灵活性高，可能有波动）", "llm")
     ],
     format_func=lambda x: x[0],
-    help="确定性评分确保相同输入产生相同输出；灵活评分更灵活但结果可能有差异"
+    help="确定性评分确保相同输入产生相同输出；分段评估适合长篇论文，解决内容丢失问题"
 )
 
 method_value = evaluation_method[1]
 
 if method_value == "rule_engine":
     st.info("💡 LLM确定性评分特点：\n- 相同论文多次评分结果完全一致\n- 基于大模型深度理解论文内容\n- 适合标准化、可复现的评价")
+elif method_value == "sectioned":
+    st.info("💡 分段评估特点：\n- 智能识别论文结构，按章节分段评估\n- 检测章节之间的逻辑衔接\n- 检测承诺-兑现一致性\n- 适合长篇论文，解决内容丢失问题")
 else:
     st.warning("⚠️ 大模型灵活评分特点：\n- 评分更灵活，能理解语义\n- 相同论文多次评分可能有差异\n- 适合需要深度理解的评价")
 
@@ -843,6 +846,8 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
         st.error("❌ 请选择毕业设计论文")
     elif method_value == "rule_engine" and not extracted_guidance:
         st.error("❌ 规则引擎评分需要先选择评价指标")
+    elif method_value == "sectioned" and not extracted_guidance:
+        st.error("❌ 分段评估需要先选择评价指标")
     else:
         current_dimension_weights = st.session_state.get('dimension_weights', {})
         current_coefficient_config = st.session_state.get('coefficient_config', {})
@@ -1070,6 +1075,263 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                         st.error(f"❌ 评估失败: {response.json().get('detail', '未知错误')}")
                 except Exception as e:
                     st.error(f"❌ 评估失败: {str(e)}")
+        elif method_value == "sectioned":
+            with st.spinner("正在进行分段评估（这可能需要3-5分钟，请耐心等待）..."):
+                try:
+                    response = requests.post(
+                        f"{API_BASE_URL}/evaluate_sectioned",
+                        json={
+                            "submission_content": submission_content,
+                            "indicators": extracted_guidance,
+                            "student_info": student_info,
+                            "dimension_weights": current_dimension_weights,
+                            "coefficient_config": current_coefficient_config,
+                            "use_custom_coefficients": current_use_custom_coefficients
+                        },
+                        timeout=600
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        
+                        st.success("✅ 分段评估完成！")
+                        
+                        st.markdown("---")
+                        st.header("📊 分段评估结果总览")
+                        
+                        original_score = result.get('original_score', result.get('overall_score', 0))
+                        fusion_score = result.get('overall_score', 0)
+                        grade_level = result.get('grade_level', '')
+                        fusion_coefficient = result.get('fusion_coefficient', 1.0)
+                        avg_section_score = result.get('avg_section_score', 0)
+                        avg_coherence_score = result.get('avg_coherence_score', 0)
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("原始评分", f"{original_score}分")
+                        with col2:
+                            st.metric("融合系数", f"{fusion_coefficient:.4f}")
+                        with col3:
+                            st.metric("最终评分", f"{fusion_score}分")
+                        with col4:
+                            st.metric("等级", grade_level)
+                        
+                        st.markdown("---")
+                        
+                        thesis_structure = result.get('thesis_structure', {})
+                        if thesis_structure:
+                            with st.expander("📖 论文结构识别结果", expanded=False):
+                                st.markdown(f"**论文类型:** {thesis_structure.get('thesis_type', '未知')}")
+                                st.markdown(f"**章节总数:** {thesis_structure.get('total_sections', 0)}")
+                                
+                                main_works = thesis_structure.get('main_works', [])
+                                if main_works:
+                                    st.markdown("**主要工作:**")
+                                    for work in main_works:
+                                        st.markdown(f"- {work}")
+                                
+                                sections = thesis_structure.get('sections', [])
+                                if sections:
+                                    st.markdown("**章节结构:**")
+                                    for sec in sections:
+                                        st.markdown(f"- {sec.get('title', '')} ({sec.get('section_type_name', '')})")
+                        
+                        section_evaluations = result.get('section_evaluations', [])
+                        if section_evaluations:
+                            with st.expander("📑 各章节评估详情", expanded=True):
+                                st.info(f"章节平均分: {avg_section_score}分 | 衔接平均分: {avg_coherence_score}分")
+                                
+                                for sec_eval in section_evaluations:
+                                    section_title = sec_eval.get('section_title', '未知章节')
+                                    section_score = sec_eval.get('section_score', 0)
+                                    section_grade = sec_eval.get('grade_level', '')
+                                    key_points = sec_eval.get('key_points', [])
+                                    improvement_suggestions = sec_eval.get('improvement_suggestions', [])
+                                    
+                                    with st.expander(f"**{section_title}** - {section_score}分 ({section_grade})", expanded=False):
+                                        if key_points:
+                                            st.markdown("**关键点:**")
+                                            for kp in key_points[:5]:
+                                                st.markdown(f"- {kp}")
+                                        
+                                        content_quality = sec_eval.get('content_quality', {})
+                                        if content_quality:
+                                            st.markdown(f"**内容质量:** {content_quality.get('score', 0)}分 - {content_quality.get('comment', '')}")
+                                        
+                                        logic_coherence = sec_eval.get('logic_coherence', {})
+                                        if logic_coherence:
+                                            st.markdown(f"**逻辑连贯性:** {logic_coherence.get('score', 0)}分")
+                                            issues = logic_coherence.get('issues', [])
+                                            if issues:
+                                                st.markdown("**问题:**")
+                                                for issue in issues:
+                                                    st.markdown(f"⚠️ {issue}")
+                                        
+                                        if improvement_suggestions:
+                                            st.markdown("**改进建议:**")
+                                            for s in improvement_suggestions:
+                                                st.markdown(f"- {s}")
+                        
+                        coherence_checks = result.get('coherence_checks', [])
+                        if coherence_checks:
+                            with st.expander("🔗 章节衔接检测结果（逻辑衔接）", expanded=False):
+                                st.info("此检测只关注章节之间的逻辑衔接，不包含承诺-兑现检测。承诺-兑现检测在下方单独展示。")
+                                for coherence in coherence_checks:
+                                    prev_section = coherence.get('prev_section', '')
+                                    next_section = coherence.get('next_section', '')
+                                    coherence_score = coherence.get('coherence_score', 0)
+                                    
+                                    with st.expander(f"**{prev_section}** → **{next_section}** ({coherence_score}分)", expanded=False):
+                                        logic_flow = coherence.get('logic_flow', {})
+                                        if logic_flow:
+                                            st.markdown(f"**逻辑连贯性:** {logic_flow.get('score', 0)}分")
+                                            comment = logic_flow.get('comment', '')
+                                            if comment:
+                                                st.markdown(f"- {comment}")
+                                            issues = logic_flow.get('issues', [])
+                                            if issues:
+                                                st.markdown("**⚠️ 逻辑问题:**")
+                                                for issue in issues:
+                                                    st.markdown(f"- {issue}")
+                                        
+                                        content_consistency = coherence.get('content_consistency', {})
+                                        if content_consistency:
+                                            st.markdown(f"**内容一致性:** {content_consistency.get('score', 0)}分")
+                                            comment = content_consistency.get('comment', '')
+                                            if comment:
+                                                st.markdown(f"- {comment}")
+                                            inconsistencies = content_consistency.get('inconsistencies', [])
+                                            if inconsistencies:
+                                                st.markdown("**不一致之处:**")
+                                                for inc in inconsistencies:
+                                                    st.markdown(f"- {inc}")
+                                        
+                                        transition_quality = coherence.get('transition_quality', {})
+                                        if transition_quality:
+                                            st.markdown(f"**过渡质量:** {transition_quality.get('score', 0)}分")
+                                            comment = transition_quality.get('comment', '')
+                                            if comment:
+                                                st.markdown(f"- {comment}")
+                                        
+                                        argument_continuity = coherence.get('argument_continuity', {})
+                                        if argument_continuity:
+                                            st.markdown(f"**论证连续性:** {argument_continuity.get('score', 0)}分")
+                                            comment = argument_continuity.get('comment', '')
+                                            if comment:
+                                                st.markdown(f"- {comment}")
+                                            issues = argument_continuity.get('issues', [])
+                                            if issues:
+                                                st.markdown("**论证不连续之处:**")
+                                                for issue in issues:
+                                                    st.markdown(f"- {issue}")
+                                        
+                                        overall_comment = coherence.get('overall_comment', '')
+                                        if overall_comment:
+                                            st.markdown(f"**整体评价:** {overall_comment}")
+                        
+                        promise_tracking = result.get('promise_tracking', {})
+                        if promise_tracking and promise_tracking.get('fulfillment_status'):
+                            with st.expander("📋 承诺-兑现追踪表", expanded=True):
+                                fulfillment_rate = promise_tracking.get('overall_fulfillment_rate', 1.0)
+                                st.metric("承诺兑现率", f"{fulfillment_rate:.1%}")
+                                
+                                fulfillment_status = promise_tracking.get('fulfillment_status', [])
+                                if fulfillment_status:
+                                    st.markdown("---")
+                                    st.markdown("**详细追踪表:**")
+                                    
+                                    for status in fulfillment_status:
+                                        promise = status.get('promise', '')
+                                        source_section = status.get('source_section', '')
+                                        is_fulfilled = status.get('is_fulfilled', False)
+                                        fulfillment_degree = status.get('fulfillment_degree', '未兑现')
+                                        fulfillment_section = status.get('fulfillment_section', '')
+                                        fulfillment_evidence = status.get('fulfillment_evidence', '')
+                                        comment = status.get('comment', '')
+                                        
+                                        if fulfillment_degree == "完全兑现":
+                                            status_emoji = "✅"
+                                        elif fulfillment_degree == "部分兑现":
+                                            status_emoji = "🟡"
+                                        else:
+                                            status_emoji = "❌"
+                                        
+                                        with st.expander(f"{status_emoji} **{promise[:50]}{'...' if len(promise) > 50 else ''}** ({fulfillment_degree})", expanded=False):
+                                            st.markdown(f"**来源章节:** {source_section}")
+                                            st.markdown(f"**兑现程度:** {fulfillment_degree}")
+                                            
+                                            if fulfillment_section:
+                                                st.markdown(f"**兑现章节:** {fulfillment_section}")
+                                            
+                                            if fulfillment_evidence:
+                                                st.markdown(f"**兑现证据:**")
+                                                st.markdown(f"> {fulfillment_evidence}")
+                                            
+                                            if comment:
+                                                st.markdown(f"**评价:** {comment}")
+                                
+                                unfulfilled = promise_tracking.get('unfulfilled_promises', [])
+                                partially_fulfilled = promise_tracking.get('partially_fulfilled_promises', [])
+                                
+                                if unfulfilled or partially_fulfilled:
+                                    st.markdown("---")
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        if unfulfilled:
+                                            st.markdown("**❌ 未兑现的承诺:**")
+                                            for uf in unfulfilled:
+                                                st.markdown(f"- {uf}")
+                                    with col2:
+                                        if partially_fulfilled:
+                                            st.markdown("**🟡 部分兑现的承诺:**")
+                                            for pf in partially_fulfilled:
+                                                st.markdown(f"- {pf}")
+                                
+                                summary = promise_tracking.get('summary', '')
+                                if summary:
+                                    st.markdown("---")
+                                    st.markdown(f"**总结:** {summary}")
+                        
+                        overall_comment = result.get('overall_comment', '')
+                        if overall_comment:
+                            with st.expander("📝 总体评价", expanded=True):
+                                st.markdown(overall_comment)
+                        
+                        strengths = result.get('strengths', [])
+                        weaknesses = result.get('weaknesses', [])
+                        
+                        if strengths or weaknesses:
+                            col_s, col_w = st.columns(2)
+                            with col_s:
+                                if strengths:
+                                    st.markdown("**💪 优势:**")
+                                    for s in strengths:
+                                        st.markdown(f"✅ {s}")
+                            with col_w:
+                                if weaknesses:
+                                    st.markdown("**📌 待改进:**")
+                                    for w in weaknesses:
+                                        st.markdown(f"⚠️ {w}")
+                        
+                        improvement_suggestions = result.get('improvement_suggestions', [])
+                        if improvement_suggestions:
+                            with st.expander("💡 改进建议", expanded=False):
+                                for suggestion in improvement_suggestions:
+                                    aspect = suggestion.get('aspect', '')
+                                    current_issue = suggestion.get('current_issue', '')
+                                    suggestion_text = suggestion.get('suggestion', '')
+                                    priority = suggestion.get('priority', '中')
+                                    
+                                    priority_emoji = {"高": "🔴", "中": "🟡", "低": "🟢"}.get(priority, "🟡")
+                                    
+                                    st.markdown(f"**{priority_emoji} {aspect}** (优先级: {priority})")
+                                    st.markdown(f"- 当前问题: {current_issue}")
+                                    st.markdown(f"- 改进建议: {suggestion_text}")
+                                    st.markdown("")
+                    else:
+                        st.error(f"❌ 评估失败: {response.json().get('detail', '未知错误')}")
+                except Exception as e:
+                    st.error(f"❌ 分段评估失败: {str(e)}")
         else:
             guidance_content_for_eval = None
             if "extracted_guidance" in st.session_state and st.session_state["extracted_guidance"]:
