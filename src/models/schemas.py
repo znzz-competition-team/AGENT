@@ -206,6 +206,15 @@ class FormulaRecognitionBox(BaseModel):
     box_type: str = "formula"
 
 
+class DerivationCheckItem(BaseModel):
+    question_number: str
+    status: str = "uncertain"
+    checked_formula: str = ""
+    evidence: str = ""
+    issue: str = ""
+    suggestion: str = ""
+
+
 class HandwritingExamGradeResponse(BaseModel):
     success: bool
     exam_type: str = "handwritten_exam"
@@ -221,4 +230,5 @@ class HandwritingExamGradeResponse(BaseModel):
     areas_for_improvement: List[str] = []
     question_results: List[ExamQuestionResult] = []
     formula_boxes: List[FormulaRecognitionBox] = []
+    derivation_checks: List[DerivationCheckItem] = []
     model: str

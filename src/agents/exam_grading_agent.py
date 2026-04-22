@@ -49,6 +49,10 @@ class HandwritingExamGradingAgent:
         total_score: Optional[float] = None,
         extra_requirements: Optional[str] = None,
         recognition_mode: str = "general",
+        context_text: Optional[str] = None,
+        system_functions: Optional[str] = None,
+        system_relationships: Optional[str] = None,
+        validate_derivation: bool = True,
     ) -> Dict[str, Any]:
         if not image_paths:
             raise ValueError("至少需要上传一张试卷图片")
@@ -71,9 +75,20 @@ class HandwritingExamGradingAgent:
             extra_requirements=extra_requirements,
             include_course_achievement=include_course_achievement,
             recognition_mode=recognition_mode,
+            context_text=context_text,
+            system_functions=system_functions,
+            system_relationships=system_relationships,
+            validate_derivation=validate_derivation,
         )
 
         content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+        context_blocks = self._build_context_blocks(
+            context_text=context_text,
+            system_functions=system_functions,
+            system_relationships=system_relationships,
+        )
+        for block in context_blocks:
+            content.append({"type": "text", "text": block})
         for image_path in image_paths:
             content.append(self._build_image_content(image_path))
 
@@ -98,6 +113,7 @@ class HandwritingExamGradingAgent:
             requested_total_score=total_score,
             include_course_achievement=include_course_achievement,
             recognition_mode=recognition_mode,
+            validate_derivation=validate_derivation,
         )
 
     def _build_prompt(
@@ -109,6 +125,10 @@ class HandwritingExamGradingAgent:
         extra_requirements: Optional[str],
         include_course_achievement: bool,
         recognition_mode: str,
+        context_text: Optional[str],
+        system_functions: Optional[str],
+        system_relationships: Optional[str],
+        validate_derivation: bool,
     ) -> str:
         score_hint = (
             f"整张试卷总分为 {total_score} 分。"
@@ -158,6 +178,27 @@ class HandwritingExamGradingAgent:
 4. 若公式看不清，text 中用 [不清] 标记，并降低 confidence，但仍尽量给出框。
 """
 
+        derivation_instruction = ""
+        if validate_derivation:
+            derivation_instruction = """
+
+公式推导合理性校验要求（必须执行）：
+1. 对每道包含公式或计算步骤的题，检查推导是否自洽，重点核对符号变形、等价变换、边界条件、单位量纲和最终结论一致性。
+2. 如果图像存在遮挡或字迹不清，允许标记为 uncertain，但不能把 uncertain 当作正确。
+3. 在 derivation_checks 输出逐题校验结果，status 仅允许：valid / invalid / uncertain。
+4. evidence 需引用学生答案中的关键式子或步骤片段；issue 说明主要问题；suggestion 给出可执行改进建议。
+"""
+
+        context_instruction = ""
+        if any(part and str(part).strip() for part in [context_text, system_functions, system_relationships]):
+            context_instruction = """
+
+补充文字信息使用要求：
+1. 下面会提供“补充文字说明 / 系统功能 / 系统关系”文本，请与图像识别结果联合判断，不可忽略。
+2. 若文字与图像冲突，以图像可见证据优先，并在 reasoning 或 overall_comment 明确指出冲突点。
+3. 涉及系统结构题时，优先依据系统功能与系统关系文本核对逻辑闭环和因果链条。
+"""
+
         return f"""
 {prompt_header}
 
@@ -181,6 +222,8 @@ class HandwritingExamGradingAgent:
 额外要求：
 {extra_requirements or "无"}
 {mode_instruction}
+{derivation_instruction}
+{context_instruction}
 {course_achievement_instruction}
 
 请返回以下 JSON 结构：
@@ -206,6 +249,16 @@ class HandwritingExamGradingAgent:
       "box_type": "formula"
     }}
   ],
+  "derivation_checks": [
+    {{
+      "question_number": "1",
+      "status": "valid",
+      "checked_formula": "x^2+y^2=z^2",
+      "evidence": "由已识别的中间步骤可还原推导链",
+      "issue": "",
+      "suggestion": ""
+    }}
+  ],
   "question_results": [
     {{
       "question_number": "1",
@@ -220,6 +273,24 @@ class HandwritingExamGradingAgent:
   ]
 }}
 """.strip()
+
+    def _build_context_blocks(
+        self,
+        context_text: Optional[str],
+        system_functions: Optional[str],
+        system_relationships: Optional[str],
+    ) -> List[str]:
+        blocks: List[str] = []
+        mapping = [
+            ("补充文字说明", context_text),
+            ("系统功能", system_functions),
+            ("系统关系", system_relationships),
+        ]
+        for title, value in mapping:
+            text = (value or "").strip()
+            if text:
+                blocks.append(f"{title}：\n{text}")
+        return blocks
 
     def _build_system_prompt(self, recognition_mode: str) -> str:
         if recognition_mode == "formula":
@@ -255,6 +326,7 @@ class HandwritingExamGradingAgent:
         requested_total_score: Optional[float],
         include_course_achievement: bool,
         recognition_mode: str,
+        validate_derivation: bool,
     ) -> Dict[str, Any]:
         question_results = result.get("question_results") or []
         normalized_questions: List[Dict[str, Any]] = []
@@ -309,6 +381,11 @@ class HandwritingExamGradingAgent:
             "areas_for_improvement": result.get("areas_for_improvement") or [],
             "question_results": normalized_questions,
             "formula_boxes": self._normalize_formula_boxes(result.get("formula_boxes") or []),
+            "derivation_checks": self._normalize_derivation_checks(
+                result.get("derivation_checks") or [],
+                normalized_questions=normalized_questions,
+                should_validate=validate_derivation,
+            ),
             "model": self.ai_config["model"],
         }
 
@@ -393,6 +470,52 @@ class HandwritingExamGradingAgent:
                 }
             )
         return normalized_boxes
+
+    def _normalize_derivation_checks(
+        self,
+        derivation_checks: List[Dict[str, Any]],
+        normalized_questions: List[Dict[str, Any]],
+        should_validate: bool,
+    ) -> List[Dict[str, str]]:
+        if not should_validate:
+            return []
+
+        allowed_status = {"valid", "invalid", "uncertain"}
+        normalized: List[Dict[str, str]] = []
+        for item in derivation_checks:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status", "uncertain") or "uncertain").strip().lower()
+            if status not in allowed_status:
+                status = "uncertain"
+
+            normalized.append(
+                {
+                    "question_number": str(item.get("question_number", "") or ""),
+                    "status": status,
+                    "checked_formula": str(item.get("checked_formula", "") or ""),
+                    "evidence": str(item.get("evidence", "") or ""),
+                    "issue": str(item.get("issue", "") or ""),
+                    "suggestion": str(item.get("suggestion", "") or ""),
+                }
+            )
+
+        if normalized:
+            return normalized
+
+        fallback: List[Dict[str, str]] = []
+        for question in normalized_questions:
+            fallback.append(
+                {
+                    "question_number": str(question.get("question_number", "") or ""),
+                    "status": "uncertain",
+                    "checked_formula": "",
+                    "evidence": "",
+                    "issue": "",
+                    "suggestion": "",
+                }
+            )
+        return fallback
 
     def _should_include_course_achievement(
         self,

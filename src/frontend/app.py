@@ -82,57 +82,165 @@ def process_reasoning(reasoning: str) -> str:
     return reasoning
 
 
-def parse_ocr_boxes(recognized_text: str) -> pd.DataFrame:
-    """解析类似 x,y,w,h,confidence,text 的 OCR 输出。"""
+def _safe_float(value, default=None):
+    """将输入安全转换为 float。"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_ocr_box_item(item) -> dict:
+    """解析单条 OCR 框记录，兼容多种字段格式。"""
+    if not isinstance(item, dict):
+        return {}
+
+    x = _safe_float(item.get("x", item.get("left")))
+    y = _safe_float(item.get("y", item.get("top")))
+    w = _safe_float(item.get("w", item.get("width")))
+    h = _safe_float(item.get("h", item.get("height")))
+
+    # 支持 x1,y1,x2,y2 形式
+    if (w is None or h is None) and all(
+        key in item for key in ("x1", "y1", "x2", "y2")
+    ):
+        x1 = _safe_float(item.get("x1"))
+        y1 = _safe_float(item.get("y1"))
+        x2 = _safe_float(item.get("x2"))
+        y2 = _safe_float(item.get("y2"))
+        if None not in (x1, y1, x2, y2):
+            x, y = x1, y1
+            w, h = x2 - x1, y2 - y1
+
+    confidence = _safe_float(
+        item.get("confidence", item.get("score", item.get("prob")))
+    )
+    if confidence is not None and confidence <= 1:
+        confidence *= 100
+
+    text = str(
+        item.get("text", item.get("words", item.get("content", ""))) or ""
+    ).strip()
+
+    if None in (x, y, w, h) or w <= 0 or h <= 0:
+        return {}
+
+    return {
+        "x": int(round(x)),
+        "y": int(round(y)),
+        "w": int(round(w)),
+        "h": int(round(h)),
+        "confidence": confidence if confidence is not None else 0.0,
+        "text": text,
+    }
+
+
+def parse_ocr_boxes(recognized_text: str, ocr_boxes=None) -> pd.DataFrame:
+    """解析 OCR 框：支持后端结构化字段、JSON 文本和 CSV 行文本。"""
     records = []
-    if not recognized_text:
+
+    if isinstance(ocr_boxes, list):
+        for item in ocr_boxes:
+            parsed = _parse_ocr_box_item(item)
+            if parsed:
+                records.append(parsed)
+
+    if not records and recognized_text:
+        try:
+            maybe_json = json.loads(recognized_text)
+            if isinstance(maybe_json, list):
+                for item in maybe_json:
+                    parsed = _parse_ocr_box_item(item)
+                    if parsed:
+                        records.append(parsed)
+            elif isinstance(maybe_json, dict):
+                for key in ("ocr_boxes", "boxes", "lines"):
+                    if isinstance(maybe_json.get(key), list):
+                        for item in maybe_json[key]:
+                            parsed = _parse_ocr_box_item(item)
+                            if parsed:
+                                records.append(parsed)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+
+    if not records and recognized_text:
+        for line in recognized_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",", 5)
+            if len(parts) != 6:
+                continue
+            x = _safe_float(parts[0].strip())
+            y = _safe_float(parts[1].strip())
+            w = _safe_float(parts[2].strip())
+            h = _safe_float(parts[3].strip())
+            confidence = _safe_float(parts[4].strip(), 0.0)
+            text = parts[5].strip()
+            if None in (x, y, w, h) or w <= 0 or h <= 0:
+                continue
+            records.append(
+                {
+                    "x": int(round(x)),
+                    "y": int(round(y)),
+                    "w": int(round(w)),
+                    "h": int(round(h)),
+                    "confidence": float(confidence),
+                    "text": text,
+                }
+            )
+
+    if not records:
         return pd.DataFrame()
 
-    for line in recognized_text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        parts = line.split(",", 5)
-        if len(parts) != 6:
-            continue
-        try:
-            x = int(float(parts[0].strip()))
-            y = int(float(parts[1].strip()))
-            w = int(float(parts[2].strip()))
-            h = int(float(parts[3].strip()))
-            confidence = float(parts[4].strip())
-            text = parts[5].strip()
-        except ValueError:
-            continue
-
-        records.append(
-            {
-                "x": x,
-                "y": y,
-                "w": w,
-                "h": h,
-                "confidence": confidence,
-                "text": text,
-            }
-        )
-
-    return pd.DataFrame(records)
+    ocr_df = pd.DataFrame(records)
+    ocr_df["confidence"] = pd.to_numeric(ocr_df["confidence"], errors="coerce").fillna(0.0)
+    ocr_df["confidence"] = ocr_df["confidence"].clip(lower=0.0, upper=100.0)
+    ocr_df["text"] = ocr_df["text"].fillna("").astype(str)
+    return ocr_df.sort_values(by="confidence", ascending=False).reset_index(drop=True)
 
 
-def draw_ocr_boxes(image_file, ocr_df: pd.DataFrame):
+def draw_ocr_boxes(image_file, ocr_df: pd.DataFrame, min_confidence: float = 0.0):
     """在图片上绘制 OCR 框。"""
     image = Image.open(image_file).convert("RGB")
     draw = ImageDraw.Draw(image)
+    line_width = max(2, int(min(image.size) * 0.004))
+    img_w, img_h = image.size
+
+    if ocr_df.empty:
+        return image
 
     for _, row in ocr_df.iterrows():
+        confidence = _safe_float(row.get("confidence"), 0.0)
+        if confidence < float(min_confidence):
+            continue
+
         x1, y1 = int(row["x"]), int(row["y"])
         x2, y2 = x1 + int(row["w"]), y1 + int(row["h"])
-        confidence = float(row["confidence"])
-        color = "#1f77b4" if confidence >= 90 else "#ff7f0e" if confidence >= 80 else "#d62728"
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
-        draw.text((x1, max(0, y1 - 14)), str(row["text"])[:24], fill=color)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(img_w - 1, x2), min(img_h - 1, y2)
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        color = "#2ca02c" if confidence >= 90 else "#ff7f0e" if confidence >= 75 else "#d62728"
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
+        label = f"{str(row['text'])[:18]} {confidence:.1f}%".strip()
+        draw.text((x1, max(0, y1 - 16)), label, fill=color)
 
     return image
+
+
+def summarize_ocr_quality(ocr_df: pd.DataFrame) -> dict:
+    """汇总 OCR 质量指标。"""
+    if ocr_df.empty:
+        return {"total": 0, "high_conf": 0, "avg_conf": 0.0}
+
+    confidence_series = pd.to_numeric(ocr_df["confidence"], errors="coerce").fillna(0.0)
+    return {
+        "total": int(len(ocr_df)),
+        "high_conf": int((confidence_series >= 90).sum()),
+        "avg_conf": float(confidence_series.mean()),
+    }
 
 
 def parse_formula_boxes(formula_boxes) -> pd.DataFrame:
@@ -1645,6 +1753,7 @@ elif page == "✏️ 手写识别":
         pass
 
     with st.form("grade_handwriting_exam_form"):
+        st.markdown("**交互流程：结构化输入 → 多模态推理 → 可解释校验输出**")
         selected_grading_student_id = st.selectbox(
             "关联学生",
             options=list(grading_student_options.keys()),
@@ -1688,6 +1797,32 @@ elif page == "✏️ 手写识别":
             height=100
         )
 
+        st.markdown("**结构化输入区**")
+        input_tab1, input_tab2, input_tab3 = st.tabs(["文本补充输入框", "系统功能说明区", "关系结构输入区"])
+        with input_tab1:
+            context_text = st.text_area(
+                "context_text",
+                placeholder="可选：补充题干背景、已知条件、关键定义等。",
+                height=120
+            )
+        with input_tab2:
+            system_functions = st.text_area(
+                "系统功能说明",
+                placeholder="可选：描述系统包含的功能模块、职责和边界。",
+                height=120
+            )
+        with input_tab3:
+            system_relationships = st.text_area(
+                "关系结构输入",
+                placeholder="可选：描述模块间输入输出、依赖、因果链与约束关系。",
+                height=120
+            )
+        validate_derivation = st.checkbox(
+            "启用公式推导合理性校验",
+            value=True,
+            help="开启后会逐题检查公式推导是否自洽，并返回 valid/invalid/uncertain。"
+        )
+
         grade_submit = st.form_submit_button("开始批改试卷", use_container_width=True)
 
         if grade_submit:
@@ -1705,13 +1840,17 @@ elif page == "✏️ 手写识别":
                         "total_score": total_score,
                         "extra_requirements": extra_requirements,
                         "recognition_mode": recognition_mode,
+                        "context_text": context_text,
+                        "system_functions": system_functions,
+                        "system_relationships": system_relationships,
+                        "validate_derivation": str(validate_derivation).lower(),
                     }
                     files = [
                         ("files", (uploaded_file.name, uploaded_file, uploaded_file.type))
                         for uploaded_file in exam_files
                     ]
 
-                    with st.spinner("正在识别试卷并批改，请稍候..."):
+                    with st.spinner("结构化输入已提交，正在执行多模态推理与可解释校验..."):
                         response = requests.post(
                             f"{API_BASE_URL}/agent/grade-handwriting-exam",
                             data=data,
@@ -1782,6 +1921,48 @@ elif page == "✏️ 手写识别":
                                 )
                             st.dataframe(
                                 table_df[["page_index", "box_type", "confidence", "text", "latex", "x", "y", "w", "h"]],
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                        derivation_checks = result.get("derivation_checks", [])
+                        if derivation_checks:
+                            st.subheader("公式推导校验结果表")
+                            check_df = pd.DataFrame(derivation_checks)
+                            check_df["status"] = check_df.get("status", "uncertain").astype(str).str.strip().str.lower()
+                            check_df["step"] = check_df.get("question_number", "").astype(str).str.strip()
+                            check_df["valid"] = check_df["status"].eq("valid")
+
+                            # 若后端未提供 issue，则按状态兜底
+                            check_df["error_type"] = check_df.get("issue", "").fillna("").astype(str).str.strip()
+                            check_df.loc[check_df["error_type"] == "", "error_type"] = check_df["status"].map(
+                                lambda x: "" if x == "valid" else ("uncertain" if x == "uncertain" else "invalid")
+                            )
+
+                            evidence_col = check_df.get("evidence", "").fillna("").astype(str).str.strip()
+                            suggestion_col = check_df.get("suggestion", "").fillna("").astype(str).str.strip()
+                            formula_col = check_df.get("checked_formula", "").fillna("").astype(str).str.strip()
+
+                            check_df["explanation"] = evidence_col
+                            check_df.loc[(check_df["explanation"] == "") & (formula_col != ""), "explanation"] = (
+                                "校验公式: " + formula_col
+                            )
+                            check_df.loc[(check_df["explanation"] == "") & (suggestion_col != ""), "explanation"] = suggestion_col
+                            check_df.loc[(check_df["explanation"] != "") & (suggestion_col != ""), "explanation"] = (
+                                check_df["explanation"] + "；建议: " + suggestion_col
+                            )
+
+                            status_order = {"invalid": 0, "uncertain": 1, "valid": 2}
+                            check_df["status_order"] = check_df["status"].map(
+                                lambda x: status_order.get(str(x).strip().lower(), 1)
+                            )
+                            check_df = check_df.sort_values(
+                                by=["status_order", "step"],
+                                ascending=[True, True]
+                            )
+
+                            st.dataframe(
+                                check_df[["step", "valid", "error_type", "explanation"]],
                                 use_container_width=True,
                                 hide_index=True
                             )
