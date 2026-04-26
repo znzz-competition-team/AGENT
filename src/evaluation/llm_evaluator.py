@@ -47,101 +47,6 @@ class LLMEvaluator:
             logger.error("无法初始化大模型客户端: " + str(e))
             raise
     
-    def evaluate_submission(self, submission_content: str, stage_progress: float, student_info: Dict = None, custom_prompts: Dict = None, syllabus_analysis: Dict = None) -> Dict:
-        """
-        使用大模型评估提交内容
-        
-        Args:
-            submission_content: 提交的内容
-            stage_progress: 阶段进度 (0.0-1.0)
-            student_info: 学生信息
-            custom_prompts: 自定义提示词
-            syllabus_analysis: 大纲分析结果
-            
-        Returns:
-            评估结果字典
-        """
-        # 每次评估时都获取最新的配置
-        self.ai_config = get_ai_config()
-        self.client = self._initialize_client(self.ai_config)
-        
-        if not self.client:
-            raise Exception("大模型客户端未初始化，请检查API配置")
-        
-        # 构建评估提示词
-        prompt = self._build_evaluation_prompt(submission_content, stage_progress, student_info, syllabus_analysis)
-        
-        # 使用自定义提示词或默认提示词
-        system_prompt = custom_prompts.get("system_prompt") if custom_prompts else "你是一位资深的教育评估专家，拥有10年以上的学生能力评估经验。请以专业、客观、严谨的态度对学生提交的内容进行全面评估。评估过程中需注意：\n1. 严格按照给定的评分标准和评估维度进行评估\n2. 评估结果需基于提交内容的实际表现，避免主观臆断\n3. 优势分析和改进建议需具体、可操作，具有实际指导意义\n4. 综合评分需反映学生的整体表现，与各维度评分保持一致\n5. 评估结果需以JSON格式返回，确保格式正确、内容完整"
-        user_prompt = custom_prompts.get("user_prompt") if custom_prompts else prompt
-        
-        # 替换用户提示词中的占位符
-        if student_info:
-            student_info_str = json.dumps(student_info, ensure_ascii=False)
-        else:
-            student_info_str = "无"
-        
-        user_prompt = user_prompt.replace("{student_info}", student_info_str)
-        user_prompt = user_prompt.replace("{submission_content}", submission_content)
-        
-        # 调用大模型
-        response = self.client.chat.completions.create(
-            model=self.ai_config["model"],
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=self.ai_config["temperature"],
-            max_tokens=self.ai_config["max_tokens"],
-            response_format={"type": "json_object"}
-        )
-        
-        # 解析响应
-        raw_content = response.choices[0].message.content
-        
-        # 记录原始响应
-        logger.info("=== 大模型原始响应 ===")
-        logger.info(f"响应长度: {len(raw_content)}")
-        logger.info(f"响应内容前500字符: {raw_content[:500]}")
-        
-        try:
-            evaluation_result = json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}")
-            logger.error(f"原始响应内容: {raw_content}")
-            
-            # 尝试修复常见的JSON格式问题
-            try:
-                # 尝试提取JSON部分
-                start_idx = raw_content.find('{')
-                end_idx = raw_content.rfind('}') + 1
-                if start_idx != -1 and end_idx != -1:
-                    json_str = raw_content[start_idx:end_idx]
-                    logger.info(f"尝试解析提取的JSON: {json_str[:200]}...")
-                    evaluation_result = json.loads(json_str)
-                else:
-                    raise Exception(f"无法从响应中提取JSON: {str(e)}")
-            except Exception as e2:
-                logger.error(f"JSON修复失败: {str(e2)}")
-                raise Exception(f"解析大模型返回结果失败: {str(e2)}\n原始响应: {raw_content[:500]}")
-        
-        # 记录原始评估结果的类型和内容
-        logger.info("=== 原始大模型返回结果 ===")
-        logger.info(f"类型: {type(evaluation_result)}")
-        logger.info(f"内容: {json.dumps(evaluation_result, ensure_ascii=False, indent=2)}")
-        logger.info(f"dimension_scores类型: {type(evaluation_result.get('dimension_scores'))}")
-        if 'dimension_scores' in evaluation_result:
-            logger.info(f"dimension_scores内容: {evaluation_result['dimension_scores']}")
-        
-        normalized = self._normalize_evaluation_result(evaluation_result, stage_progress)
-        
-        # 记录标准化后的结果
-        logger.info("=== 标准化后的评估结果 ===")
-        logger.info(f"dimension_scores类型: {type(normalized.get('dimension_scores'))}")
-        logger.info(f"dimension_scores内容: {normalized['dimension_scores']}")
-        
-        return normalized
-    
     def evaluate_with_deterministic_standards(
         self,
         submission_content: str,
@@ -685,315 +590,6 @@ class LLMEvaluator:
             else:
                 raise Exception(f"解析生成的评价标准失败: {str(e)}")
     
-    def _build_evaluation_prompt(self, submission_content: str, stage_progress: float, student_info: Dict = None, syllabus_analysis: Dict = None) -> str:
-        """构建评估提示词"""
-        
-        # 阶段描述
-        stage_description = self._get_stage_description(stage_progress)
-        
-        # 评分标准说明
-        scoring_guidance = self._get_scoring_guidance(stage_progress)
-        
-        # 安全格式化
-        student_info_str = json.dumps(student_info, ensure_ascii=False) if student_info else "无"
-        stage_progress_str = str(round(stage_progress, 2))
-        
-        # 从大纲分析结果中提取能力点
-        ability_points = []
-        evaluation_criteria = []
-        
-        if syllabus_analysis:
-            # 使用大纲分析结果
-            ability_points = syllabus_analysis.get('ability_points', [])
-            evaluation_criteria = syllabus_analysis.get('evaluation_criteria', [])
-        elif self.ability_matrix:
-            # 使用能力矩阵
-            for syllabus_name, data in self.ability_matrix.items():
-                ability_points.extend(data.get('ability_points', []))
-        
-        # 如果没有能力点，使用默认维度
-        if not ability_points:
-            ability_points = [
-                {"name": "表述与表达", "description": "文字表达能力、逻辑清晰度、专业术语使用"},
-                {"name": "建模知识", "description": "对建模方法的理解和应用能力"},
-                {"name": "分析知识", "description": "数据分析能力和问题分析能力"},
-                {"name": "设计与开发", "description": "系统设计和开发实现能力"},
-                {"name": "模因分析", "description": "对技术原理和机制的理解能力"}
-            ]
-        
-        # 构建能力点评估指南
-        ability_guidelines = "# 课程大纲能力点\n\n"
-        ability_guidelines += "以下是课程大纲中规定的能力点，必须对每一项进行详细评估：\n\n"
-        for i, ability in enumerate(ability_points, 1):
-            if isinstance(ability, dict):
-                name = ability.get('name', '未知能力点')
-                description = ability.get('description', '')
-                level = ability.get('level', '')
-                ability_guidelines += f"**{i}. {name}**\n"
-                if description:
-                    ability_guidelines += f"   - 要求: {description}\n"
-                if level:
-                    ability_guidelines += f"   - 掌握程度: {level}\n"
-                ability_guidelines += "\n"
-            else:
-                ability_guidelines += f"**{i}. {ability}**\n\n"
-        
-        # 构建评价标准指南
-        criteria_guidelines = ""
-        if evaluation_criteria:
-            criteria_guidelines = "# 课程评价标准\n\n"
-            criteria_guidelines += "以下是课程大纲中规定的评价标准，评估时必须参考：\n\n"
-            for i, criterion in enumerate(evaluation_criteria, 1):
-                if isinstance(criterion, dict):
-                    name = criterion.get('name', '未知评价项目')
-                    weight = criterion.get('weight', '')
-                    description = criterion.get('description', '')
-                    standard = criterion.get('standard', '')
-                    criteria_guidelines += f"**{i}. {name}**"
-                    if weight:
-                        criteria_guidelines += f" (权重: {weight})"
-                    criteria_guidelines += "\n"
-                    if description:
-                        criteria_guidelines += f"   - 内容: {description}\n"
-                    if standard:
-                        criteria_guidelines += f"   - 标准: {standard}\n"
-                    criteria_guidelines += "\n"
-                else:
-                    criteria_guidelines += f"**{i}. {criterion}**\n\n"
-        
-        prompt = f"""# 角色定位
-
-你是一位经验丰富的大学任课教师，拥有10年以上的教学经验。你的职责是客观、公正地评价学生的作业，给出符合学生实际表现的分数。
-你必须像真正的老师一样严格评分，不能因为学生努力就给予高分，也不能因为同情而放宽标准。
-
-# 评估任务
-
-请对以下学生提交的作业进行**详细、客观、严格**的评价。你需要：
-1. 仔细阅读学生的提交内容
-2. 对照课程大纲的要求，评估学生在各个能力点上的表现
-3. 给出客观的分数，分数必须反映学生的真实水平
-4. 详细说明评分理由，指出优势和劣势
-5. 评估大纲任务的完成情况
-
-# 重要原则（必须严格遵守）
-
-1. **客观公正**：评分必须基于作业的实际质量，严禁主观臆断、过度宽容或讨好学生
-2. **标准严格**：严格按照大学课程评分标准，大多数学生的分数应该在60-85分之间
-3. **实事求是**：优势要具体指出，劣势也要明确指出，不得回避问题
-4. **证据充分**：每个评分都必须有具体的证据支撑，引用作业中的具体内容
-5. **评分分布**：不要让所有学生都得优或良，要根据实际表现给出合理的分数分布
-
-# 评分标准（大学课程标准）
-
-**优秀（90-100分）**：极少数学生能达到，作业质量远超要求，有创新性见解，内容深入全面
-**良好（80-89分）**：少数学生能达到，作业质量较好，完全达到要求，内容充实
-**中等（70-79分）**：大多数学生应得的分数，作业质量一般，基本达到要求，有提升空间
-**及格（60-69分）**：作业质量较差，勉强达到要求，有明显不足
-**不及格（<60分）**：作业质量很差，未达到要求，存在严重问题
-
-# 学生信息
-
-{student_info_str}
-
-# 提交内容
-
-{submission_content}
-
-# 评估阶段
-
-当前处于项目{stage_description}，进度值: {stage_progress_str}
-
-{scoring_guidance}
-
-{ability_guidelines}
-
-{criteria_guidelines}
-
-# 输出要求
-
-请以JSON格式返回评估结果，结构如下：
-
-```json
-{{
-    "overall_score": 75,
-    "dimension_scores": [
-        {{
-            "dimension": "能力点名称（必须来自大纲能力点列表）",
-            "score": 75,
-            "confidence": 0.85,
-            "evidence": ["作业中支持该评分的具体证据1", "作业中支持该评分的具体证据2"],
-            "reasoning": "详细解释为什么给出这个分数（至少200字），必须引用作业中的具体内容，详细分析学生的表现，指出优点和不足"
-        }}
-    ],
-    "strengths": [
-        "具体优势1（必须引用作业中的具体证据，详细说明为什么这是优势）",
-        "具体优势2（必须引用作业中的具体证据，详细说明为什么这是优势）",
-        "具体优势3（必须引用作业中的具体证据，详细说明为什么这是优势）"
-    ],
-    "weaknesses": [
-        "具体劣势1（必须指出具体问题，详细说明为什么这是劣势）",
-        "具体劣势2（必须指出具体问题，详细说明为什么这是劣势）",
-        "具体劣势3（必须指出具体问题，详细说明为什么这是劣势）"
-    ],
-    "task_completion": {{
-        "completed_tasks": ["已完成的大纲任务1", "已完成的大纲任务2"],
-        "incomplete_tasks": ["未完成的大纲任务1", "未完成的大纲任务2"],
-        "completion_rate": 0.75,
-        "completion_details": "详细说明大纲任务的完成情况，哪些完成了，哪些没完成，完成质量如何（至少150字）"
-    }},
-    "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分"
-}}
-```
-# 特别提醒
-
-1. **必须对大纲中的每个能力点进行评估**，不得遗漏
-2. **每个评分必须有具体证据支撑**，引用作业中的具体内容
-3. **必须客观公正**，像真正的老师一样严格评分
-4. **必须指出劣势**，不得只说优势不说劣势
-5. **评估内容必须详细**，每个能力点的reasoning至少200字
-6. **分数分布要合理**，不要让所有学生都得高分
-7. **不需要改进建议**，只需要客观评价
-8. **必须评估大纲任务完成情况**，说明哪些完成了，哪些没完成
-"""
-        
-        return prompt
-    
-    def _get_stage_description(self, stage_progress: float) -> str:
-        """根据进度获取阶段描述"""
-        if stage_progress < 0.33:
-            return "初期阶段"
-        elif stage_progress < 0.66:
-            return "中期阶段"
-        else:
-            return "最终阶段"
-    
-    def _get_scoring_guidance(self, stage_progress: float) -> str:
-        """根据阶段进度获取评分指导"""
-        if stage_progress < 0.33:
-            return """
-            评分标准（宽松）：
-            - 重点关注学习态度和基础知识掌握
-            - 鼓励为主，关注潜力和进步空间
-            - 对创新能力和专业深度要求较低
-            - 综合评分需基于实际表现，客观反映学生的当前水平
-            """
-        elif stage_progress < 0.66:
-            return """
-            评分标准（适中）：
-            - 平衡考察进展和能力发展
-            - 关注执行能力和团队协作
-            - 对各维度要求均衡
-            - 综合评分应客观公正，反映学生的真实水平
-            """
-        else:
-            return """
-            评分标准（严格）：
-            - 重点关注成果质量和专业性
-            - 对创新能力和深度要求较高
-            - 关注综合能力的全面发展
-            - 评分应严格按照专业标准，客观反映学生的实际表现
-            """
-    
-    def _normalize_evaluation_result(self, result: Dict, stage_progress: float) -> Dict:
-        """标准化评估结果"""
-        # 确保所有必要字段存在
-        # 直接使用大模型返回的0-100分
-        raw_overall_score = float(result.get("overall_score", 0.0))
-        normalized = {
-            "overall_score": min(100.0, max(0.0, raw_overall_score)),
-            "dimension_scores": result.get("dimension_scores", []),
-            "ability_scores": result.get("ability_scores", []),
-            "strengths": result.get("strengths", []),
-            "weaknesses": result.get("weaknesses", result.get("areas_for_improvement", [])),
-            "task_completion": result.get("task_completion", {
-                "completed_tasks": [],
-                "incomplete_tasks": [],
-                "completion_rate": 0.0,
-                "completion_details": ""
-            }),
-            "overall_evaluation": result.get("overall_evaluation", ""),
-            # 兼容旧格式
-            "areas_for_improvement": result.get("weaknesses", result.get("areas_for_improvement", [])),
-            "recommendations": result.get("recommendations", [])
-        }
-        
-        # 确保维度评分是列表格式，并且在0-100之间
-        dimension_scores = normalized["dimension_scores"]
-        normalized_dimension_scores = []
-        
-        if isinstance(dimension_scores, list):
-            # 处理列表格式的维度评分
-            for i, score_info in enumerate(dimension_scores):
-                if isinstance(score_info, dict) and "score" in score_info:
-                    # 新格式，包含dimension, score, confidence, evidence和reasoning
-                    # 直接使用大模型返回的0-100分
-                    raw_score = float(score_info.get("score", 0.0))
-                    normalized_score = {
-                        "dimension": score_info.get("dimension", "未知"),
-                        "score": min(100.0, max(0.0, raw_score)),
-                        "confidence": score_info.get("confidence", 0.8),
-                        "evidence": score_info.get("evidence", []),
-                        "reasoning": score_info.get("reasoning", "")
-                    }
-                    normalized_dimension_scores.append(normalized_score)
-        elif isinstance(dimension_scores, dict):
-            # 处理字典格式的维度评分，转换为列表格式
-            for dimension_name, score_info in dimension_scores.items():
-                if isinstance(score_info, dict) and "score" in score_info:
-                    # 直接使用大模型返回的0-100分
-                    raw_score = float(score_info.get("score", 0.0))
-                    normalized_score = {
-                        "dimension": dimension_name,
-                        "score": min(100.0, max(0.0, raw_score)),
-                        "confidence": score_info.get("confidence", 0.8),
-                        "evidence": score_info.get("evidence", []),
-                        "reasoning": score_info.get("reasoning", "")
-                    }
-                    normalized_dimension_scores.append(normalized_score)
-                elif isinstance(score_info, (int, float)):
-                    # 直接使用大模型返回的0-100分
-                    raw_score = float(score_info)
-                    normalized_score = {
-                        "dimension": dimension_name,
-                        "score": min(100.0, max(0.0, raw_score)),
-                        "confidence": 0.8,
-                        "evidence": [],
-                        "reasoning": ""
-                    }
-                    normalized_dimension_scores.append(normalized_score)
-        
-        # 确保能力评分是列表格式，并且在0-100之间
-        ability_scores = normalized["ability_scores"]
-        normalized_ability_scores = []
-        
-        if isinstance(ability_scores, list):
-            # 处理列表格式的能力评分
-            for i, score_info in enumerate(ability_scores):
-                if isinstance(score_info, dict) and "score" in score_info:
-                    # 新格式，包含ability, score和reasoning
-                    # 直接使用大模型返回的0-100分
-                    raw_score = float(score_info.get("score", 0.0))
-                    normalized_score = {
-                        "ability": score_info.get("ability", "未知"),
-                        "score": min(100.0, max(0.0, raw_score)),
-                        "reasoning": score_info.get("reasoning", "")
-                    }
-                    normalized_ability_scores.append(normalized_score)
-        
-        # 更新normalized中的dimension_scores和ability_scores为统一的列表格式
-        normalized["dimension_scores"] = normalized_dimension_scores
-        normalized["ability_scores"] = normalized_ability_scores
-        
-        # 确保strengths、areas_for_improvement和recommendations是列表
-        for field in ["strengths", "areas_for_improvement", "recommendations"]:
-            if not isinstance(normalized[field], list):
-                if normalized[field]:
-                    normalized[field] = [str(normalized[field])]
-                else:
-                    normalized[field] = []
-        
-        return normalized
-    
     def generate_report(self, prompt: str, max_tokens: int = 3000) -> str:
         """
         使用大模型生成报告
@@ -1030,7 +626,8 @@ class LLMEvaluator:
         self,
         submission_content: str,
         indicators: Dict,
-        student_info: Dict = None
+        student_info: Dict = None,
+        use_enhanced_prompt: bool = True
     ) -> Dict:
         """
         根据评价指标使用大模型进行评分
@@ -1039,6 +636,7 @@ class LLMEvaluator:
             submission_content: 提交内容（论文内容）
             indicators: 评价指标字典
             student_info: 学生信息
+            use_enhanced_prompt: 是否使用增强版提示词
             
         Returns:
             评分结果字典
@@ -1060,7 +658,87 @@ class LLMEvaluator:
 - 题目：{student_info.get('title', '未知')}
 """
         
-        system_prompt = """你是一位资深的教育评估专家，专门负责毕业设计评价工作。
+        if use_enhanced_prompt:
+            from src.prompts.thesis_prompts import ENHANCED_THESIS_SYSTEM_PROMPT, FEW_SHOT_EXAMPLES, SELF_VERIFICATION_PROMPT, VERIFICATION_OUTPUT_FORMAT
+            
+            system_prompt = ENHANCED_THESIS_SYSTEM_PROMPT
+            
+            user_prompt = f"""请根据以下评价指标，对学生的毕业设计论文进行专业评审。
+
+{student_info_str}
+
+## 评价指标
+
+{indicators_str}
+
+## 论文内容
+
+{submission_content[:15000]}
+
+{FEW_SHOT_EXAMPLES}
+
+## 评审要求
+
+### 第一步：逐项分析
+对每个指标，请按以下格式进行分析：
+1. **标准理解**：这个指标要求什么？
+2. **证据定位**：论文中哪些内容与该指标相关？
+3. **质量评估**：这些内容的质量如何？有什么优点和不足？
+4. **对比分析**：与优秀论文相比，差距在哪里？
+
+### 第二步：评分
+根据分析结果，给出0-100分的评分，并说明理由。
+
+### 第三步：改进建议
+针对每个不足之处，给出具体的改进建议。
+
+{SELF_VERIFICATION_PROMPT}
+
+{VERIFICATION_OUTPUT_FORMAT}
+
+## 输出格式
+请严格按照以下JSON格式返回：
+{{
+    "analysis_process": [
+        {{
+            "indicator_id": "指标编号",
+            "indicator_name": "指标名称",
+            "standard_understanding": "对评价标准的理解",
+            "evidence_found": "论文中的相关内容（引用原文）",
+            "quality_assessment": "质量评估（优点和不足）",
+            "comparison_with_excellent": "与优秀标准的对比"
+        }}
+    ],
+    "overall_score": 加权总分（保留1位小数）,
+    "grade_level": "总体等级（优秀/良好/中等/及格/不及格）",
+    "overall_comment": "总体评价（200-300字，需引用论文内容）",
+    "dimension_scores": [
+        {{
+            "indicator_id": "指标编号",
+            "indicator_name": "指标名称",
+            "score": 分数（0-100）,
+            "grade_level": "等级（优秀/良好/中等/及格/不及格）",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "支撑证据（原文引用）",
+            "improvement_suggestions": ["具体改进建议"]
+        }}
+    ],
+    "strengths": ["优势1（附证据）", "优势2（附证据）"],
+    "weaknesses": ["不足1（附证据）", "不足2（附证据）"],
+    "comparison_with_excellent_thesis": "与优秀论文的主要差距分析",
+    "self_verification": {{
+        "evidence_consistency": true/false,
+        "evidence_consistency_note": "说明",
+        "score_rationality": true/false,
+        "score_rationality_note": "说明",
+        "grade_consistency": true/false,
+        "grade_consistency_note": "说明",
+        "overall_consistent": true/false,
+        "verification_passed": true/false
+    }}
+}}"""
+        else:
+            system_prompt = """你是一位资深的教育评估专家，专门负责毕业设计评价工作。
 你的职责是严格按照给定的评价指标，客观、公正地评价学生的毕业设计论文。
 
 重要规则：
@@ -1072,7 +750,7 @@ class LLMEvaluator:
 
 请以专业、客观、严谨的态度进行评价，确保评价结果的一致性和可靠性。"""
 
-        user_prompt = f"""请根据以下评价指标，对学生的毕业设计论文进行评分。
+            user_prompt = f"""请根据以下评价指标，对学生的毕业设计论文进行评分。
 
 {student_info_str}
 
@@ -1145,7 +823,8 @@ class LLMEvaluator:
     def evaluate_institutional_dimensions(
         self,
         submission_content: str,
-        dimension_weights: Dict = None
+        dimension_weights: dict = None,
+        use_enhanced_prompt: bool = True
     ) -> Dict:
         """
         评估校方固有评价体系维度（创新度、研究分析深度、文章结构、研究方法与实验）
@@ -1153,11 +832,12 @@ class LLMEvaluator:
         Args:
             submission_content: 提交内容
             dimension_weights: 维度权重配置，如 {"innovation": 25, "research_depth": 25, ...}
+            use_enhanced_prompt: 是否使用增强版提示词
             
         Returns:
             固有评价体系评分结果
         """
-        from src.prompts.thesis_prompts import INSTITUTIONAL_SYSTEM_PROMPT, build_institutional_user_prompt
+        from src.prompts.thesis_prompts import INSTITUTIONAL_SYSTEM_PROMPT, build_institutional_user_prompt, ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT, FEW_SHOT_EXAMPLES, SELF_VERIFICATION_PROMPT, VERIFICATION_OUTPUT_FORMAT
         
         self.ai_config = get_ai_config()
         self.client = self._initialize_client(self.ai_config)
@@ -1165,19 +845,134 @@ class LLMEvaluator:
         if not self.client:
             raise Exception("大模型客户端未初始化，请检查API配置")
         
+        system_prompt = ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT if use_enhanced_prompt else INSTITUTIONAL_SYSTEM_PROMPT
+        
         user_prompt = build_institutional_user_prompt(
-            content=submission_content[:15000],
+            content=submission_content[:18000],
             dimension_weights=dimension_weights
         )
+        
+        if use_enhanced_prompt:
+            user_prompt = f"""请对以下毕业设计论文进行校方固有评价体系维度评分。
+
+## 论文内容
+
+{submission_content[:18000]}
+
+{FEW_SHOT_EXAMPLES}
+
+## 评审思维链
+
+在评分前，请按以下步骤思考：
+
+### 创新度评估
+1. 论文提出了什么新东西？（新方法/新模型/新应用/新发现）
+2. 这个"新"是真正的创新还是简单的组合？
+3. 创新是否有价值？解决了什么实际问题？
+4. 与现有工作相比，改进有多大？
+
+### 研究深度评估
+1. 文献综述是否覆盖了主要相关工作？
+2. 是否真正理解并分析了文献，而非简单罗列？
+3. 现状分析是否有深度，能否归纳出关键问题？
+4. 引用的文献是否新颖、权威？
+
+### 文章结构评估
+1. 章节安排是否符合学术规范？
+2. 各章节之间是否有逻辑关联？
+3. 论证是否连贯，有无跳跃或矛盾？
+4. 语言表达是否规范、清晰？
+
+### 方法与实验评估
+1. 研究方法是否适合研究问题？
+2. 方法描述是否详细、可复现？
+3. 实验设计是否科学、完整？
+4. 数据分析是否严谨、有说服力？
+
+{SELF_VERIFICATION_PROMPT}
+
+{VERIFICATION_OUTPUT_FORMAT}
+
+## 输出格式
+请严格按照以下JSON格式返回：
+{{
+    "institutional_scores": [
+        {{
+            "dimension_id": "innovation",
+            "dimension_name": "创新度",
+            "score": 分数（0-100）,
+            "grade_level": "等级（优秀/良好/中等/及格/不及格）",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "innovation_type": "创新类型（原创性/组合式/改进型）",
+                "innovation_value": "创新价值说明",
+                "comparison_with_existing": "与现有工作的对比"
+            }}
+        }},
+        {{
+            "dimension_id": "research_depth",
+            "dimension_name": "研究分析深度",
+            "score": 分数（0-100）,
+            "grade_level": "等级",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "literature_coverage": "文献覆盖情况",
+                "analysis_depth": "分析深度评价",
+                "problem_identification": "问题归纳能力"
+            }}
+        }},
+        {{
+            "dimension_id": "structure",
+            "dimension_name": "文章结构",
+            "score": 分数（0-100）,
+            "grade_level": "等级",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "chapter_arrangement": "章节安排评价",
+                "logic_coherence": "逻辑连贯性评价",
+                "expression_quality": "表达规范性评价"
+            }}
+        }},
+        {{
+            "dimension_id": "method_experiment",
+            "dimension_name": "研究方法与实验",
+            "score": 分数（0-100）,
+            "grade_level": "等级",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "method_appropriateness": "方法适合性评价",
+                "method_detail": "方法详细度评价",
+                "experiment_design": "实验设计评价"
+            }}
+        }}
+    ],
+    "overall_institutional_score": 加权总分（保留1位小数）,
+    "overall_institutional_grade": "总体等级",
+    "comparison_with_excellent_thesis": "与优秀论文的主要差距分析",
+    "self_verification": {{
+        "evidence_consistency": true/false,
+        "evidence_consistency_note": "说明",
+        "score_rationality": true/false,
+        "score_rationality_note": "说明",
+        "grade_consistency": true/false,
+        "grade_consistency_note": "说明",
+        "overall_consistent": true/false,
+        "verification_passed": true/false
+    }}
+}}"""
         
         response = self.client.chat.completions.create(
             model=self.ai_config["model"],
             messages=[
-                {"role": "system", "content": INSTITUTIONAL_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=4000,
+            max_tokens=5000,
             response_format={"type": "json_object"}
         )
         

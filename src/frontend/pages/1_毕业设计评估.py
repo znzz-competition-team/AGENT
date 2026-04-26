@@ -333,8 +333,7 @@ evaluation_method = st.radio(
     "选择评分方式",
     options=[
         ("LLM确定性评分（结果一致，可复现）", "rule_engine"),
-        ("分段评估（智能分段，适合长篇论文）", "sectioned"),
-        ("LLM灵活评分（灵活性高，可能有波动）", "llm")
+        ("分段评估（智能分段，适合长篇论文）", "sectioned")
     ],
     format_func=lambda x: x[0],
     help="确定性评分确保相同输入产生相同输出；分段评估适合长篇论文，解决内容丢失问题"
@@ -346,8 +345,6 @@ if method_value == "rule_engine":
     st.info("💡 LLM确定性评分特点：\n- 相同论文多次评分结果完全一致\n- 基于大模型深度理解论文内容\n- 适合标准化、可复现的评价")
 elif method_value == "sectioned":
     st.info("💡 分段评估特点：\n- 智能识别论文结构，按章节分段评估\n- 检测章节之间的逻辑衔接\n- 检测承诺-兑现一致性\n- 适合长篇论文，解决内容丢失问题")
-else:
-    st.warning("⚠️ 大模型灵活评分特点：\n- 评分更灵活，能理解语义\n- 相同论文多次评分可能有差异\n- 适合需要深度理解的评价")
 
 st.markdown("---")
 
@@ -418,10 +415,18 @@ try:
                                                 else:
                                                     st.warning(f"⚠️ PDF文件 {file_name} 内容为空")
                                             elif file_ext in ['.docx', '.doc']:
-                                                from docx import Document
-                                                doc = Document(file_path)
-                                                content = "\n".join([para.text for para in doc.paragraphs])
-                                                all_content.append(f"【{file_name}】\n{content}")
+                                                try:
+                                                    from src.utils.word_extractor import extract_word_content
+                                                    content = extract_word_content(file_path)
+                                                except ImportError:
+                                                    from docx import Document
+                                                    doc = Document(file_path)
+                                                    content = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+                                                
+                                                if content.strip():
+                                                    all_content.append(f"【{file_name}】\n{content}")
+                                                else:
+                                                    st.warning(f"⚠️ Word文件 {file_name} 内容为空")
                                             elif file_ext in ['.txt', '.md']:
                                                 with open(file_path, 'r', encoding='utf-8') as file:
                                                     content = file.read()
@@ -840,6 +845,75 @@ with st.expander("⚖️ 融合评价设置", expanded=False):
         st.divider()
 
 st.markdown("---")
+
+col_debug1, col_debug2 = st.columns(2)
+with col_debug1:
+    if st.button("🔍 调试PDF提取", use_container_width=True):
+        if not submission_content:
+            st.error("❌ 请选择毕业设计论文")
+        else:
+            with st.spinner("正在调试PDF提取..."):
+                try:
+                    debug_response = requests.post(
+                        f"{API_BASE_URL}/debug_section_extraction",
+                        json={"content": submission_content},
+                        timeout=60
+                    )
+                    
+                    if debug_response.status_code == 200:
+                        debug_result = debug_response.json()
+                        
+                        st.success("✅ 调试完成！")
+                        
+                        with st.expander("📊 提取统计", expanded=True):
+                            st.json(debug_result.get("structure", {}))
+                            
+                            empty_sections = debug_result.get("empty_sections", [])
+                            if empty_sections:
+                                st.error(f"⚠️ 以下章节内容为空或过短: {', '.join(empty_sections)}")
+                            else:
+                                st.success("✅ 所有章节内容正常")
+                        
+                        with st.expander("📑 章节详情", expanded=False):
+                            sections_debug = debug_result.get("sections_debug", [])
+                            for sec in sections_debug:
+                                title = sec.get("title", "未知章节")
+                                content_length = sec.get("content_length", 0)
+                                content_preview = sec.get("content_preview", "")
+                                
+                                if content_length < 100:
+                                    st.error(f"❌ **{title}** - {content_length}字符（内容过短）")
+                                else:
+                                    st.success(f"✅ **{title}** - {content_length}字符")
+                                
+                                if content_preview:
+                                    st.text_area(
+                                        f"{title} 内容预览",
+                                        content_preview,
+                                        height=100,
+                                        key=f"debug_preview_{title}",
+                                        disabled=True
+                                    )
+                                st.markdown("---")
+                    else:
+                        st.error(f"❌ 调试失败: {debug_response.json().get('detail', '未知错误')}")
+                except Exception as e:
+                    st.error(f"❌ 调试失败: {str(e)}")
+
+with col_debug2:
+    if st.button("📊 查看原始内容", use_container_width=True):
+        if not submission_content:
+            st.error("❌ 请选择毕业设计论文")
+        else:
+            with st.expander("📄 原始提取内容（前5000字符）", expanded=True):
+                st.text_area(
+                    "内容",
+                    submission_content[:5000],
+                    height=400,
+                    disabled=True
+                )
+                
+                st.info(f"总字符数: {len(submission_content)}")
 
 if st.button("🚀 开始毕业设计评估", use_container_width=True, type="primary"):
     if not submission_content:
@@ -1291,6 +1365,103 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                                 if summary:
                                     st.markdown("---")
                                     st.markdown(f"**总结:** {summary}")
+                        
+                        quantitative_table = result.get('quantitative_table', {})
+                        if quantitative_table:
+                            with st.expander("📊 量化评估表", expanded=True):
+                                st.markdown("| 评审维度 | 权重 | 得分 | 加权得分 | 核心评判依据 |")
+                                st.markdown("| :--- | :--- | :--- | :--- | :--- |")
+                                
+                                for dim_key, dim_data in quantitative_table.items():
+                                    if dim_key == 'total_score':
+                                        continue
+                                    
+                                    dim_names = {
+                                        'innovation': '创新度评估',
+                                        'research_depth': '研究深度评估',
+                                        'structure': '文章结构评估',
+                                        'method_experiment': '方法与实验评估'
+                                    }
+                                    
+                                    dim_name = dim_names.get(dim_key, dim_key)
+                                    weight = dim_data.get('weight', '')
+                                    score = dim_data.get('score', 0)
+                                    weighted_score = dim_data.get('weighted_score', 0)
+                                    core_evidence = dim_data.get('core_evidence', '')
+                                    
+                                    st.markdown(f"| **{dim_name}** | {weight} | {score}/100 | {weighted_score} | {core_evidence} |")
+                                
+                                total_score = quantitative_table.get('total_score', 0)
+                                st.markdown(f"| **总计得分** | **100%** | | **{total_score}** | **总体评价：{'优秀' if total_score >= 90 else '良好' if total_score >= 80 else '中等' if total_score >= 70 else '及格' if total_score >= 60 else '不及格'}** |")
+                        
+                        detailed_analysis = result.get('detailed_analysis', {})
+                        if detailed_analysis:
+                            with st.expander("🔍 详细评审推导过程", expanded=True):
+                                dim_titles = {
+                                    'innovation_analysis': '创新度评估',
+                                    'research_depth_analysis': '研究深度评估',
+                                    'structure_analysis': '文章结构评估',
+                                    'method_experiment_analysis': '方法与实验评估'
+                                }
+                                
+                                for dim_key, dim_title in dim_titles.items():
+                                    dim_data = detailed_analysis.get(dim_key, {})
+                                    if not dim_data:
+                                        continue
+                                    
+                                    st.markdown(f"#### {dim_title}")
+                                    
+                                    for step_num in range(1, 5):
+                                        step_key = f'step{step_num}'
+                                        step_data = dim_data.get(step_key, {})
+                                        if step_data:
+                                            question = step_data.get('question', '')
+                                            answer = step_data.get('answer', '')
+                                            evidence = step_data.get('evidence', '')
+                                            
+                                            st.markdown(f"**第{step_num}步：{question}**")
+                                            st.markdown(f"- 分析：{answer}")
+                                            if evidence:
+                                                st.markdown(f"- 证据：> {evidence}")
+                                            
+                                            extra_fields = ['innovation_type', 'practical_value', 'academic_value', 
+                                                          'comparison', 'improvement_degree', 'coverage', 
+                                                          'analysis_type', 'problem_induction', 'literature_quality',
+                                                          'structure_completeness', 'logic_chain', 'argument_coherence',
+                                                          'expression_quality', 'method_suitability', 'reproducibility',
+                                                          'experiment_design', 'data_analysis']
+                                            
+                                            for field in extra_fields:
+                                                if field in step_data:
+                                                    field_names = {
+                                                        'innovation_type': '创新类型',
+                                                        'practical_value': '实用价值',
+                                                        'academic_value': '学术价值',
+                                                        'comparison': '对比分析',
+                                                        'improvement_degree': '改进程度',
+                                                        'coverage': '覆盖范围',
+                                                        'analysis_type': '综述方式',
+                                                        'problem_induction': '问题归纳',
+                                                        'literature_quality': '文献质量',
+                                                        'structure_completeness': '结构完整性',
+                                                        'logic_chain': '逻辑链条',
+                                                        'argument_coherence': '论证连贯性',
+                                                        'expression_quality': '表达质量',
+                                                        'method_suitability': '方法适用性',
+                                                        'reproducibility': '可复现性',
+                                                        'experiment_design': '实验设计',
+                                                        'data_analysis': '数据分析'
+                                                    }
+                                                    st.markdown(f"- {field_names.get(field, field)}：{step_data[field]}")
+                                            
+                                            st.markdown("")
+                                    
+                                    final_score = dim_data.get('final_score', 0)
+                                    score_reason = dim_data.get('score_reason', '')
+                                    
+                                    st.markdown(f"**综合评分：{final_score}分**")
+                                    st.markdown(f"**评分理由：** {score_reason}")
+                                    st.markdown("---")
                         
                         overall_comment = result.get('overall_comment', '')
                         if overall_comment:

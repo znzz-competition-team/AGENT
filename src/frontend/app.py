@@ -162,6 +162,14 @@ def get_api_info():
         pass
     return None
 
+# 检查API状态并更新system_status
+api_info = get_api_info()
+if api_info:
+    st.session_state.system_status = "running"
+    st.session_state.api_info = api_info
+else:
+    st.session_state.system_status = "error"
+
 # 获取当前页面
 page = st.session_state.current_page
 

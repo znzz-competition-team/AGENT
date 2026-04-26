@@ -16,6 +16,78 @@ import re
 logger = logging.getLogger(__name__)
 
 
+def repair_json(json_str: str) -> str:
+    """
+    修复常见的JSON格式错误
+    
+    Args:
+        json_str: 可能包含错误的JSON字符串
+        
+    Returns:
+        修复后的JSON字符串
+    """
+    import re
+    
+    json_str = re.sub(r',\s*}', '}', json_str)
+    json_str = re.sub(r',\s*]', ']', json_str)
+    
+    json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', json_str)
+    
+    json_str = re.sub(r'(?<!\\)"(?![,:}\]])', '\\"', json_str)
+    
+    json_str = re.sub(r'\n(?=[^"]*"[^"]*$)', '\\n', json_str)
+    
+    return json_str
+
+
+def safe_json_parse(raw_content: str) -> dict:
+    """
+    安全地解析JSON，包含多层修复尝试
+    
+    Args:
+        raw_content: 原始内容
+        
+    Returns:
+        解析后的字典
+        
+    Raises:
+        Exception: 如果所有解析尝试都失败
+    """
+    try:
+        return json.loads(raw_content)
+    except json.JSONDecodeError as e:
+        logger.warning(f"首次JSON解析失败: {str(e)}")
+    
+    start_idx = raw_content.find('{')
+    end_idx = raw_content.rfind('}') + 1
+    if start_idx != -1 and end_idx != -1:
+        json_str = raw_content[start_idx:end_idx]
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.warning(f"提取JSON后解析失败: {str(e)}")
+            json_str = repair_json(json_str)
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError as e2:
+                logger.error(f"修复后仍然解析失败: {str(e2)}")
+    
+    try:
+        import re
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, raw_content, re.DOTALL)
+        if matches:
+            for match in matches:
+                try:
+                    return json.loads(match)
+                except:
+                    continue
+    except Exception as e:
+        logger.error(f"正则匹配JSON失败: {str(e)}")
+    
+    raise Exception(f"无法解析JSON内容: {raw_content[:200]}...")
+
+
 class SectionedEvaluator:
     """分段评估器"""
     
@@ -175,23 +247,13 @@ class SectionedEvaluator:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=4000,
+            max_tokens=8000,
             response_format={"type": "json_object"}
         )
         
         raw_content = response.choices[0].message.content
         
-        try:
-            result = json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}")
-            start_idx = raw_content.find('{')
-            end_idx = raw_content.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                json_str = raw_content[start_idx:end_idx]
-                result = json.loads(json_str)
-            else:
-                raise Exception(f"解析论文结构失败: {str(e)}")
+        result = safe_json_parse(raw_content)
         
         logger.info(f"论文结构识别完成: 共{result.get('total_sections', 0)}个章节")
         return result
@@ -205,6 +267,8 @@ class SectionedEvaluator:
         max_length = 15000
         
         chapter_patterns = [
+            r'【章节】([^\n]+)',
+            r'【标题】([^\n]+)',
             r'第[一二三四五六七八九十\d]+\s*章[^\n]*',
             r'摘\s*要',
             r'ABSTRACT',
@@ -222,7 +286,11 @@ class SectionedEvaluator:
         chapter_headers = []
         for pattern in chapter_patterns:
             matches = re.findall(pattern, content, re.IGNORECASE)
-            chapter_headers.extend(matches)
+            if matches:
+                if isinstance(matches[0], tuple):
+                    chapter_headers.extend([m for m in matches[0] if m])
+                else:
+                    chapter_headers.extend(matches)
         
         chapter_headers_text = "\n".join(f"- {h.strip()}" for h in set(chapter_headers) if h.strip())
         
@@ -368,6 +436,44 @@ class SectionedEvaluator:
                 if match:
                     return match.group(1).strip()
         
+        if section_type == "introduction":
+            intro_patterns = [
+                r'(第[一二三四五六七八九十\d]+\s*章\s*绪?论[^\n]*\n)(.*?)(?=\n\s*第[一二三四五六七八九十\d]+\s*章)',
+                r'(第[一二三四五六七八九十\d]+\s*章\s*引言[^\n]*\n)(.*?)(?=\n\s*第[一二三四五六七八九十\d]+\s*章)',
+                r'(绪论[^\n]*\n)(.*?)(?=\n\s*第[一二三四五六七八九十\d]+\s*章)',
+                r'(引言[^\n]*\n)(.*?)(?=\n\s*第[一二三四五六七八九十\d]+\s*章)',
+            ]
+            
+            for pattern in intro_patterns:
+                match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+                if match and len(match.groups()) > 1:
+                    result = match.group(2).strip()
+                    if len(result) > 100:
+                        return result
+            
+            chapter_num_match = re.search(r'第([一二三四五六七八九十\d]+)\s*章', section_title)
+            if chapter_num_match:
+                chapter_num = chapter_num_match.group(1)
+                
+                pattern = rf'(第{chapter_num}\s*章[^\n]*\n)(.*?)(?=\n\s*第[一二三四五六七八九十\d]+\s*章)'
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    return match.group(2).strip()
+            
+            intro_start = -1
+            for pattern in [r'第[一1]\s*章\s*绪?论', r'第[一1]\s*章\s*引言', r'绪论', r'引言']:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    intro_start = match.start()
+                    break
+            
+            if intro_start != -1:
+                next_chapter = re.search(r'\n\s*第[二三四五六七八九十\d]+\s*章', content[intro_start:], re.IGNORECASE)
+                if next_chapter:
+                    return content[intro_start:intro_start + next_chapter.start()].strip()
+                else:
+                    return content[intro_start:intro_start + 10000].strip()
+        
         return ""
     
     def _extract_single_section(
@@ -380,9 +486,10 @@ class SectionedEvaluator:
         提取单个章节内容
         
         改进策略：
-        1. 优先使用下一个章节的 start_marker 作为结束标记
-        2. 如果没有下一个章节，使用 end_marker 或文档末尾
-        3. 支持多种章节标题格式的匹配
+        1. 优先使用【章节】标记定位
+        2. 使用下一个章节的 start_marker 作为结束标记
+        3. 如果没有下一个章节，使用 end_marker 或文档末尾
+        4. 支持多种章节标题格式的匹配
         """
         start_marker = section_info.get("start_marker", "")
         end_marker = section_info.get("end_marker", "")
@@ -390,7 +497,19 @@ class SectionedEvaluator:
         
         start_idx = -1
         
-        if start_marker:
+        if section_title:
+            chapter_marker_pattern = rf'【章节】\s*{re.escape(section_title)}'
+            match = re.search(chapter_marker_pattern, content, re.IGNORECASE)
+            if match:
+                start_idx = match.start()
+        
+        if start_idx == -1 and start_marker:
+            chapter_marker_pattern = rf'【章节】\s*{re.escape(start_marker)}'
+            match = re.search(chapter_marker_pattern, content, re.IGNORECASE)
+            if match:
+                start_idx = match.start()
+        
+        if start_idx == -1 and start_marker:
             start_idx = content.find(start_marker)
         
         if start_idx == -1 and section_title:
@@ -399,11 +518,19 @@ class SectionedEvaluator:
                 section_title.replace("第", "第 "),
                 section_title.replace("章", "章 "),
                 re.sub(r'第\s*(\d+)\s*章', r'第\1章', section_title),
+                rf'【章节】\s*{re.escape(section_title)}',
+                rf'【标题】\s*{re.escape(section_title)}',
             ]
             for pattern in title_patterns:
-                start_idx = content.find(pattern)
-                if start_idx != -1:
-                    break
+                try:
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        start_idx = match.start()
+                        break
+                except:
+                    start_idx = content.find(pattern)
+                    if start_idx != -1:
+                        break
         
         if start_idx == -1:
             start_idx = 0
@@ -414,7 +541,19 @@ class SectionedEvaluator:
             next_start_marker = next_section.get("start_marker", "")
             next_title = next_section.get("title", "")
             
-            if next_start_marker:
+            if next_title:
+                chapter_marker_pattern = rf'【章节】\s*{re.escape(next_title)}'
+                match = re.search(chapter_marker_pattern, content[start_idx:], re.IGNORECASE)
+                if match:
+                    end_idx = start_idx + match.start()
+            
+            if end_idx == -1 and next_start_marker:
+                chapter_marker_pattern = rf'【章节】\s*{re.escape(next_start_marker)}'
+                match = re.search(chapter_marker_pattern, content[start_idx:], re.IGNORECASE)
+                if match:
+                    end_idx = start_idx + match.start()
+            
+            if end_idx == -1 and next_start_marker:
                 end_idx = content.find(next_start_marker, start_idx + len(start_marker) if start_marker else start_idx)
             
             if end_idx == -1 and next_title:
@@ -437,7 +576,62 @@ class SectionedEvaluator:
         
         section_content = content[start_idx:end_idx].strip()
         
+        section_content = re.sub(r'^【章节】\s*', '', section_content)
+        section_content = re.sub(r'\n【章节】[^\n]*', '\n', section_content)
+        
+        section_content = self._clean_section_content(section_content, section_info.get("section_type", ""))
+        
         return section_content
+    
+    def _clean_section_content(self, content: str, section_type: str) -> str:
+        """
+        清理章节内容
+        
+        移除：
+        1. 章节末尾的参考文献
+        2. 重复的封面和摘要
+        3. 多余的空白
+        """
+        if not content:
+            return content
+        
+        ref_patterns = [
+            r'\n\s*参考\s*文献[^\n]*\n.*$',
+            r'\n\s*References[^\n]*\n.*$',
+            r'\n\s*\[\d+\].*$',  # 以[1]开头的参考文献格式
+        ]
+        
+        if section_type not in ["references", "other"]:
+            for pattern in ref_patterns:
+                match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+                if match:
+                    potential_refs = content[match.start():]
+                    if re.search(r'\[\d+\]', potential_refs) or re.search(r'参考\s*文献', potential_refs, re.IGNORECASE):
+                        if len(potential_refs) < len(content) * 0.5:
+                            content = content[:match.start()].strip()
+                            break
+        
+        cover_patterns = [
+            r'硕士学位论文',
+            r'本科毕业设计',
+            r'毕业设计',
+            r'学位论文',
+            r'分类号[：:]\s*\S+',
+            r'UDC[：:]\s*\S+',
+        ]
+        
+        if section_type not in ["abstract", "other"]:
+            for pattern in cover_patterns:
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    abstract_match = re.search(r'摘\s*要', content[match.start():], re.IGNORECASE)
+                    if abstract_match:
+                        content = content[:match.start()].strip()
+                        break
+        
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        
+        return content
     
     def build_promise_tracking_table(
         self,
@@ -459,18 +653,24 @@ class SectionedEvaluator:
         self._ensure_client()
         
         all_promises = []
+        seen_promises = set()
+        
         for i, evaluation in enumerate(section_evaluations):
             promises = evaluation.get("promises_made", [])
             section_title = sections[i].get("title", f"章节{i+1}")
             section_type = sections[i].get("section_type", "other")
             
             for promise in promises:
-                all_promises.append({
-                    "promise": promise,
-                    "source_section": section_title,
-                    "source_section_type": section_type,
-                    "source_index": i
-                })
+                promise_key = promise.strip().lower()
+                
+                if promise_key not in seen_promises and len(promise.strip()) > 5:
+                    seen_promises.add(promise_key)
+                    all_promises.append({
+                        "promise": promise,
+                        "source_section": section_title,
+                        "source_section_type": section_type,
+                        "source_index": i
+                    })
         
         if not all_promises:
             return {
@@ -535,23 +735,13 @@ class SectionedEvaluator:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=4000,
+            max_tokens=8000,
             response_format={"type": "json_object"}
         )
         
         raw_content = response.choices[0].message.content
         
-        try:
-            result = json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}")
-            start_idx = raw_content.find('{')
-            end_idx = raw_content.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                json_str = raw_content[start_idx:end_idx]
-                result = json.loads(json_str)
-            else:
-                raise Exception(f"解析承诺追踪结果失败: {str(e)}")
+        result = safe_json_parse(raw_content)
         
         result["promises"] = all_promises
         logger.info(f"承诺追踪完成: 兑现率{result.get('overall_fulfillment_rate', 0):.1%}")
@@ -663,17 +853,7 @@ class SectionedEvaluator:
         
         raw_content = response.choices[0].message.content
         
-        try:
-            result = json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}")
-            start_idx = raw_content.find('{')
-            end_idx = raw_content.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                json_str = raw_content[start_idx:end_idx]
-                result = json.loads(json_str)
-            else:
-                raise Exception(f"解析章节评估结果失败: {str(e)}")
+        result = safe_json_parse(raw_content)
         
         result["section_type"] = section_type
         result["section_title"] = section_title
@@ -797,17 +977,7 @@ class SectionedEvaluator:
         
         raw_content = response.choices[0].message.content
         
-        try:
-            result = json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}")
-            start_idx = raw_content.find('{')
-            end_idx = raw_content.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                json_str = raw_content[start_idx:end_idx]
-                result = json.loads(json_str)
-            else:
-                raise Exception(f"解析衔接检测结果失败: {str(e)}")
+        result = safe_json_parse(raw_content)
         
         result["prev_section"] = prev_section.get("title", "")
         result["next_section"] = next_section.get("title", "")
@@ -870,15 +1040,64 @@ class SectionedEvaluator:
             unfulfilled_promises = promise_tracking.get("unfulfilled_promises", [])
             fulfillment_rate = promise_tracking.get("overall_fulfillment_rate", 1.0)
         
-        system_prompt = """你是一位专业的学术论文评审专家。你需要根据各章节评估结果和衔接检测结果，生成最终的论文评价报告。
+        system_prompt = """你是一位拥有15年经验的学术论文评审专家，专注于毕业设计质量评估。
 
-评价要点：
-1. 综合各章节评分，给出总体评分
-2. 总结论文的优点和不足
-3. 检测整体逻辑连贯性
-4. 分析承诺兑现情况
-5. 提供具体的改进建议
-6. 生成详细的评价报告"""
+【你的专业背景】
+- 曾担任多所高校毕业设计评审专家
+- 熟悉各学科领域的创新评价标准
+- 擅长识别"搭积木式创新"与"原创性创新"
+- 对文献综述质量有敏锐判断
+
+【评审思维链 - 必须严格按此步骤思考】
+
+### 创新度评估（4步分析法）
+**第1步：论文提出了什么新东西？**
+- 识别创新点：新方法/新模型/新应用/新发现/新设计
+- 定位证据：在论文中找到具体描述创新的原文
+
+**第2步：这个"新"是真正的创新还是简单的组合？**
+- 判断创新类型：原创性创新/改进型创新/集成创新/应用创新/简单组合
+- 分析创新深度：是否触及核心技术原理
+
+**第3步：创新是否有价值？解决了什么实际问题？**
+- 评估实用价值：是否解决实际工程/学术问题
+- 评估学术价值：是否有理论贡献
+
+**第4步：与现有工作相比，改进有多大？**
+- 对比现有方案：与最先进方法相比有何优势
+- 量化改进程度：性能提升多少、效率提高多少
+
+### 研究深度评估（4步分析法）
+**第1步：文献综述是否覆盖了主要相关工作？**
+**第2步：是否真正理解并分析了文献，而非简单罗列？**
+**第3步：现状分析是否有深度，能否归纳出关键问题？**
+**第4步：引用的文献是否新颖、权威？**
+
+### 文章结构评估（4步分析法）
+**第1步：章节安排是否符合学术规范？**
+**第2步：各章节之间是否有逻辑关联？**
+**第3步：论证是否连贯，有无跳跃或矛盾？**
+**第4步：语言表达是否规范、清晰？**
+
+### 方法与实验评估（4步分析法）
+**第1步：研究方法是否适合研究问题？**
+**第2步：方法描述是否详细、可复现？**
+**第3步：实验设计是否科学、完整？**
+**第4步：数据分析是否严谨、有说服力？**
+
+【评分等级标准】
+- 优秀(90-100分): 超出预期，有原创性贡献或深度见解，内容完整且高质量
+- 良好(80-89分): 符合预期，有针对性改进，内容完整，有一定深度
+- 中等(70-79分): 基本符合要求，有一定工作量但创新不足，深度一般
+- 及格(60-69分): 勉强符合要求，工作量不足或深度不够
+- 不及格(0-59分): 不符合要求，存在严重问题
+
+【输出要求】
+必须严格按照思维链4步分析法进行评估，每个维度的评分理由必须包含：
+1. 具体的分析过程（按4步展开）
+2. 论文中的具体证据（引用原文）
+3. 与优秀标准的对比
+4. 明确的评分依据"""
 
         user_prompt = f"""请根据以下信息生成最终评价：
 
@@ -907,10 +1126,170 @@ class SectionedEvaluator:
 - 衔接平均分：{avg_coherence_score:.1f}
 - 承诺兑现率：{fulfillment_rate:.1%}
 
+## 评分要求
+
+### 必须按照以下格式输出：
+
+**第一步：输出量化评估表**
+使用表格形式展示各维度评分，包含权重、得分、加权得分、核心评判依据。
+
+**第二步：输出详细评审推导过程**
+对每个维度，严格按照4步分析法进行详细分析：
+1. 第1步分析 + 证据引用
+2. 第2步分析 + 证据引用  
+3. 第3步分析 + 证据引用
+4. 第4步分析 + 证据引用
+然后给出综合评分和理由。
+
+**第三步：输出评审结论**
+包含总体评价和改进建议。
+
 ## 请返回JSON格式结果
 
 ```json
 {{
+    "quantitative_table": {{
+        "innovation": {{
+            "weight": "权重（根据固有评价体系结果）",
+            "score": 分数,
+            "weighted_score": 加权得分,
+            "core_evidence": "核心评判依据（一句话）"
+        }},
+        "research_depth": {{
+            "weight": "权重",
+            "score": 分数,
+            "weighted_score": 加权得分,
+            "core_evidence": "核心评判依据（一句话）"
+        }},
+        "structure": {{
+            "weight": "权重",
+            "score": 分数,
+            "weighted_score": 加权得分,
+            "core_evidence": "核心评判依据（一句话）"
+        }},
+        "method_experiment": {{
+            "weight": "权重",
+            "score": 分数,
+            "weighted_score": 加权得分,
+            "core_evidence": "核心评判依据（一句话）"
+        }},
+        "total_score": 总分
+    }},
+    "detailed_analysis": {{
+        "innovation_analysis": {{
+            "step1": {{
+                "question": "论文提出了什么新东西？",
+                "answer": "分析回答",
+                "evidence": "论文中的具体证据（引用原文）"
+            }},
+            "step2": {{
+                "question": "这个'新'是真正的创新还是简单的组合？",
+                "answer": "分析回答",
+                "innovation_type": "创新类型（原创性创新/改进型创新/集成创新/应用创新/简单组合）",
+                "evidence": "论文中的具体证据"
+            }},
+            "step3": {{
+                "question": "创新是否有价值？解决了什么实际问题？",
+                "answer": "分析回答",
+                "practical_value": "实用价值评估",
+                "academic_value": "学术价值评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step4": {{
+                "question": "与现有工作相比，改进有多大？",
+                "answer": "分析回答",
+                "comparison": "与现有工作的对比分析",
+                "improvement_degree": "改进程度评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "final_score": 分数,
+            "score_reason": "综合评分理由（必须引用具体证据）"
+        }},
+        "research_depth_analysis": {{
+            "step1": {{
+                "question": "文献综述是否覆盖了主要相关工作？",
+                "answer": "分析回答",
+                "coverage": "覆盖范围评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step2": {{
+                "question": "是否真正理解并分析了文献，而非简单罗列？",
+                "answer": "分析回答",
+                "analysis_type": "综述方式类型（深度分析/中等分析/简单罗列）",
+                "evidence": "论文中的具体证据"
+            }},
+            "step3": {{
+                "question": "现状分析是否有深度，能否归纳出关键问题？",
+                "answer": "分析回答",
+                "problem_induction": "问题归纳能力评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step4": {{
+                "question": "引用的文献是否新颖、权威？",
+                "answer": "分析回答",
+                "literature_quality": "文献质量评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "final_score": 分数,
+            "score_reason": "综合评分理由（必须引用具体证据）"
+        }},
+        "structure_analysis": {{
+            "step1": {{
+                "question": "章节安排是否符合学术规范？",
+                "answer": "分析回答",
+                "structure_completeness": "结构完整性评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step2": {{
+                "question": "各章节之间是否有逻辑关联？",
+                "answer": "分析回答",
+                "logic_chain": "逻辑链条评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step3": {{
+                "question": "论证是否连贯，有无跳跃或矛盾？",
+                "answer": "分析回答",
+                "argument_coherence": "论证连贯性评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step4": {{
+                "question": "语言表达是否规范、清晰？",
+                "answer": "分析回答",
+                "expression_quality": "表达质量评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "final_score": 分数,
+            "score_reason": "综合评分理由（必须引用具体证据）"
+        }},
+        "method_experiment_analysis": {{
+            "step1": {{
+                "question": "研究方法是否适合研究问题？",
+                "answer": "分析回答",
+                "method_suitability": "方法适用性评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step2": {{
+                "question": "方法描述是否详细、可复现？",
+                "answer": "分析回答",
+                "reproducibility": "可复现性评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step3": {{
+                "question": "实验设计是否科学、完整？",
+                "answer": "分析回答",
+                "experiment_design": "实验设计评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "step4": {{
+                "question": "数据分析是否严谨、有说服力？",
+                "answer": "分析回答",
+                "data_analysis": "数据分析评估",
+                "evidence": "论文中的具体证据"
+            }},
+            "final_score": 分数,
+            "score_reason": "综合评分理由（必须引用具体证据）"
+        }}
+    }},
     "overall_score": 总分（0-100）,
     "grade_level": "总体等级（优秀/良好/中等/及格/不及格）",
     "dimension_scores": [
@@ -923,8 +1302,8 @@ class SectionedEvaluator:
             "evidence": "证据"
         }}
     ],
-    "strengths": ["优点1", "优点2", "优点3"],
-    "weaknesses": ["不足1", "不足2"],
+    "strengths": ["优点1（附证据）", "优点2（附证据）", "优点3（附证据）"],
+    "weaknesses": ["不足1（附证据）", "不足2（附证据）"],
     "coherence_analysis": {{
         "overall_coherence_score": 整体连贯性分数,
         "major_issues": ["主要问题1", "主要问题2"]
@@ -951,7 +1330,20 @@ class SectionedEvaluator:
             "priority": "优先级（高/中/低）"
         }}
     ],
-    "overall_comment": "总体评价（200-300字）"
+    "overall_comment": "总体评价（200-300字，需引用论文内容）",
+    "conclusion": {{
+        "overall_comment": "总体评价（200-300字，需引用论文内容）",
+        "strengths": ["优势1（附证据）", "优势2（附证据）", "优势3（附证据）"],
+        "weaknesses": ["不足1（附证据）", "不足2（附证据）"],
+        "improvement_suggestions": [
+            {{
+                "aspect": "改进方面",
+                "current_issue": "当前问题",
+                "suggestion": "具体建议",
+                "priority": "优先级（高/中/低）"
+            }}
+        ]
+    }}
 }}
 ```"""
 
@@ -962,23 +1354,13 @@ class SectionedEvaluator:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=4000,
+            max_tokens=8000,
             response_format={"type": "json_object"}
         )
         
         raw_content = response.choices[0].message.content
         
-        try:
-            result = json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {str(e)}")
-            start_idx = raw_content.find('{')
-            end_idx = raw_content.rfind('}') + 1
-            if start_idx != -1 and end_idx != -1:
-                json_str = raw_content[start_idx:end_idx]
-                result = json.loads(json_str)
-            else:
-                raise Exception(f"解析最终评价结果失败: {str(e)}")
+        result = safe_json_parse(raw_content)
         
         result["section_evaluations"] = section_evaluations
         result["coherence_checks"] = coherence_checks

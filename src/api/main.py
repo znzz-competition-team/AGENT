@@ -105,23 +105,34 @@ def extract_document_content(file_path: str) -> str:
 
 def extract_pdf_content(file_path: str) -> str:
     """
-    提取PDF文件内容（改进版）
+    提取PDF文件内容（增强版）
     
-    使用多库组合策略：
-    1. 优先使用PyMuPDF（对中文支持最好）
-    2. 备用pdfplumber
-    3. 最后使用PyPDF2
+    使用增强的多策略方法：
+    1. 优先使用增强版PDF提取器（保留结构、识别章节）
+    2. 备用原PDF提取器
+    3. 最后使用PyMuPDF/pdfplumber/PyPDF2
     """
+    try:
+        from src.utils.pdf_extractor_enhanced import extract_pdf_enhanced
+        text = extract_pdf_enhanced(file_path, enable_ocr=False)
+        if text and len(text.strip()) > 100:
+            logger.info(f"使用增强版PDF提取器成功，共{len(text)}字符")
+            return text
+    except ImportError:
+        logger.warning("增强版PDF提取器模块未找到，尝试原提取器")
+    except Exception as e:
+        logger.warning(f"增强版PDF提取器失败: {str(e)}，尝试原提取器")
+    
     try:
         from src.utils.pdf_extractor import extract_pdf_content as extract_with_new
         text = extract_with_new(file_path)
         if text and len(text.strip()) > 50:
-            logger.info(f"使用新PDF提取器成功，共{len(text)}字符")
+            logger.info(f"使用原PDF提取器成功，共{len(text)}字符")
             return text
     except ImportError:
-        logger.warning("新PDF提取器模块未找到，使用备用方法")
+        logger.warning("原PDF提取器模块未找到，使用备用方法")
     except Exception as e:
-        logger.warning(f"新PDF提取器失败: {str(e)}，使用备用方法")
+        logger.warning(f"原PDF提取器失败: {str(e)}，使用备用方法")
     
     try:
         import fitz
@@ -171,27 +182,87 @@ def extract_pdf_content(file_path: str) -> str:
         return ""
 
 def extract_docx_content(file_path: str) -> str:
-    """提取DOCX文件内容"""
+    """
+    提取DOCX文件内容（改进版）
+    
+    使用多库组合策略：
+    1. 优先使用新的WordExtractor
+    2. 备用python-docx
+    3. 最后使用docx2txt
+    """
+    try:
+        from src.utils.word_extractor import extract_word_content as extract_with_new
+        text = extract_with_new(file_path)
+        if text and len(text.strip()) > 50:
+            logger.info(f"使用新Word提取器成功，共{len(text)}字符")
+            return text
+    except ImportError:
+        logger.warning("新Word提取器模块未找到，使用备用方法")
+    except Exception as e:
+        logger.warning(f"新Word提取器失败: {str(e)}，使用备用方法")
+    
     try:
         from docx import Document
         doc = Document(file_path)
-        text = ""
-        for paragraph in doc.paragraphs:
-            text += paragraph.text + "\n"
+        text_parts = []
+        
+        for para in doc.paragraphs:
+            if para.text.strip():
+                text_parts.append(para.text)
+        
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join([cell.text.strip() for cell in row.cells])
+                if row_text.strip():
+                    text_parts.append(row_text)
+        
+        text = "\n".join(text_parts)
+        logger.info(f"python-docx提取成功，共{len(text)}字符")
         return text
     except Exception as e:
-        logger.error(f"提取DOCX内容失败: {str(e)}")
-        return ""
-
-def extract_doc_content(file_path: str) -> str:
-    """提取DOC文件内容"""
+        logger.warning(f"python-docx提取失败: {str(e)}")
+    
     try:
         import docx2txt
         text = docx2txt.process(file_path)
+        logger.info(f"docx2txt提取成功，共{len(text)}字符")
         return text
     except Exception as e:
-        logger.error(f"提取DOC内容失败: {str(e)}")
+        logger.error(f"docx2txt提取失败: {str(e)}")
         return ""
+
+def extract_doc_content(file_path: str) -> str:
+    """
+    提取DOC文件内容（改进版）
+    
+    使用多库组合策略：
+    1. 优先尝试使用新的WordExtractor（支持.docx）
+    2. 使用docx2txt
+    3. 使用antiword（Linux/Mac）
+    """
+    try:
+        import docx2txt
+        text = docx2txt.process(file_path)
+        if text and len(text.strip()) > 50:
+            logger.info(f"docx2txt提取DOC成功，共{len(text)}字符")
+            return text
+    except Exception as e:
+        logger.warning(f"docx2txt提取DOC失败: {str(e)}")
+    
+    try:
+        import subprocess
+        result = subprocess.run(['antiword', file_path], capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            text = result.stdout
+            logger.info(f"antiword提取成功，共{len(text)}字符")
+            return text
+    except FileNotFoundError:
+        logger.warning("antiword未安装")
+    except Exception as e:
+        logger.warning(f"antiword提取失败: {str(e)}")
+    
+    logger.error("所有DOC提取方法都失败")
+    return ""
 
 def extract_txt_content(file_path: str) -> str:
     """提取TXT文件内容"""
@@ -1682,239 +1753,6 @@ async def evaluate_sectioned(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"分段评估失败: {error_message}")
 
-@app.post("/evaluate", response_model=EvaluationResponse)
-async def evaluate_submission(
-    request: EvaluationRequest,
-    db_service: DatabaseService = Depends(get_database_service)
-):
-    # 使用大模型进行评估
-    logger.info(f"开始评估提交: {request.submission_id}, 阶段: {request.stage}, 进度: {request.stage_progress}")
-    
-    try:
-        # 检查提交是否存在
-        submission = db_service.get_submission_by_id(request.submission_id)
-        if not submission:
-            raise HTTPException(status_code=404, detail="提交不存在")
-        
-        # 检查学生是否存在
-        student = db_service.get_student_by_internal_id(submission.student_id)
-        if not student:
-            raise HTTPException(status_code=404, detail="学生不存在")
-        
-        # 导入大模型评估器
-        from src.evaluation.llm_evaluator import llm_evaluator
-        
-        # 确定阶段进度（默认为0.5，即中期）
-        stage_progress = request.stage_progress or 0.5
-        # 确保进度值在0-1之间
-        stage_progress = max(0.0, min(1.0, stage_progress))
-        
-        # 准备评估内容
-        submission_content = submission.text_content or ""
-        
-        # 提取上传文件的内容
-        media_files = db_service.get_media_files_by_submission_id(request.submission_id)
-        logger.info(f"找到 {len(media_files)} 个媒体文件")
-        if media_files:
-            file_contents = []
-            for media_file in media_files:
-                logger.info(f"处理媒体文件: {media_file.file_name}, 类型: {media_file.media_type}, 路径: {media_file.file_path}")
-                if media_file.media_type == "document":
-                    file_content = extract_document_content(media_file.file_path)
-                    logger.info(f"提取文件内容长度: {len(file_content)}")
-                    if file_content:
-                        file_contents.append(f"文件 {media_file.file_name} 的内容:\n{file_content}")
-            
-            if file_contents:
-                logger.info(f"成功提取 {len(file_contents)} 个文件的内容")
-                if submission_content:
-                    submission_content += "\n\n" + "\n\n".join(file_contents)
-                else:
-                    submission_content = "\n\n".join(file_contents)
-            else:
-                logger.info("没有提取到文件内容")
-        else:
-            logger.info("没有找到媒体文件")
-        
-        # 如果仍然没有内容，返回错误
-        if not submission_content or submission_content == "无内容":
-            raise HTTPException(status_code=400, detail="提交内容为空，无法进行评估。请确保提交包含文件或文字内容。")
-        
-        # 准备学生信息
-        student_info = {
-            "student_id": student.student_id,
-            "name": student.name,
-            "grade": student.grade,
-            "major": student.major
-        }
-        
-        # 获取自定义提示词（如果有）
-        custom_prompts = getattr(request, 'custom_prompts', None)
-        
-        # 获取大纲分析结果（如果有）
-        syllabus_analysis = getattr(request, 'syllabus_analysis', None)
-        
-        # 使用大模型进行评估
-        evaluation_result = llm_evaluator.evaluate_submission(
-            submission_content=submission_content,
-            stage_progress=stage_progress,
-            student_info=student_info,
-            custom_prompts=custom_prompts,
-            syllabus_analysis=syllabus_analysis
-        )
-        
-        # 记录API接收到的评估结果
-        print("=== API接收到的评估结果 ===")
-        print(f"类型: {type(evaluation_result)}")
-        print(f"内容: {evaluation_result}")
-        print(f"dimension_scores类型: {type(evaluation_result.get('dimension_scores'))}")
-        if 'dimension_scores' in evaluation_result:
-            print(f"dimension_scores内容: {evaluation_result['dimension_scores']}")
-        
-        # 生成评估ID
-        import uuid
-        evaluation_id = f"EVAL_{uuid.uuid4().hex[:8].upper()}"
-        
-        # 保存评估结果到数据库
-        # 确保strengths、areas_for_improvement和recommendations是列表
-        strengths = evaluation_result.get("strengths", [])
-        if not isinstance(strengths, list):
-            strengths = [str(strengths)]
-        
-        # 处理weaknesses字段
-        weaknesses = evaluation_result.get("weaknesses", [])
-        if not isinstance(weaknesses, list):
-            weaknesses = [str(weaknesses)]
-        
-        # 如果没有areas_for_improvement，使用weaknesses
-        areas_for_improvement = evaluation_result.get("areas_for_improvement", weaknesses)
-        if not isinstance(areas_for_improvement, list):
-            areas_for_improvement = [str(areas_for_improvement)]
-        
-        recommendations = evaluation_result.get("recommendations", [])
-        if not isinstance(recommendations, list):
-            recommendations = [str(recommendations)]
-        
-        db_evaluation = db_service.create_evaluation_result(
-            submission_id=request.submission_id,
-            overall_score=evaluation_result["overall_score"],
-            strengths=", ".join(strengths),
-            areas_for_improvement=", ".join(areas_for_improvement),
-            recommendations=", ".join(recommendations),
-            stage=request.stage,
-            stage_progress=stage_progress
-        )
-        
-        # 保存维度评分
-        from src.models.schemas import EvaluationDimension
-        dimension_mapping = {
-            "学术表现": EvaluationDimension.ACADEMIC_PERFORMANCE,
-            "沟通能力": EvaluationDimension.COMMUNICATION_SKILLS,
-            "领导力": EvaluationDimension.LEADERSHIP,
-            "团队协作": EvaluationDimension.TEAMWORK,
-            "创新能力": EvaluationDimension.CREATIVITY,
-            "问题解决": EvaluationDimension.PROBLEM_SOLVING,
-            "时间管理": EvaluationDimension.TIME_MANAGEMENT,
-            "适应能力": EvaluationDimension.ADAPTABILITY,
-            "技术能力": EvaluationDimension.TECHNICAL_SKILLS,
-            "批判性思维": EvaluationDimension.CRITICAL_THINKING
-        }
-        
-        # 构建维度评分响应
-        dimension_scores_response = []
-        dimension_scores = evaluation_result["dimension_scores"]
-        
-        # 现在dimension_scores总是列表格式
-        print(f"处理dimension_scores，类型: {type(dimension_scores)}")
-        if isinstance(dimension_scores, list):
-            for score_info in dimension_scores:
-                if isinstance(score_info, dict):
-                    dimension_name = score_info.get("dimension", "未知")
-                    # 不再限制为预定义维度，直接使用能力点名称
-                    dimension = dimension_mapping.get(dimension_name)
-                    dimension_value = dimension.value if dimension else dimension_name
-                    
-                    score = score_info.get("score", 0.0)
-                    reasoning = score_info.get("reasoning", "由大模型生成的评估结果")
-                    evidence = score_info.get("evidence", [])
-                    confidence = score_info.get("confidence", 0.9)
-                    
-                    # 保存维度评分到数据库
-                    db_service.create_dimension_score(
-                        evaluation_id=db_evaluation.evaluation_id,
-                        dimension=dimension_value,
-                        score=score,
-                        confidence=confidence,
-                        evidence=", ".join(evidence) if isinstance(evidence, list) else str(evidence),
-                        reasoning=reasoning
-                    )
-                    
-                    # 构建维度评分响应
-                    dimension_score_response = DimensionScoreResponse(
-                        dimension=dimension_value,
-                        score=score,
-                        confidence=confidence,
-                        evidence=evidence if isinstance(evidence, list) else [str(evidence)],
-                        reasoning=reasoning
-                    )
-                    dimension_scores_response.append(dimension_score_response)
-        else:
-            print(f"警告：dimension_scores不是列表类型！类型: {type(dimension_scores)}")
-        
-        # 更新提交状态
-        db_service.update_submission_status(request.submission_id, SubmissionStatus.COMPLETED)
-        
-        # 构建响应
-        # 确保strengths、areas_for_improvement和recommendations是列表类型
-        response_strengths = evaluation_result.get("strengths", [])
-        if not isinstance(response_strengths, list):
-            response_strengths = [str(response_strengths)]
-        
-        response_areas_for_improvement = evaluation_result.get("areas_for_improvement", [])
-        if not isinstance(response_areas_for_improvement, list):
-            response_areas_for_improvement = [str(response_areas_for_improvement)]
-        
-        response_recommendations = evaluation_result.get("recommendations", [])
-        if not isinstance(response_recommendations, list):
-            response_recommendations = [str(response_recommendations)]
-        
-        response = EvaluationResponse(
-            evaluation_id=evaluation_id,
-            student_id=student.student_id,
-            overall_score=evaluation_result["overall_score"],
-            strengths=response_strengths,
-            areas_for_improvement=response_areas_for_improvement,
-            recommendations=response_recommendations,
-            dimension_scores=dimension_scores_response,
-            evaluated_at=datetime.utcnow().isoformat(),
-            evaluator_agent="llm_evaluator",
-            stage=f"progress_{stage_progress:.2f}",
-            stage_progress=stage_progress
-        )
-        
-        logger.info(f"评估完成: 进度={stage_progress:.2f}, 综合评分={evaluation_result['overall_score']}")
-        
-        return response
-    except HTTPException as he:
-        # 更新提交状态为失败
-        try:
-            db_service.update_submission_status(request.submission_id, SubmissionStatus.FAILED)
-        except:
-            pass
-        raise
-    except Exception as e:
-        # 更新提交状态为失败
-        try:
-            db_service.update_submission_status(request.submission_id, SubmissionStatus.FAILED)
-        except:
-            pass
-        # 记录详细的错误信息
-        import traceback
-        logger.error(f"评估过程中出错: {str(e)}")
-        logger.error(f"错误类型: {type(e)}")
-        logger.error(f"错误堆栈: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"评估过程中出错: {str(e)}")
-
 @app.get("/evaluations/{evaluation_id}", response_model=EvaluationResponse)
 async def get_evaluation(
     evaluation_id: str,
@@ -2691,6 +2529,119 @@ async def api_extract_chapter(request: ExtractChapterRequest):
     except Exception as e:
         logger.error(f"提取章节内容失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"提取章节内容失败: {str(e)}")
+
+@app.post("/debug_pdf_extraction")
+async def debug_pdf_extraction(
+    file: UploadFile = File(...)
+):
+    """
+    调试PDF提取 - 查看提取的原始内容和章节识别结果
+    
+    用于诊断PDF提取问题
+    """
+    try:
+        import tempfile
+        import os
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+        
+        try:
+            from src.utils.pdf_extractor_enhanced import EnhancedPDFExtractor
+            
+            extractor = EnhancedPDFExtractor(enable_ocr=False)
+            result = extractor.extract_with_metadata(tmp_path)
+            
+            text = result["text"]
+            
+            chapter_markers = re.findall(r'【章节】([^\n]+)', text)
+            title_markers = re.findall(r'【标题】([^\n]+)', text)
+            
+            lines = text.split('\n')
+            first_100_lines = '\n'.join(lines[:100])
+            
+            chapter_patterns = [
+                r'第[一二三四五六七八九十\d]+\s*章[^\n]*',
+                r'摘\s*要',
+                r'ABSTRACT',
+                r'结论',
+                r'总结',
+            ]
+            
+            found_chapters = []
+            for pattern in chapter_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                found_chapters.extend(matches)
+            
+            return {
+                "metadata": result["metadata"],
+                "extraction_log": result["log"],
+                "chapter_markers_found": chapter_markers[:20],
+                "title_markers_found": title_markers[:20],
+                "chapters_found_by_pattern": list(set(found_chapters))[:20],
+                "first_100_lines": first_100_lines,
+                "total_chars": len(text),
+                "total_lines": len(lines),
+                "sample_content": {
+                    "first_500_chars": text[:500],
+                    "middle_500_chars": text[len(text)//2:len(text)//2+500] if len(text) > 1000 else "",
+                    "last_500_chars": text[-500:] if len(text) > 500 else ""
+                }
+            }
+        finally:
+            os.unlink(tmp_path)
+            
+    except Exception as e:
+        logger.error(f"调试PDF提取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"调试PDF提取失败: {str(e)}")
+
+@app.post("/debug_section_extraction")
+async def debug_section_extraction(
+    request: Dict = Body(...)
+):
+    """
+    调试章节提取 - 查看章节识别和提取结果
+    
+    用于诊断章节提取问题
+    """
+    try:
+        content = request.get('content', '')
+        
+        if not content:
+            raise HTTPException(status_code=400, detail="内容不能为空")
+        
+        from src.evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.sectioned_evaluator import SectionedEvaluator
+        
+        sectioned_evaluator = SectionedEvaluator(llm_evaluator)
+        
+        structure = sectioned_evaluator.identify_thesis_structure(content)
+        
+        sections = sectioned_evaluator.extract_sections(content, structure)
+        
+        sections_debug = []
+        for sec in sections:
+            sections_debug.append({
+                "title": sec.get("title", ""),
+                "type": sec.get("section_type", ""),
+                "content_length": len(sec.get("content", "")),
+                "content_preview": sec.get("content", "")[:500] if sec.get("content") else "",
+                "start_marker": sec.get("start_marker", ""),
+                "end_marker": sec.get("end_marker", "")
+            })
+        
+        return {
+            "structure": structure,
+            "sections_debug": sections_debug,
+            "total_sections": len(sections),
+            "empty_sections": [s["title"] for s in sections_debug if s["content_length"] < 100]
+        }
+        
+    except Exception as e:
+        logger.error(f"调试章节提取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"调试章节提取失败: {str(e)}")
 
 # 主入口
 @app.delete("/evaluations/{evaluation_id}")
