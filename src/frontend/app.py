@@ -148,6 +148,380 @@ def render_score_card(evaluation_result: dict):
         if score_policy:
             st.caption(f"评分策略：{score_policy}")
 
+def render_dimension_score_details(evaluation_result: dict):
+    """展示能力点评分详情：分数、证据、理由、修改建议。"""
+    st.subheader("🎯 能力点评分")
+    dimension_scores = evaluation_result.get("dimension_scores", []) if isinstance(evaluation_result, dict) else []
+    if not isinstance(dimension_scores, list) or not dimension_scores:
+        st.info("ℹ️ 暂无能力点评分，建议检查评估提示词或重新触发评估。")
+        return
+
+    for score in dimension_scores:
+        if not isinstance(score, dict):
+            continue
+        dim_name = score.get("dimension", "未知能力点")
+        dim_score = _safe_float(score.get("score")) or 0.0
+        with st.expander(f"**{dim_name}** - {dim_score:.1f}分"):
+            evidence = score.get("evidence", [])
+            if isinstance(evidence, list) and evidence:
+                st.markdown("**证据：**")
+                for item in evidence:
+                    st.markdown(f"- {item}")
+            else:
+                st.markdown("**证据：** 未提供明确证据")
+
+            reasoning = process_reasoning(str(score.get("reasoning", "") or ""))
+            if reasoning:
+                st.markdown(f"**评分理由：** {reasoning}")
+            else:
+                st.markdown("**评分理由：** 暂无，建议复核该能力点的作业证据。")
+
+            suggestion = str(score.get("improvement_suggestion", "") or "").strip()
+            if suggestion:
+                st.markdown(f"**修改建议：** {suggestion}")
+            else:
+                st.markdown("**修改建议：** 建议补充该能力点的关键过程、结果对比和改进验证材料。")
+
+def render_policy_progress_report(report_data: dict, key_prefix: str = "policy"):
+    """按课程类型细则渲染总进度报告与趋势图（0-100分制）。"""
+    if not isinstance(report_data, dict):
+        st.info("暂无可展示的总进度数据。")
+        return
+
+    policy_summary = report_data.get("policy_summary", {}) if isinstance(report_data.get("policy_summary"), dict) else {}
+    trend_series = report_data.get("trend_series", {}) if isinstance(report_data.get("trend_series"), dict) else {}
+    course_type = report_data.get("course_type", policy_summary.get("course_type", "未知课程类型"))
+    formula = policy_summary.get("formula", "总分计算公式未提供")
+
+    x_values = trend_series.get("x_values", [])
+    overall_scores = trend_series.get("overall_score", [])
+    ability_scores = trend_series.get("ability_component", [])
+    ku_scores = trend_series.get("knowledge_understanding_component", [])
+    ka_scores = trend_series.get("knowledge_application_component", [])
+    pc_scores = trend_series.get("phase_completion_component", [])
+
+    def _detect_inflection_points(scores: list) -> list:
+        """检测趋势拐点：由升转降或由降转升的位置。"""
+        indexed = [(idx, _safe_float(val)) for idx, val in enumerate(scores)]
+        valid = [(idx, val) for idx, val in indexed if val is not None]
+        if len(valid) < 3:
+            return []
+
+        inflections = []
+        for i in range(1, len(valid) - 1):
+            prev_idx, prev_val = valid[i - 1]
+            cur_idx, cur_val = valid[i]
+            next_idx, next_val = valid[i + 1]
+            prev_delta = cur_val - prev_val
+            next_delta = next_val - cur_val
+
+            if abs(prev_delta) < 1.0 or abs(next_delta) < 1.0:
+                continue
+            if prev_delta * next_delta < 0:
+                inflections.append({
+                    "index": cur_idx,
+                    "score": round(cur_val, 2),
+                    "type": "上升转下降" if prev_delta > 0 and next_delta < 0 else "下降转上升"
+                })
+        return inflections
+
+    def _priority_level(delta_value: float, mean_score: float, volatility: float) -> tuple[str, float]:
+        """根据变化值、均分、波动度计算干预优先级。"""
+        delta_penalty = max(0.0, -float(delta_value))
+        score_penalty = max(0.0, 75.0 - float(mean_score))
+        volatility_penalty = float(volatility)
+        priority_score = round(delta_penalty * 1.7 + score_penalty * 0.45 + volatility_penalty * 0.9, 2)
+
+        if priority_score >= 24:
+            return "高", priority_score
+        if priority_score >= 13:
+            return "中", priority_score
+        return "低", priority_score
+
+    st.subheader("📘 课程细则评分总览")
+    card_cols = st.columns(4)
+    latest_overall = overall_scores[-1] if overall_scores else report_data.get("overall_score")
+    latest_ability = ability_scores[-1] if ability_scores else None
+    latest_ku = ku_scores[-1] if ku_scores else None
+    latest_ka = ka_scores[-1] if ka_scores else None
+    latest_pc = pc_scores[-1] if pc_scores else None
+    with card_cols[0]:
+        st.metric("当前总分", f"{_safe_float(latest_overall):.1f}" if _safe_float(latest_overall) is not None else "N/A")
+    with card_cols[1]:
+        st.metric("能力点均分", f"{_safe_float(latest_ability):.1f}" if _safe_float(latest_ability) is not None else "N/A")
+    with card_cols[2]:
+        if "实践" in str(course_type):
+            st.metric("阶段完成度", f"{_safe_float(latest_pc):.1f}" if _safe_float(latest_pc) is not None else "N/A")
+        else:
+            st.metric("知识点理解", f"{_safe_float(latest_ku):.1f}" if _safe_float(latest_ku) is not None else "N/A")
+    with card_cols[3]:
+        if "实践" in str(course_type):
+            st.metric("课程类型", str(course_type))
+        else:
+            st.metric("知识点运用", f"{_safe_float(latest_ka):.1f}" if _safe_float(latest_ka) is not None else "N/A")
+
+    st.caption(f"评分公式：{formula}")
+
+    trend_diagnostics = report_data.get("trend_diagnostics", {})
+    if isinstance(trend_diagnostics, dict) and trend_diagnostics:
+        st.markdown("**趋势诊断摘要**")
+        diag_cols = st.columns(3)
+        with diag_cols[0]:
+            st.metric(
+                "总分变化",
+                f"{_safe_float(trend_diagnostics.get('overall_delta')):+.1f}" if _safe_float(trend_diagnostics.get("overall_delta")) is not None else "N/A",
+                help=f"方向：{trend_diagnostics.get('overall_direction', '未知')} | 波动度：{trend_diagnostics.get('overall_volatility', 'N/A')}"
+            )
+        with diag_cols[1]:
+            st.metric(
+                "能力点变化",
+                f"{_safe_float(trend_diagnostics.get('ability_delta')):+.1f}" if _safe_float(trend_diagnostics.get("ability_delta")) is not None else "N/A",
+                help=f"方向：{trend_diagnostics.get('ability_direction', '未知')} | 波动度：{trend_diagnostics.get('ability_volatility', 'N/A')}"
+            )
+        with diag_cols[2]:
+            st.metric(
+                "细则关键项变化",
+                f"{_safe_float(trend_diagnostics.get('policy_delta')):+.1f}" if _safe_float(trend_diagnostics.get("policy_delta")) is not None else "N/A",
+                help=f"方向：{trend_diagnostics.get('policy_direction', '未知')} | 波动度：{trend_diagnostics.get('policy_volatility', 'N/A')}"
+            )
+
+    st.subheader("📈 分项趋势图")
+    if not x_values:
+        st.info("暂无可用于绘图的趋势数据。")
+    else:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=x_values,
+            y=overall_scores,
+            mode='lines+markers',
+            name='总分',
+            line=dict(width=3)
+        ))
+        fig.add_trace(go.Scatter(
+            x=x_values,
+            y=ability_scores,
+            mode='lines+markers',
+            name='能力点均分',
+            line=dict(width=3)
+        ))
+        if "实践" in str(course_type):
+            if pc_scores:
+                fig.add_trace(go.Scatter(
+                    x=x_values,
+                    y=pc_scores,
+                    mode='lines+markers',
+                    name='阶段完成度',
+                    line=dict(width=3)
+                ))
+        else:
+            if ku_scores:
+                fig.add_trace(go.Scatter(
+                    x=x_values,
+                    y=ku_scores,
+                    mode='lines+markers',
+                    name='知识点理解',
+                    line=dict(width=3)
+                ))
+            if ka_scores:
+                fig.add_trace(go.Scatter(
+                    x=x_values,
+                    y=ka_scores,
+                    mode='lines+markers',
+                    name='知识点运用',
+                    line=dict(width=3)
+                ))
+
+        fig.update_layout(
+            title="课程细则评分趋势",
+            xaxis_title=trend_series.get("x_label", "评估序列"),
+            yaxis_title="评分（0-100）",
+            yaxis_range=[0, 100],
+            height=460,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig, use_container_width=True, key=f"{key_prefix}_trend_fig")
+
+    ability_dimension_trends = report_data.get("ability_dimension_trends", {})
+    if isinstance(ability_dimension_trends, dict):
+        dimension_series = ability_dimension_trends.get("series", [])
+        trend_x = ability_dimension_trends.get("x_values", x_values)
+        if isinstance(dimension_series, list) and dimension_series and trend_x:
+            st.subheader("🧠 各能力点变化趋势图")
+            options = [item.get("dimension", "未知能力点") for item in dimension_series]
+            descending_dimensions = [
+                item for item in dimension_series if _safe_float(item.get("delta")) is not None and float(item.get("delta", 0.0)) <= -1.0
+            ]
+            if descending_dimensions:
+                st.warning(
+                    "自动识别到下降能力点："
+                    + "、".join([f"{item.get('dimension', '未知')}({float(item.get('delta', 0.0)):+.1f})" for item in descending_dimensions[:6]])
+                    + "。图中已用红色高亮。"
+                )
+
+            default_selected = options[: min(8, len(options))]
+            if descending_dimensions:
+                highlighted = [item.get("dimension", "未知能力点") for item in descending_dimensions[:4]]
+                default_selected = list(dict.fromkeys(highlighted + default_selected))
+            selected_dimensions = st.multiselect(
+                "选择要展示的能力点",
+                options=options,
+                default=default_selected,
+                key=f"{key_prefix}_dimension_selector"
+            )
+            selected_set = set(selected_dimensions)
+            fig_dim = go.Figure()
+            inflection_rows = []
+            priority_rows = []
+            for item in dimension_series:
+                dim_name = item.get("dimension", "未知能力点")
+                if selected_set and dim_name not in selected_set:
+                    continue
+                dim_delta = _safe_float(item.get("delta")) or 0.0
+                dim_mean = _safe_float(item.get("mean_score")) or 0.0
+                dim_volatility = _safe_float(item.get("volatility")) or 0.0
+                is_descending = dim_delta <= -1.0
+                priority_level, priority_score = _priority_level(dim_delta, dim_mean, dim_volatility)
+                priority_rows.append({
+                    "能力点": dim_name,
+                    "优先级": priority_level,
+                    "优先级分值": priority_score,
+                    "变化值": dim_delta,
+                    "平均分": dim_mean,
+                    "波动度": dim_volatility
+                })
+
+                line_color = "#d62728" if is_descending else ("#2ca02c" if dim_delta >= 1.0 else "#1f77b4")
+                fig_dim.add_trace(go.Scatter(
+                    x=trend_x,
+                    y=item.get("scores", []),
+                    mode='lines+markers',
+                    name=f"{dim_name} ({dim_delta:+.1f})",
+                    line=dict(width=3 if is_descending else 2, color=line_color),
+                    marker=dict(size=8)
+                ))
+
+                inflections = _detect_inflection_points(item.get("scores", []))
+                if inflections:
+                    inflection_x = []
+                    inflection_y = []
+                    inflection_text = []
+                    for p in inflections:
+                        idx = int(p.get("index", -1))
+                        if idx < 0 or idx >= len(trend_x):
+                            continue
+                        inflection_x.append(trend_x[idx])
+                        inflection_y.append(p.get("score", None))
+                        inflection_text.append(f"{dim_name}: {p.get('type', '拐点')}")
+                        inflection_rows.append({
+                            "能力点": dim_name,
+                            "拐点位置": trend_x[idx],
+                            "拐点分数": p.get("score", 0.0),
+                            "拐点类型": p.get("type", "未知")
+                        })
+                    if inflection_x:
+                        fig_dim.add_trace(go.Scatter(
+                            x=inflection_x,
+                            y=inflection_y,
+                            mode='markers+text',
+                            text=["拐点"] * len(inflection_x),
+                            textposition="top center",
+                            name=f"{dim_name} 拐点",
+                            marker=dict(symbol="diamond", size=10, color="#ff7f0e"),
+                            hovertext=inflection_text,
+                            hoverinfo="text"
+                        ))
+            fig_dim.update_layout(
+                title="能力点分项趋势（按评估进度，自动高亮下降项与拐点）",
+                xaxis_title=ability_dimension_trends.get("x_label", "报告进度(%)"),
+                yaxis_title="评分（0-100）",
+                yaxis_range=[0, 100],
+                height=500,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_dim, use_container_width=True, key=f"{key_prefix}_ability_trend_fig")
+
+            stat_rows = []
+            for item in dimension_series:
+                stat_rows.append({
+                    "能力点": item.get("dimension", "未知能力点"),
+                    "变化值": item.get("delta", 0.0),
+                    "平均分": item.get("mean_score", 0.0),
+                    "波动度": item.get("volatility", 0.0),
+                    "趋势判断": item.get("direction", "未知")
+                })
+            if stat_rows:
+                st.caption("能力点趋势统计（按变化幅度排序）")
+                st.dataframe(pd.DataFrame(stat_rows), use_container_width=True)
+
+            if inflection_rows:
+                st.caption("阶段拐点标注明细（用于定位趋势反转时段）")
+                st.dataframe(pd.DataFrame(inflection_rows), use_container_width=True)
+
+            if priority_rows:
+                priority_df = pd.DataFrame(priority_rows)
+                priority_order = {"高": 0, "中": 1, "低": 2}
+                priority_df["priority_sort"] = priority_df["优先级"].map(priority_order).fillna(9)
+                priority_df = priority_df.sort_values(["priority_sort", "优先级分值"], ascending=[True, False]).drop(columns=["priority_sort"])
+                st.subheader("🚦 建议优先级排序（高/中/低）")
+                st.dataframe(priority_df, use_container_width=True)
+
+                high_items = priority_df[priority_df["优先级"] == "高"]
+                medium_items = priority_df[priority_df["优先级"] == "中"]
+                low_items = priority_df[priority_df["优先级"] == "低"]
+                if not high_items.empty or not medium_items.empty or not low_items.empty:
+                    st.markdown("**干预建议（按优先级）**")
+                    if not high_items.empty:
+                        high_targets = "、".join(high_items["能力点"].head(4).tolist())
+                        st.markdown(f"- **高优先级**：优先干预 {high_targets}，建议在最近 1-2 次评估周期内设置明确提分目标并复评。")
+                    if not medium_items.empty:
+                        medium_targets = "、".join(medium_items["能力点"].head(4).tolist())
+                        st.markdown(f"- **中优先级**：持续跟踪 {medium_targets}，通过阶段任务补强和证据链完善降低波动。")
+                    if not low_items.empty:
+                        low_targets = "、".join(low_items["能力点"].head(4).tolist())
+                        st.markdown(f"- **低优先级**：维持 {low_targets} 的当前策略，关注稳定性并防止后续回落。")
+
+    stage_breakdown = report_data.get("stage_breakdown", [])
+    if isinstance(stage_breakdown, list) and stage_breakdown:
+        st.subheader("🧭 阶段分桶分析")
+        stage_df = pd.DataFrame(stage_breakdown)
+        st.dataframe(stage_df, use_container_width=True)
+
+    report_sections = report_data.get("report_sections", {})
+    if isinstance(report_sections, dict) and report_sections:
+        st.subheader("📝 学术化报告分节")
+        section_order = [
+            ("evaluation_basis", "评价依据"),
+            ("methodology", "分析方法"),
+            ("trend_analysis", "趋势分析"),
+            ("stage_findings", "阶段发现"),
+            ("risk_analysis", "风险分析"),
+            ("follow_up_focus", "后续关注点"),
+            ("improvement_areas", "改进领域"),
+            ("improvement_path", "改进路径")
+        ]
+        for key, title in section_order:
+            if report_sections.get(key):
+                st.markdown(f"**{title}**")
+                st.markdown(report_sections[key])
+
+    key_insights = report_data.get("key_insights", [])
+    follow_up_points = report_data.get("follow_up_points", [])
+    improvement_areas = report_data.get("improvement_areas", [])
+    if key_insights or follow_up_points or improvement_areas:
+        st.subheader("🎯 关键洞察与行动建议")
+        if key_insights:
+            st.markdown("**关键洞察**")
+            for item in key_insights:
+                st.markdown(f"- {item}")
+        if follow_up_points:
+            st.markdown("**后续关注点**")
+            for item in follow_up_points:
+                st.markdown(f"- {item}")
+        if improvement_areas:
+            st.markdown("**改进领域**")
+            for item in improvement_areas:
+                st.markdown(f"- {item}")
+
 # 页面配置
 st.set_page_config(
     page_title="学生多维度能力评估系统",
@@ -1844,20 +2218,7 @@ elif page == "🤖 评估管理":
                                         with st.expander("查看详细结果"):
                                             st.json(evaluation_result)
                                         
-                                        # 显示能力点评分（来自 dimension_scores）
-                                        st.subheader("🎯 能力点评分")
-                                        dimension_scores = evaluation_result.get('dimension_scores', [])
-                                        if dimension_scores:
-                                            for score in dimension_scores:
-                                                with st.expander(f"**{score.get('dimension', '未知能力点')}** - {float(score.get('score', 0)):.1f}分"):
-                                                    if score.get('evidence'):
-                                                        st.markdown("**证据：**")
-                                                        for evidence in score.get('evidence', []):
-                                                            st.markdown(f"- {evidence}")
-                                                    if score.get('reasoning'):
-                                                        st.markdown(f"**评分理由：** {score.get('reasoning')}")
-                                        else:
-                                            st.info("ℹ️ 无能力点评分")
+                                        render_dimension_score_details(evaluation_result)
                                     else:
                                         try:
                                             error_detail = response.json().get('detail', '未知错误')
@@ -1986,20 +2347,7 @@ elif page == "🤖 评估管理":
                                 
                                 st.info("🎯 整体评估 - 基于大纲总结对单个报告文件进行评估")
                                 
-                                # 显示能力点评分
-                                st.subheader("🎯 能力点评分")
-                                dimension_scores = evaluation_result.get('dimension_scores', [])
-                                if dimension_scores:
-                                    for score in dimension_scores:
-                                        with st.expander(f"**{score.get('dimension', '未知')}** - {score.get('score', 0):.1f}分"):
-                                            if score.get('evidence'):
-                                                st.markdown("**证据：**")
-                                                for evidence in score.get('evidence', []):
-                                                    st.markdown(f"- {evidence}")
-                                            if score.get('reasoning'):
-                                                st.markdown(f"**理由：** {score.get('reasoning')}")
-                                else:
-                                    st.info("ℹ️ 无能力点评分")
+                                render_dimension_score_details(evaluation_result)
                                 
                                 # 优势和劣势
                                 col1, col2 = st.columns(2)
@@ -2610,7 +2958,8 @@ elif page == "📊 结果查询":
                 st.markdown("---")
                 st.subheader("📈 总进度评估")
                 st.markdown("""
-                **功能说明：** 基于该学生的所有评估记录（按时间排序），分析每个维度在不同进度值下的变化趋势。
+                **功能说明：** 严格按课程类型评分细则（理论课/实践课）生成总进度报告，
+                展示全过程分项变化与阶段演化，不再使用通用十维口径。
                 """)
                 
                 # 总进度评估历史记录
@@ -2641,30 +2990,10 @@ elif page == "📊 结果查询":
                                         report_detail_response = requests.get(f"{API_BASE_URL}/progress-reports/{report_id}")
                                         if report_detail_response.status_code == 200:
                                             report_detail = report_detail_response.json()
-                                            
-                                            # 显示报告详细内容
-                                            if 'overall_score' in report_detail:
-                                                st.subheader("📊 综合评分")
-                                                st.metric("综合评分", f"{report_detail['overall_score']}/100")
-                                            
-                                            if 'dimension_trends' in report_detail:
-                                                st.subheader("📈 维度趋势")
-                                                for dimension, trend_data in report_detail['dimension_trends'].items():
-                                                    with st.expander(f"{dimension}"):
-                                                        if trend_data:
-                                                            st.markdown(f"**初始评分:** {trend_data[0]['score']:.2f}")
-                                                            st.markdown(f"**最新评分:** {trend_data[-1]['score']:.2f}")
-                                                            st.markdown(f"**变化幅度:** {trend_data[-1]['score'] - trend_data[0]['score']:+.2f}")
-                                            
-                                            if 'key_insights' in report_detail and report_detail['key_insights']:
-                                                st.subheader("💡 关键洞察")
-                                                for insight in report_detail['key_insights']:
-                                                    st.markdown(f"- {insight}")
-                                            
-                                            if 'improvement_areas' in report_detail and report_detail['improvement_areas']:
-                                                st.subheader("📈 改进领域")
-                                                for area in report_detail['improvement_areas']:
-                                                    st.markdown(f"- {area}")
+                                            render_policy_progress_report(report_detail, key_prefix=f"history_{report_id}_{i}")
+                                            if report_detail.get("report"):
+                                                with st.expander("查看报告原文"):
+                                                    st.markdown(report_detail.get("report", ""))
                                         else:
                                             st.info("📭 无法获取报告详细内容")
                                     except Exception as e:
@@ -2720,6 +3049,7 @@ elif page == "📊 结果查询":
                                 # 显示详细报告
                                 st.subheader("📋 详细评估报告")
                                 st.markdown(report_data.get('report', '暂无报告内容'))
+                                render_policy_progress_report(report_data, key_prefix=f"current_{selected_student_id}")
                                 
                                 # 保存详细记录功能
                                 st.subheader("💾 保存详细记录")
@@ -2742,94 +3072,13 @@ elif page == "📊 结果查询":
                                         mime="application/pdf"
                                     )
                                 
-                                # 3. 显示关键洞察和改进领域
-                                if 'key_insights' in report_data and report_data['key_insights']:
-                                    st.subheader("💡 关键洞察")
-                                    for insight in report_data['key_insights']:
-                                        st.markdown(f"- {insight}")
-                                
-                                if 'improvement_areas' in report_data and report_data['improvement_areas']:
-                                    st.subheader("📈 改进领域")
-                                    for area in report_data['improvement_areas']:
-                                        st.markdown(f"- {area}")
-                                
-                                # 显示维度趋势分析
-                                st.subheader("📊 维度能力趋势分析")
-                                st.markdown("以下图表展示了学生在不同维度上的能力随时间的变化趋势：")
-                                
-                                # 获取评估历史数据用于图表展示
-                                eval_response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/evaluations")
-                                if eval_response.status_code == 200:
-                                    evaluations = eval_response.json()
-                                    if evaluations:
-                                        # 构建维度趋势数据
-                                        dimension_trends = {}
-                                        for eval in evaluations:
-                                            stage_progress = eval.get('stage_progress', 0.5)
-                                            for ds in eval.get('dimension_scores', []):
-                                                dimension = ds.get('dimension', '未知维度')
-                                                score = ds.get('score', 0)
-                                                if dimension not in dimension_trends:
-                                                    dimension_trends[dimension] = []
-                                                dimension_trends[dimension].append({
-                                                    'progress': stage_progress,
-                                                    'score': score,
-                                                    'evaluated_at': eval.get('evaluated_at', '')
-                                                })
-                                        
-                                        # 为每个维度创建趋势图
-                                        for dimension, data in dimension_trends.items():
-                                            if len(data) > 1:
-                                                # 按进度值排序
-                                                data_sorted = sorted(data, key=lambda x: x['progress'])
-                                                
-                                                # 计算趋势
-                                                scores = [d['score'] for d in data_sorted]
-                                                if len(scores) >= 2:
-                                                    first_score = scores[0]
-                                                    last_score = scores[-1]
-                                                    trend = "📈 提升" if last_score > first_score else ("📉 下降" if last_score < first_score else "➡️ 稳定")
-                                                    
-                                                    with st.expander(f"{dimension} - {trend}"):
-                                                        # 创建趋势图
-                                                        fig = go.Figure()
-                                                        fig.add_trace(go.Scatter(
-                                                            x=[d['progress'] * 100 for d in data_sorted],
-                                                            y=scores,
-                                                            mode='lines+markers',
-                                                            name=dimension,
-                                                            line=dict(width=3),
-                                                            marker=dict(size=8)
-                                                        ))
-                                                        fig.update_layout(
-                                                            title=f"{dimension} 能力趋势",
-                                                            xaxis_title="项目进度 (%)",
-                                                            yaxis_title="评分",
-                                                            yaxis_range=[0, 10],
-                                                            height=400
-                                                        )
-                                                        st.plotly_chart(fig, use_container_width=True)
-                                                        
-                                                        # 显示趋势分析
-                                                        change = last_score - first_score
-                                                        change_percent = (change / first_score * 100) if first_score > 0 else 0
-                                                        st.markdown(f"**趋势分析：**")
-                                                        st.markdown(f"- 初始评分：{first_score:.2f}")
-                                                        st.markdown(f"- 最新评分：{last_score:.2f}")
-                                                        st.markdown(f"- 变化幅度：{change:+.2f} ({change_percent:+.1f}%)")
-                                                        
-                                                        if change > 0.5:
-                                                            st.success("✅ 该维度能力有显著提升")
-                                                        elif change < -0.5:
-                                                            st.error("⚠️ 该维度能力有所下降，需要关注")
-                                                        else:
-                                                            st.info("ℹ️ 该维度能力保持稳定")
-                                else:
-                                    try:
-                                        error_detail = response.json().get('detail', '未知错误')
-                                    except:
-                                        error_detail = f"HTTP {response.status_code}"
-                                    st.error(f"❌ 生成报告失败: {error_detail}")
+                                st.info("📊 已按课程细则展示总分/分项/能力点趋势图，并统一输出关键洞察、后续关注点和改进领域。")
+                            else:
+                                try:
+                                    error_detail = response.json().get('detail', '未知错误')
+                                except:
+                                    error_detail = f"HTTP {response.status_code}"
+                                st.error(f"❌ 生成报告失败: {error_detail}")
                     except Exception as e:
                         st.error(f"❌ 生成报告失败: {str(e)}")
             else:
@@ -4024,411 +4273,24 @@ elif page == "📈 成长分析":
                 except Exception as e:
                     st.error(f"❌ 加载评估记录失败: {str(e)}")
                 
-                # 使用会话状态保存分析结果
-                if 'analysis_results' not in st.session_state:
-                    st.session_state['analysis_results'] = None
-                if 'selected_criteria' not in st.session_state:
-                    st.session_state['selected_criteria'] = ['综合评分']
-                
+                # 结构查询页按课程类型细则进行总进度分析，不再使用旧十维图表集合
                 if st.button("🔍 分析成长数据", use_container_width=True):
                     try:
-                        # 获取学生的所有评估记录
-                        response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/evaluations")
-                        if response.status_code == 200:
-                            evaluations = response.json()
-                            if evaluations:
-                                # 按评估时间排序
-                                evaluations_sorted = sorted(evaluations, key=lambda x: x['evaluated_at'])
-                                
-                                # 根据选择的时间维度准备数据
-                                if time_dimension == "评估日期":
-                                    x_values = [eval['evaluated_at'][:10] for eval in evaluations_sorted]
-                                    x_label = "评估日期"
-                                else:
-                                    # 按工作时期进度排序，处理None值
-                                    evaluations_sorted_by_progress = sorted(evaluations, key=lambda x: x.get('stage_progress') if x.get('stage_progress') is not None else 0)
-                                    x_values = [f"{int((eval.get('stage_progress') if eval.get('stage_progress') is not None else 0) * 100)}%" for eval in evaluations_sorted_by_progress]
-                                    x_label = "工作时期进度"
-                                    # 更新评估列表为按进度排序
-                                    evaluations_sorted = evaluations_sorted_by_progress
-                                
-                                # 提取所有可能的评分标准（综合评分 + 所有维度）
-                                all_criteria = ['综合评分']
-                                for eval in evaluations_sorted:
-                                    for ds in eval.get('dimension_scores', []):
-                                        dimension = ds.get('dimension', '未知维度')
-                                        if dimension not in all_criteria:
-                                            all_criteria.append(dimension)
-                                
-                                # 保存分析结果到会话状态
-                                st.session_state['analysis_results'] = {
-                                    'evaluations': evaluations,
-                                    'evaluations_sorted': evaluations_sorted,
-                                    'x_values': x_values,
-                                    'x_label': x_label,
-                                    'all_criteria': all_criteria,
-                                    'time_dimension': time_dimension
-                                }
-                                # 重置选择的评分标准
-                                st.session_state['selected_criteria'] = ['综合评分']
-                            else:
-                                st.info("📭 该学生暂无评估记录")
+                        report_resp = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/progress-report")
+                        if report_resp.status_code == 200:
+                            report_data = report_resp.json()
+                            st.success("✅ 成长数据分析完成（课程细则口径）")
+                            render_policy_progress_report(report_data, key_prefix=f"struct_{selected_student_id}")
+                            with st.expander("查看报告原文"):
+                                st.markdown(report_data.get("report", "暂无报告内容"))
                         else:
                             try:
-                                error_detail = response.json().get('detail', '未知错误')
-                            except:
-                                error_detail = f"HTTP {response.status_code}"
-                            st.error(f"❌ 获取评估记录失败: {error_detail}")
+                                error_detail = report_resp.json().get('detail', '未知错误')
+                            except Exception:
+                                error_detail = f"HTTP {report_resp.status_code}"
+                            st.error(f"❌ 获取成长分析失败: {error_detail}")
                     except Exception as e:
                         st.error(f"❌ 分析失败: {str(e)}")
-                
-                # 显示分析结果
-                if st.session_state['analysis_results']:
-                    analysis = st.session_state['analysis_results']
-                    st.success(f"✅ 找到 {len(analysis['evaluations'])} 条评估记录")
-                    
-                    # 1. 多维度评分趋势图
-                    st.subheader("📊 多维度评分趋势")
-                    st.markdown("**图表说明：** 展示学生在不同评分标准下的变化趋势")
-                    
-                    # 让用户选择要显示的评分标准
-                    selected_criteria = st.multiselect(
-                        "选择评分标准",
-                        options=analysis['all_criteria'],
-                        default=st.session_state['selected_criteria'],
-                        key="selected_criteria"
-                    )
-                                
-                    # 创建趋势图
-                    fig = go.Figure()
-                    
-                    # 颜色映射 - 使用更鲜明的颜色
-                    colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#8AC249', '#FF5252', '#448AFF', '#FFAB40']
-                    
-                    # 为每个选择的评分标准添加趋势线
-                    for i, criterion in enumerate(selected_criteria):
-                        if criterion == '综合评分':
-                            scores = [eval['overall_score'] for eval in analysis['evaluations_sorted']]
-                        else:
-                            # 提取维度评分
-                            scores = []
-                            for eval in analysis['evaluations_sorted']:
-                                score = 0
-                                for ds in eval.get('dimension_scores', []):
-                                    if ds.get('dimension') == criterion:
-                                        score = ds.get('score', 0)
-                                        break
-                                scores.append(score)
-                        
-                        # 添加主趋势线
-                        fig.add_trace(go.Scatter(
-                            x=analysis['x_values'],
-                            y=scores,
-                            mode='lines+markers+text',  # 添加文本标签
-                            name=criterion,
-                            line=dict(width=4, color=colors[i % len(colors)]),  # 增加线条宽度
-                            marker=dict(size=10, color=colors[i % len(colors)]),  # 增加标记大小
-                            text=[f'{score:.1f}' for score in scores],  # 添加评分标签
-                            textposition='top center',  # 标签位置
-                            textfont=dict(size=10, color=colors[i % len(colors)])  # 标签样式
-                        ))
-                        
-                        # 添加趋势线
-                        if len(scores) > 1:
-                            import numpy as np
-                            x = np.arange(len(analysis['x_values']))
-                            z = np.polyfit(x, scores, 1)
-                            p = np.poly1d(z)
-                            fig.add_trace(go.Scatter(
-                                x=analysis['x_values'],
-                                y=p(x),
-                                mode='lines',
-                                name=f'{criterion} 趋势',
-                                line=dict(width=3, color=colors[i % len(colors)], dash='dash')  # 增加线条宽度
-                            ))
-                    
-                    fig.update_layout(
-                        title="多维度评分趋势",
-                        xaxis_title=analysis['x_label'],
-                        yaxis_title="评分",
-                        yaxis_range=[0, 10],
-                        height=500,  # 增加图表高度
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        plot_bgcolor='rgba(240, 240, 240, 0.8)',  # 添加背景色
-                        xaxis=dict(showgrid=True, gridwidth=1, gridcolor='rgba(200, 200, 200, 0.5)'),  # 添加网格线
-                        yaxis=dict(showgrid=True, gridwidth=1, gridcolor='rgba(200, 200, 200, 0.5)')  # 添加网格线
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                                
-                    # 2. 维度能力雷达图对比
-                    st.subheader("🎯 维度能力雷达图对比")
-                    st.markdown("**图表说明：** 对比学生在不同时间点的维度能力表现")
-                    
-                    if len(analysis['evaluations']) >= 2:
-                        # 选择两个时间点进行对比
-                        eval_options = {eval['evaluation_id']: f"{eval['evaluated_at'][:10]} (评分: {eval['overall_score']})" for eval in analysis['evaluations_sorted']}
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            eval1_id = st.selectbox(
-                                "选择第一个时间点",
-                                options=list(eval_options.keys()),
-                                format_func=lambda x: eval_options[x],
-                                index=0
-                            )
-                        with col2:
-                            eval2_id = st.selectbox(
-                                "选择第二个时间点",
-                                options=list(eval_options.keys()),
-                                format_func=lambda x: eval_options[x],
-                                index=min(1, len(eval_options)-1)
-                            )
-                        
-                        # 获取两个评估的维度评分
-                        eval1 = next(e for e in analysis['evaluations'] if e['evaluation_id'] == eval1_id)
-                        eval2 = next(e for e in analysis['evaluations'] if e['evaluation_id'] == eval2_id)
-                        
-                        # 提取维度和评分
-                        dimensions = []
-                        scores1 = []
-                        scores2 = []
-                        
-                        # 合并两个评估的维度
-                        dim_map1 = {ds['dimension']: ds['score'] for ds in eval1['dimension_scores']}
-                        dim_map2 = {ds['dimension']: ds['score'] for ds in eval2['dimension_scores']}
-                        
-                        all_dims = set(dim_map1.keys()) | set(dim_map2.keys())
-                        for dim in all_dims:
-                            dimensions.append(dim)
-                            scores1.append(dim_map1.get(dim, 0))
-                            scores2.append(dim_map2.get(dim, 0))
-                        
-                        # 创建雷达图
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatterpolar(
-                            r=scores1,
-                            theta=dimensions,
-                            fill='toself',
-                            name=eval_options[eval1_id]
-                        ))
-                        fig.add_trace(go.Scatterpolar(
-                            r=scores2,
-                            theta=dimensions,
-                            fill='toself',
-                            name=eval_options[eval2_id]
-                        ))
-                        
-                        fig.update_layout(
-                            polar=dict(
-                                radialaxis=dict(
-                                    visible=True,
-                                    range=[0, 10]
-                                )
-                            ),
-                            title="维度能力对比",
-                            height=500
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("⚠️ 需要至少两次评估才能生成对比雷达图")
-                                
-                    # 3. 维度能力趋势矩阵
-                    st.subheader("📈 维度能力趋势矩阵")
-                    st.markdown("**图表说明：** 展示每个维度的能力变化趋势")
-                    
-                    # 构建维度趋势数据
-                    dimension_trends = {}
-                    for eval in analysis['evaluations_sorted']:
-                        for ds in eval.get('dimension_scores', []):
-                            dimension = ds.get('dimension', '未知维度')
-                            score = ds.get('score', 0)
-                            if dimension not in dimension_trends:
-                                dimension_trends[dimension] = []
-                            
-                            # 根据选择的时间维度添加数据
-                            if analysis['time_dimension'] == "评估日期":
-                                time_value = eval.get('evaluated_at')[:10]
-                            else:
-                                time_value = f"{int(eval.get('stage_progress', 0) * 100)}%"
-                            
-                            dimension_trends[dimension].append({
-                                'time': time_value,
-                                'score': score,
-                                'progress': eval.get('stage_progress', 0.5),
-                                'evaluated_at': eval.get('evaluated_at')
-                            })
-                    
-                    # 为每个维度创建趋势图
-                    for dimension, data in dimension_trends.items():
-                        if len(data) > 1:
-                            # 根据选择的时间维度排序
-                            if analysis['time_dimension'] == "评估日期":
-                                data_sorted = sorted(data, key=lambda x: x['evaluated_at'])
-                            else:
-                                data_sorted = sorted(data, key=lambda x: x['progress'])
-                            
-                            # 计算趋势
-                            scores = [d['score'] for d in data_sorted]
-                            first_score = scores[0]
-                            last_score = scores[-1]
-                            trend = "📈 提升" if last_score > first_score else ("📉 下降" if last_score < first_score else "➡️ 稳定")
-                            
-                            with st.expander(f"{dimension} - {trend}"):
-                                # 创建趋势图
-                                fig = go.Figure()
-                                fig.add_trace(go.Scatter(
-                                    x=[d['time'] for d in data_sorted],
-                                    y=scores,
-                                    mode='lines+markers',
-                                    name=dimension,
-                                    line=dict(width=3),
-                                    marker=dict(size=8)
-                                ))
-                                # 添加趋势线
-                                if len(scores) > 1:
-                                    import numpy as np
-                                    x = np.arange(len(data_sorted))
-                                    z = np.polyfit(x, scores, 1)
-                                    p = np.poly1d(z)
-                                    fig.add_trace(go.Scatter(
-                                        x=[d['time'] for d in data_sorted],
-                                        y=p(x),
-                                        mode='lines',
-                                        name='趋势线',
-                                        line=dict(width=2, color='#ff7f0e', dash='dash')
-                                    ))
-                                
-                                fig.update_layout(
-                                    title=f"{dimension} 能力趋势",
-                                    xaxis_title=analysis['x_label'],
-                                    yaxis_title="评分",
-                                    yaxis_range=[0, 10],
-                                    height=300
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                # 显示趋势分析
-                                change = last_score - first_score
-                                change_percent = (change / first_score * 100) if first_score > 0 else 0
-                                st.markdown(f"**趋势分析：**")
-                                st.markdown(f"- 初始评分：{first_score:.2f}")
-                                st.markdown(f"- 最新评分：{last_score:.2f}")
-                                st.markdown(f"- 变化幅度：{change:+.2f} ({change_percent:+.1f}%)")
-                                
-                                if change > 0.5:
-                                    st.success("✅ 该维度能力有显著提升")
-                                elif change < -0.5:
-                                    st.error("⚠️ 该维度能力有所下降，需要关注")
-                                else:
-                                    st.info("ℹ️ 该维度能力保持稳定")
-                                
-                    # 4. 成长热力图
-                    st.subheader("🔥 成长热力图")
-                    st.markdown("**图表说明：** 展示学生在不同维度和不同时间点的表现热度")
-                    
-                    # 构建热力图数据
-                    heatmap_data = []
-                    
-                    # 根据选择的时间维度准备数据
-                    if analysis['time_dimension'] == "评估日期":
-                        all_time_points = sorted(list(set([eval['evaluated_at'][:10] for eval in analysis['evaluations_sorted']])))
-                        x_label_heatmap = "日期"
-                    else:
-                        # 按工作时期进度获取唯一值并排序
-                        progress_values = sorted(list(set([eval.get('stage_progress', 0) for eval in analysis['evaluations_sorted']])))
-                        all_time_points = [f"{int(p * 100)}%" for p in progress_values]
-                        x_label_heatmap = "工作时期进度"
-                    
-                    all_dimensions = list(dimension_trends.keys())
-                    
-                    for dim in all_dimensions:
-                        row = [dim]
-                        for time_point in all_time_points:
-                            # 查找该维度在该时间点的评分
-                            score = 0
-                            for eval in analysis['evaluations_sorted']:
-                                if analysis['time_dimension'] == "评估日期":
-                                    eval_time = eval['evaluated_at'][:10]
-                                else:
-                                    eval_time = f"{int(eval.get('stage_progress', 0) * 100)}%"
-                                
-                                if eval_time == time_point:
-                                    for ds in eval.get('dimension_scores', []):
-                                        if ds.get('dimension') == dim:
-                                            score = ds.get('score', 0)
-                                            break
-                            row.append(score)
-                        heatmap_data.append(row)
-                    
-                    # 创建DataFrame
-                    df = pd.DataFrame(heatmap_data, columns=['维度'] + all_time_points)
-                    
-                    # 创建热力图
-                    fig = px.imshow(
-                        df.iloc[:, 1:].values,
-                        x=all_time_points,
-                        y=df['维度'],
-                        color_continuous_scale='RdYlGn',
-                        range_color=[0, 10],
-                        labels={'x': x_label_heatmap, 'y': '维度', 'color': '评分'}
-                    )
-                    fig.update_layout(
-                        title="维度能力热力图",
-                        height=600
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # 5. 成长总结
-                    st.subheader("📋 成长总结")
-                    
-                    # 计算整体成长
-                    overall_scores = [eval['overall_score'] for eval in analysis['evaluations_sorted']]
-                    if len(overall_scores) >= 2:
-                        first_overall = overall_scores[0]
-                        last_overall = overall_scores[-1]
-                        overall_change = last_overall - first_overall
-                        overall_change_percent = (overall_change / first_overall * 100) if first_overall > 0 else 0
-                        
-                        st.markdown(f"**整体成长：**")
-                        st.markdown(f"- 初始综合评分：{first_overall:.2f}")
-                        st.markdown(f"- 最新综合评分：{last_overall:.2f}")
-                        st.markdown(f"- 整体变化：{overall_change:+.2f} ({overall_change_percent:+.1f}%)")
-                        
-                        if overall_change > 0.5:
-                            st.success("🎉 学生整体能力有显著提升！")
-                        elif overall_change < -0.5:
-                            st.error("⚠️ 学生整体能力有所下降，需要重点关注")
-                        else:
-                            st.info("ℹ️ 学生整体能力保持稳定")
-                        
-                        # 分析进步最快的维度
-                        fastest_improving = []
-                        for dimension, data in dimension_trends.items():
-                            if len(data) >= 2:
-                                scores = [d['score'] for d in data]
-                                change = scores[-1] - scores[0]
-                                fastest_improving.append((dimension, change))
-                        
-                        if fastest_improving:
-                            fastest_improving.sort(key=lambda x: x[1], reverse=True)
-                            st.markdown("\n**进步最快的维度：**")
-                            for i, (dim, change) in enumerate(fastest_improving[:3]):
-                                st.markdown(f"{i+1}. {dim}：{change:+.2f}")
-                        
-                    # 分析需要改进的维度
-                    need_improvement = []
-                    for dimension, data in dimension_trends.items():
-                        if len(data) >= 2:
-                            scores = [d['score'] for d in data]
-                            change = scores[-1] - scores[0]
-                            if change < 0:
-                                need_improvement.append((dimension, change))
-                    
-                    if need_improvement:
-                        need_improvement.sort(key=lambda x: x[1])
-                        st.markdown("\n**需要改进的维度：**")
-                        for i, (dim, change) in enumerate(need_improvement[:3]):
-                            st.markdown(f"{i+1}. {dim}：{change:+.2f}")
             else:
                 st.info("📭 暂无学生记录")
         else:

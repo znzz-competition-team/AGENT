@@ -544,6 +544,337 @@ def _calculate_weighted_overall_score(dimension_scores: List[Dict[str, Any]], sy
         return None
     return round(weighted_sum / matched_weight_sum, 2)
 
+def _safe_avg(values: List[float]) -> float:
+    valid = [float(v) for v in values if v is not None]
+    if not valid:
+        return 0.0
+    return round(sum(valid) / len(valid), 2)
+
+def _clamp_score(value: float) -> float:
+    try:
+        return round(max(0.0, min(100.0, float(value))), 2)
+    except Exception:
+        return 0.0
+
+def _avg_abs_change(values: List[Optional[float]]) -> float:
+    """计算相邻有效分值的平均绝对变化，用于衡量波动性。"""
+    valid = [float(v) for v in values if v is not None]
+    if len(valid) < 2:
+        return 0.0
+    deltas = [abs(valid[i] - valid[i - 1]) for i in range(1, len(valid))]
+    return round(sum(deltas) / len(deltas), 2)
+
+def _delta_direction(delta: float, threshold: float = 1.0) -> str:
+    if delta >= threshold:
+        return "显著上升"
+    if delta <= -threshold:
+        return "显著下降"
+    return "基本稳定"
+
+def _stage_label(stage_progress: float) -> str:
+    progress = stage_progress if stage_progress is not None else 0.0
+    if progress < 0.33:
+        return "初期（理解与规划）"
+    if progress < 0.66:
+        return "中期（执行与规范）"
+    return "后期（测试与优化）"
+
+def _resolve_submission_course_type(submission: Any) -> tuple[str, Optional[Dict[str, Any]]]:
+    course_type = str(getattr(submission, "course_type", "") or "理论课")
+    syllabus_analysis = None
+    syllabus_name = getattr(submission, "syllabus_name", None)
+    if syllabus_name:
+        syllabus_analysis = _load_syllabus_analysis(syllabus_name)
+        if isinstance(syllabus_analysis, dict):
+            course_type = str(syllabus_analysis.get("course_type", course_type) or course_type)
+    return course_type, syllabus_analysis
+
+def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_service: DatabaseService) -> Dict[str, Any]:
+    points: List[Dict[str, Any]] = []
+    course_type_counter = {"理论课": 0, "实践课": 0}
+
+    for ev in evaluations:
+        submission = db_service.db.query(Submission).filter(Submission.id == ev.submission_id).first()
+        if not submission:
+            continue
+        course_type, _ = _resolve_submission_course_type(submission)
+        if "实践" in course_type:
+            course_type_counter["实践课"] += 1
+        else:
+            course_type_counter["理论课"] += 1
+
+        dimension_scores = db_service.get_dimension_scores_by_evaluation_id(ev.evaluation_id)
+        ability_dimension_scores: Dict[str, float] = {}
+        for ds in dimension_scores:
+            dim_name = str(getattr(ds, "dimension", "") or "").strip()
+            if not dim_name or getattr(ds, "score", None) is None:
+                continue
+            ability_dimension_scores[dim_name] = _clamp_score(ds.score)
+
+        ability_scores = list(ability_dimension_scores.values())
+        ability_avg = _safe_avg(ability_scores) if ability_scores else _clamp_score(ev.overall_score)
+        overall = _clamp_score(ev.overall_score)
+        stage_progress = ev.stage_progress if ev.stage_progress is not None else 1.0
+
+        knowledge_understanding = None
+        knowledge_application = None
+        phase_completion = None
+
+        if "实践" in course_type:
+            # overall = 0.5 * ability + 0.5 * phase
+            phase_completion = _clamp_score(2 * overall - ability_avg)
+        else:
+            # overall = 0.5 * ability + 0.25 * understanding + 0.25 * application
+            # 历史数据未持久化分项时，按剩余项均分估计
+            residual = _clamp_score(2 * overall - ability_avg)
+            knowledge_understanding = residual
+            knowledge_application = residual
+
+        points.append({
+            "evaluation_id": ev.evaluation_id,
+            "evaluated_at": ev.evaluated_at.isoformat(),
+            "date": ev.evaluated_at.strftime("%Y-%m-%d"),
+            "stage_progress": round(float(stage_progress), 4),
+            "stage_label": _stage_label(stage_progress),
+            "overall_score": overall,
+            "ability_component": ability_avg,
+            "knowledge_understanding_component": knowledge_understanding,
+            "knowledge_application_component": knowledge_application,
+            "phase_completion_component": phase_completion,
+            "course_type": course_type,
+            "ability_dimension_scores": ability_dimension_scores
+        })
+
+    if not points:
+        raise HTTPException(status_code=404, detail="该学生没有可用评估记录")
+
+    points.sort(key=lambda x: x["evaluated_at"])
+    course_type = "实践课" if course_type_counter["实践课"] > course_type_counter["理论课"] else "理论课"
+    is_practice = "实践" in course_type
+
+    # 分项趋势图横坐标改为报告自身进度（0-100%）
+    points_for_trend = sorted(points, key=lambda x: x.get("stage_progress", 0.0))
+    x_values = [f"{int(round((p.get('stage_progress', 0.0) or 0.0) * 100))}%" for p in points_for_trend]
+    trend_series = {
+        "x_label": "报告进度(%)",
+        "x_values": x_values,
+        "overall_score": [p["overall_score"] for p in points_for_trend],
+        "ability_component": [p["ability_component"] for p in points_for_trend],
+        "knowledge_understanding_component": [p["knowledge_understanding_component"] for p in points_for_trend] if not is_practice else [],
+        "knowledge_application_component": [p["knowledge_application_component"] for p in points_for_trend] if not is_practice else [],
+        "phase_completion_component": [p["phase_completion_component"] for p in points_for_trend] if is_practice else [],
+        "x_values_date": [p["date"] for p in points_for_trend]
+    }
+
+    # 各能力点趋势序列（逐次评估）
+    all_dimensions = sorted({
+        dim_name
+        for p in points_for_trend
+        for dim_name in (p.get("ability_dimension_scores", {}) or {}).keys()
+    })
+    ability_dimension_series = []
+    for dim_name in all_dimensions:
+        dim_scores = [
+            (p.get("ability_dimension_scores", {}) or {}).get(dim_name)
+            for p in points_for_trend
+        ]
+        valid_scores = [float(v) for v in dim_scores if v is not None]
+        if not valid_scores:
+            continue
+        dim_delta = round(valid_scores[-1] - valid_scores[0], 2) if len(valid_scores) >= 2 else 0.0
+        dim_volatility = _avg_abs_change(dim_scores)
+        ability_dimension_series.append({
+            "dimension": dim_name,
+            "scores": dim_scores,
+            "delta": dim_delta,
+            "mean_score": _safe_avg(valid_scores),
+            "volatility": dim_volatility,
+            "direction": _delta_direction(dim_delta)
+        })
+
+    ability_dimension_series.sort(key=lambda x: abs(float(x.get("delta", 0.0))), reverse=True)
+    ability_dimension_trends = {
+        "x_label": trend_series.get("x_label", "报告进度(%)"),
+        "x_values": x_values,
+        "x_values_date": trend_series.get("x_values_date", []),
+        "series": ability_dimension_series
+    }
+
+    stage_bucket: Dict[str, List[Dict[str, Any]]] = {}
+    for p in points:
+        stage_bucket.setdefault(p["stage_label"], []).append(p)
+    stage_breakdown = []
+    for stage_name, stage_points in stage_bucket.items():
+        stage_breakdown.append({
+            "stage": stage_name,
+            "count": len(stage_points),
+            "mean_overall": _safe_avg([p["overall_score"] for p in stage_points]),
+            "mean_ability": _safe_avg([p["ability_component"] for p in stage_points]),
+            "mean_policy_component": _safe_avg(
+                [p["phase_completion_component"] for p in stage_points] if is_practice
+                else [p["knowledge_understanding_component"] for p in stage_points] + [p["knowledge_application_component"] for p in stage_points]
+            )
+        })
+
+    formula = "总分 = 0.5*能力点 + 0.5*阶段完成度" if is_practice else "总分 = 0.5*能力点 + 0.25*知识理解 + 0.25*知识运用"
+    policy_summary = {
+        "course_type": course_type,
+        "score_policy": "practice_stage_process" if is_practice else "theory_ability_knowledge_split",
+        "formula": formula
+    }
+
+    first = points[0]
+    last = points[-1]
+    overall_delta = round(last["overall_score"] - first["overall_score"], 2)
+    ability_delta = round(last["ability_component"] - first["ability_component"], 2)
+    policy_delta = round(
+        (last["phase_completion_component"] - first["phase_completion_component"]) if is_practice
+        else ((last["knowledge_understanding_component"] + last["knowledge_application_component"]) / 2.0
+              - (first["knowledge_understanding_component"] + first["knowledge_application_component"]) / 2.0),
+        2
+    )
+
+    overall_volatility = _avg_abs_change([p.get("overall_score") for p in points_for_trend])
+    ability_volatility = _avg_abs_change([p.get("ability_component") for p in points_for_trend])
+    policy_series = (
+        [p.get("phase_completion_component") for p in points_for_trend]
+        if is_practice
+        else [((p.get("knowledge_understanding_component") or 0.0) + (p.get("knowledge_application_component") or 0.0)) / 2.0 for p in points_for_trend]
+    )
+    policy_volatility = _avg_abs_change(policy_series)
+
+    strongest_dimension = ability_dimension_series[0] if ability_dimension_series else None
+    weakest_dimension = ability_dimension_series[-1] if ability_dimension_series else None
+    descending_dimensions = [d for d in ability_dimension_series if float(d.get("delta", 0.0)) <= -1.0]
+
+    trend_diagnostics = {
+        "overall_delta": overall_delta,
+        "ability_delta": ability_delta,
+        "policy_delta": policy_delta,
+        "overall_direction": _delta_direction(overall_delta),
+        "ability_direction": _delta_direction(ability_delta),
+        "policy_direction": _delta_direction(policy_delta),
+        "overall_volatility": overall_volatility,
+        "ability_volatility": ability_volatility,
+        "policy_volatility": policy_volatility
+    }
+
+    key_insights = [
+        (
+            f"在 {points[0]['date']} 至 {points[-1]['date']} 的 {len(points_for_trend)} 次评估中，"
+            f"总分由 {first['overall_score']:.1f} 变为 {last['overall_score']:.1f}（{overall_delta:+.1f}），"
+            f"趋势判断为“{_delta_direction(overall_delta)}”，整体波动度为 {overall_volatility:.2f}。"
+        ),
+        (
+            f"能力点均分变化 {ability_delta:+.1f}（波动度 {ability_volatility:.2f}），"
+            f"{'阶段完成度' if is_practice else '知识理解/运用综合项'}变化 {policy_delta:+.1f}（波动度 {policy_volatility:.2f}），"
+            "说明主能力项与细则关键项在同向演进中的一致性水平。"
+        ),
+        (
+            f"能力点中变化幅度最大的指标为“{strongest_dimension['dimension']}”（{float(strongest_dimension['delta']):+.1f}）;"
+            if strongest_dimension else "当前无可识别的能力点趋势。"
+        ) + (
+            f" 相对需警惕的指标为“{weakest_dimension['dimension']}”（{float(weakest_dimension['delta']):+.1f}），"
+            "其持续回落可能拖累后续总评。"
+            if weakest_dimension else ""
+        )
+    ]
+
+    follow_up_points = [
+        (
+            f"围绕“总分-{_delta_direction(overall_delta)}、波动度 {overall_volatility:.2f}”特征，"
+            "建议在后续两次评估中保持统一评分证据模板，重点监控阶段切换节点是否出现异常回落。"
+        ),
+        (
+            f"围绕“能力点均分-{_delta_direction(ability_delta)}、波动度 {ability_volatility:.2f}”特征，"
+            "建议将能力点证据与评分理由进行逐项映射，避免评分提升但证据链不足的结构性偏差。"
+        ),
+        (
+            f"围绕“{'阶段完成度' if is_practice else '知识理解/运用'}-{_delta_direction(policy_delta)}、波动度 {policy_volatility:.2f}”特征，"
+            "建议按阶段设置最小达标阈值，并在未达标时触发针对性补强任务。"
+        )
+    ]
+    if descending_dimensions:
+        follow_up_points.append(
+            "出现下降趋势的能力点包括："
+            + "、".join([f"{item['dimension']}({float(item['delta']):+.1f})" for item in descending_dimensions[:4]])
+            + "。建议优先纳入近期周计划，执行“任务-反馈-再评估”闭环。"
+        )
+
+    improvement_areas = [
+        "改进领域一：趋势波动治理。针对波动度较高的阶段，引入过程里程碑检查与评分复核，降低阶段性噪声对总评的干扰。",
+        (
+            "改进领域二：关键能力短板修复。"
+            + (
+                f"优先修复“{weakest_dimension['dimension']}”等回落能力点，按“目标值-证据项-评分增量”设定两周内可验证改进目标。"
+                if weakest_dimension else
+                "建议先识别回落能力点，再按“目标值-证据项-评分增量”设定两周内可验证改进目标。"
+            )
+        ),
+        "改进领域三：评价一致性强化。统一评分依据、证据格式与复盘口径，确保不同阶段评价具备可比性与可追踪性。"
+    ]
+
+    report_sections = {
+        "evaluation_basis": (
+            f"本报告基于学生 {student_id} 的 {len(points)} 次课程作业评估记录，"
+            f"采用“{course_type}”评分细则（{formula}）进行全过程纵向分析。"
+        ),
+        "methodology": (
+            "采用时间序列比较与阶段分桶分析方法，对总分、能力点分项、"
+            f"{'阶段完成度' if is_practice else '知识理解/知识运用'}进行趋势建模，并结合阶段进度解释变化来源。"
+        ),
+        "trend_analysis": (
+            f"纵向趋势显示：总分 {overall_delta:+.1f}（{_delta_direction(overall_delta)}），"
+            f"能力点均分 {ability_delta:+.1f}（{_delta_direction(ability_delta)}），"
+            f"{'阶段完成度' if is_practice else '知识理解/运用综合项'} {policy_delta:+.1f}（{_delta_direction(policy_delta)}）。"
+            f"三项波动度分别为 {overall_volatility:.2f}/{ability_volatility:.2f}/{policy_volatility:.2f}，可用于识别稳定提升与阶段性起伏。"
+        ),
+        "stage_findings": (
+            "分阶段结果表明，学生表现并非线性增长，阶段切换点对总评影响显著。"
+            "在初期阶段更受能力点基础与任务理解影响，中后期则更依赖细则关键项的达成质量。"
+            "因此需要把阶段目标与评分证据进行一致化管理，以提升进步曲线的可持续性。"
+        ),
+        "risk_analysis": (
+            "当前主要风险包括：其一，若波动度长期偏高，趋势结论可能受单次评估噪声放大；"
+            "其二，若能力点分项与细则关键项出现背离，可能导致“总分提升但核心能力未同步增强”的结构性风险；"
+            "其三，阶段产出证据缺口会削弱干预建议的可执行性。"
+        ),
+        "follow_up_focus": "；".join(follow_up_points),
+        "improvement_path": (
+            "建议以“趋势诊断-重点干预-复盘验证”三步推进："
+            "先依据分项变化率和波动度识别优先级，再对回落能力点部署小步快跑式训练任务，"
+            "最后以同口径复评验证改进幅度，形成可追踪的持续优化闭环。"
+        ),
+        "improvement_areas": "；".join(improvement_areas)
+    }
+
+    report = (
+        "## 总进度评估报告\n\n"
+        f"### 一、评价依据\n{report_sections['evaluation_basis']}\n\n"
+        f"### 二、分析方法\n{report_sections['methodology']}\n\n"
+        f"### 三、趋势分析\n{report_sections['trend_analysis']}\n\n"
+        f"### 四、阶段发现\n{report_sections['stage_findings']}\n\n"
+        f"### 五、风险分析\n{report_sections['risk_analysis']}\n\n"
+        f"### 六、后续关注点\n{report_sections['follow_up_focus']}\n\n"
+        f"### 七、改进领域\n{report_sections['improvement_areas']}\n\n"
+        f"### 八、改进路径\n{report_sections['improvement_path']}\n"
+    )
+
+    return {
+        "course_type": course_type,
+        "points": points,
+        "trend_series": trend_series,
+        "ability_dimension_trends": ability_dimension_trends,
+        "trend_diagnostics": trend_diagnostics,
+        "stage_breakdown": stage_breakdown,
+        "policy_summary": policy_summary,
+        "report_sections": report_sections,
+        "key_insights": key_insights,
+        "follow_up_points": follow_up_points,
+        "improvement_areas": improvement_areas,
+        "report": report
+    }
+
 # 文档内容提取函数
 def extract_document_content(file_path: str) -> str:
     """提取文档内容"""
@@ -2070,6 +2401,7 @@ async def evaluate_submission(
                     reasoning = score_info.get("reasoning", "由大模型生成的评估结果")
                     evidence = score_info.get("evidence", [])
                     confidence = score_info.get("confidence", 0.9)
+                    improvement_suggestion = score_info.get("improvement_suggestion", "")
                     
                     # 保存维度评分到数据库
                     db_service.create_dimension_score(
@@ -2087,7 +2419,8 @@ async def evaluate_submission(
                         score=score,
                         confidence=confidence,
                         evidence=evidence if isinstance(evidence, list) else [str(evidence)],
-                        reasoning=reasoning
+                        reasoning=reasoning,
+                        improvement_suggestion=improvement_suggestion
                     )
                     dimension_scores_response.append(dimension_score_response)
         else:
@@ -2351,58 +2684,11 @@ async def generate_student_progress_report(
     if not evaluations:
         raise HTTPException(status_code=404, detail="该学生没有评估记录")
     
-    # 构建评估历史数据
-    evaluation_history = []
-    for eval in evaluations:
-        dimension_scores = db_service.get_dimension_scores_by_evaluation_id(eval.evaluation_id)
-        dimension_data = [
-            {
-                "dimension": ds.dimension,
-                "score": ds.score,
-                "confidence": ds.confidence,
-                "reasoning": ds.reasoning
-            }
-            for ds in dimension_scores
-        ]
-        
-        evaluation_history.append({
-            "evaluation_id": eval.evaluation_id,
-            "evaluated_at": eval.evaluated_at.isoformat(),
-            "overall_score": eval.overall_score,
-            "strengths": process_string_list(eval.strengths),
-            "areas_for_improvement": process_string_list(eval.areas_for_improvement),
-            "recommendations": process_string_list(eval.recommendations),
-            "dimension_scores": dimension_data
-        })
-    
-    # 构建提示词
-    prompt = f"""你是一位专业的教育评估专家，擅长分析学生在时间线上的能力进步。
-
-请根据以下学生的评估历史数据，生成一份详细的整体进度报告：
-
-学生ID: {student_id}
-
-评估历史（按时间顺序）：
-{json.dumps(evaluation_history, ensure_ascii=False, indent=2)}
-
-报告要求：
-1. 分析学生在各个维度上的能力变化趋势
-2. 识别学生的优势和持续改进的领域
-3. 提供关于学生能力发展的关键洞察
-4. 给出基于历史数据的未来发展建议
-5. 报告应该结构清晰，语言专业但易于理解
-6. 包含具体的数据支持和分析
-
-请生成一份全面的进度报告，帮助教师和学生了解能力发展情况。"""
-    
     try:
-        # 调用大模型生成报告
-        from src.evaluation.llm_evaluator import llm_evaluator
-        report = llm_evaluator.generate_report(prompt)
-        
-        # 提取关键信息
-        key_insights = ["学生能力发展趋势分析", "优势领域识别", "改进空间分析"]
-        improvement_areas = ["需要持续关注的能力维度"]
+        payload = _build_policy_progress_payload(student_id, evaluations, db_service)
+        report = payload["report"]
+        key_insights = payload["key_insights"]
+        improvement_areas = payload["improvement_areas"]
         
         # 构建时间范围
         time_range = {
@@ -2427,7 +2713,17 @@ async def generate_student_progress_report(
             total_evaluations=len(evaluations),
             time_range=time_range,
             key_insights=key_insights,
-            improvement_areas=improvement_areas
+            improvement_areas=improvement_areas,
+            course_type=payload.get("course_type"),
+            score_policy=payload.get("policy_summary", {}).get("score_policy"),
+            policy_summary=payload.get("policy_summary"),
+            trend_series=payload.get("trend_series"),
+            ability_dimension_trends=payload.get("ability_dimension_trends"),
+            trend_diagnostics=payload.get("trend_diagnostics"),
+            stage_breakdown=payload.get("stage_breakdown"),
+            report_sections=payload.get("report_sections"),
+            follow_up_points=payload.get("follow_up_points"),
+            overall_score=payload.get("trend_series", {}).get("overall_score", [None])[-1] if payload.get("trend_series", {}).get("overall_score") else None
         )
     except Exception as e:
         logger.error(f"生成进度报告失败: {str(e)}")
@@ -2479,6 +2775,71 @@ async def get_student_progress_reports(
         ))
     
     return response
+
+@app.get("/progress-reports/{report_id}")
+async def get_progress_report_detail(
+    report_id: str,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    """获取进度报告详情（按课程类型细则返回结构化趋势数据）。"""
+    report = db_service.get_progress_report_by_id(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+
+    student = db_service.get_student_by_internal_id(report.student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    evaluations = db_service.get_evaluation_results_by_student_id_sorted(student.student_id)
+    if not evaluations:
+        raise HTTPException(status_code=404, detail="该学生没有评估记录")
+
+    payload = _build_policy_progress_payload(student.student_id, evaluations, db_service)
+
+    import json
+    key_insights = []
+    improvement_areas = []
+    try:
+        if report.key_insights:
+            key_insights = json.loads(report.key_insights)
+        if report.improvement_areas:
+            improvement_areas = json.loads(report.improvement_areas)
+    except Exception:
+        key_insights = payload.get("key_insights", [])
+        improvement_areas = payload.get("improvement_areas", [])
+
+    # 兼容旧前端字段命名
+    dimension_trends = {
+        "总分": [{"time": x, "score": y} for x, y in zip(payload["trend_series"]["x_values"], payload["trend_series"]["overall_score"])],
+        "能力点均分": [{"time": x, "score": y} for x, y in zip(payload["trend_series"]["x_values"], payload["trend_series"]["ability_component"])],
+    }
+    if payload["trend_series"].get("knowledge_understanding_component"):
+        dimension_trends["知识点理解"] = [{"time": x, "score": y} for x, y in zip(payload["trend_series"]["x_values"], payload["trend_series"]["knowledge_understanding_component"])]
+    if payload["trend_series"].get("knowledge_application_component"):
+        dimension_trends["知识点运用"] = [{"time": x, "score": y} for x, y in zip(payload["trend_series"]["x_values"], payload["trend_series"]["knowledge_application_component"])]
+    if payload["trend_series"].get("phase_completion_component"):
+        dimension_trends["阶段完成度"] = [{"time": x, "score": y} for x, y in zip(payload["trend_series"]["x_values"], payload["trend_series"]["phase_completion_component"])]
+
+    return {
+        "report_id": report.report_id,
+        "student_id": student.student_id,
+        "course_type": payload.get("course_type"),
+        "score_policy": payload.get("policy_summary", {}).get("score_policy"),
+        "policy_summary": payload.get("policy_summary"),
+        "overall_score": payload.get("trend_series", {}).get("overall_score", [None])[-1] if payload.get("trend_series", {}).get("overall_score") else None,
+        "trend_series": payload.get("trend_series"),
+        "ability_dimension_trends": payload.get("ability_dimension_trends"),
+        "trend_diagnostics": payload.get("trend_diagnostics"),
+        "stage_breakdown": payload.get("stage_breakdown"),
+        "report_sections": payload.get("report_sections"),
+        "follow_up_points": payload.get("follow_up_points"),
+        "dimension_trends": dimension_trends,
+        "key_insights": key_insights if key_insights else payload.get("key_insights", []),
+        "improvement_areas": improvement_areas if improvement_areas else payload.get("improvement_areas", []),
+        "report": report.report or payload.get("report", ""),
+        "generated_at": report.generated_at.isoformat(),
+        "total_evaluations": report.total_evaluations
+    }
 
 # Pydantic model for updating progress report
 class ProgressReportUpdate(BaseModel):

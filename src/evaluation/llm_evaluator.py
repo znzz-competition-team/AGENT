@@ -146,7 +146,7 @@ class LLMEvaluator:
         if 'dimension_scores' in evaluation_result:
             logger.info(f"dimension_scores内容: {evaluation_result['dimension_scores']}")
         
-        normalized = self._normalize_evaluation_result(evaluation_result, stage_progress)
+        normalized = self._normalize_evaluation_result(evaluation_result, stage_progress, syllabus_analysis)
         
         # 记录标准化后的结果
         logger.info("=== 标准化后的评估结果 ===")
@@ -878,7 +878,8 @@ class LLMEvaluator:
             "score": 75,
             "confidence": 0.85,
             "evidence": ["作业中支持该评分的具体证据1", "作业中支持该评分的具体证据2"],
-            "reasoning": "详细解释为什么给出这个分数（至少200字），必须引用作业中的具体内容，详细分析学生的表现，指出优点和不足"
+            "reasoning": "详细解释为什么给出这个分数（至少200字），必须引用作业中的具体内容，详细分析学生的表现，指出优点和不足",
+            "improvement_suggestion": "针对该能力点的可执行修改建议（至少80字，说明应改什么、如何改、做到什么程度）"
         }}
     ],
     "strengths": [
@@ -897,7 +898,7 @@ class LLMEvaluator:
         "completion_rate": 0.75,
         "completion_details": "详细说明大纲任务的完成情况，哪些完成了，哪些没完成，完成质量如何（至少150字）"
     }},
-    "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分"
+    "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分",
     "knowledge_understanding_score": 75,
     "knowledge_application_score": 72,
     "phase_completion_score": 78,
@@ -917,10 +918,11 @@ class LLMEvaluator:
 4. **必须指出劣势**，不得只说优势不说劣势
 5. **评估内容必须详细**，每个能力点的reasoning至少200字
 6. **分数分布要合理**，不要让所有学生都得高分
-7. **不需要改进建议**，只需要客观评价
+7. **必须给出每个能力点的 improvement_suggestion**，建议必须具体可执行
 8. **必须评估大纲任务完成情况**，说明哪些完成了，哪些没完成
 9. **理论课必须给出 knowledge_understanding_score 与 knowledge_application_score**
 10. **实践课必须给出 phase_completion_score 并围绕当前阶段重点评估**
+11. **dimension_scores 必须覆盖所有能力点且不得为空**
 """
         
         return prompt
@@ -961,7 +963,7 @@ class LLMEvaluator:
             - 评分应严格按照专业标准，客观反映学生的实际表现
             """
     
-    def _normalize_evaluation_result(self, result: Dict, stage_progress: float) -> Dict:
+    def _normalize_evaluation_result(self, result: Dict, stage_progress: float, syllabus_analysis: Dict = None) -> Dict:
         """标准化评估结果"""
         # 确保所有必要字段存在
         # 直接使用大模型返回的0-100分
@@ -997,6 +999,17 @@ class LLMEvaluator:
             except Exception:
                 normalized[score_field] = None
         
+        # 构建能力点名列表，用于dimension_scores缺失时兜底
+        ability_dimension_names: List[str] = []
+        if isinstance(syllabus_analysis, dict):
+            for idx, ability in enumerate(syllabus_analysis.get("ability_points", []) if isinstance(syllabus_analysis.get("ability_points"), list) else [], 1):
+                if isinstance(ability, dict):
+                    nm = str(ability.get("name") or ability.get("description") or f"能力点{idx}").strip()
+                else:
+                    nm = str(ability).strip()
+                if nm and nm not in ability_dimension_names:
+                    ability_dimension_names.append(nm)
+
         # 确保维度评分是列表格式，并且在0-100之间
         dimension_scores = normalized["dimension_scores"]
         normalized_dimension_scores = []
@@ -1013,7 +1026,8 @@ class LLMEvaluator:
                         "score": min(100.0, max(0.0, raw_score)),
                         "confidence": score_info.get("confidence", 0.8),
                         "evidence": score_info.get("evidence", []),
-                        "reasoning": score_info.get("reasoning", "")
+                        "reasoning": score_info.get("reasoning", ""),
+                        "improvement_suggestion": score_info.get("improvement_suggestion", "")
                     }
                     normalized_dimension_scores.append(normalized_score)
         elif isinstance(dimension_scores, dict):
@@ -1027,7 +1041,8 @@ class LLMEvaluator:
                         "score": min(100.0, max(0.0, raw_score)),
                         "confidence": score_info.get("confidence", 0.8),
                         "evidence": score_info.get("evidence", []),
-                        "reasoning": score_info.get("reasoning", "")
+                        "reasoning": score_info.get("reasoning", ""),
+                        "improvement_suggestion": score_info.get("improvement_suggestion", "")
                     }
                     normalized_dimension_scores.append(normalized_score)
                 elif isinstance(score_info, (int, float)):
@@ -1038,9 +1053,40 @@ class LLMEvaluator:
                         "score": min(100.0, max(0.0, raw_score)),
                         "confidence": 0.8,
                         "evidence": [],
-                        "reasoning": ""
+                        "reasoning": "",
+                        "improvement_suggestion": ""
                     }
                     normalized_dimension_scores.append(normalized_score)
+
+        # 若模型未返回维度评分，但已有能力点，则按能力点生成占位评分，避免前端无内容
+        if not normalized_dimension_scores and ability_dimension_names:
+            default_score = normalized["overall_score"]
+            for dim_name in ability_dimension_names:
+                normalized_dimension_scores.append({
+                    "dimension": dim_name,
+                    "score": default_score,
+                    "confidence": 0.6,
+                    "evidence": ["模型未返回该能力点证据，请结合原作业内容复核。"],
+                    "reasoning": "模型未返回该能力点详细理由，已按整体表现给出占位分值。",
+                    "improvement_suggestion": "建议补充该能力点对应的证据片段、关键过程与结果分析后重新评估。"
+                })
+
+        # 逐项补齐缺失字段，避免前端展示空白
+        for score_info in normalized_dimension_scores:
+            reasoning = str(score_info.get("reasoning", "")).strip()
+            if not reasoning:
+                score_info["reasoning"] = "该能力点评分理由缺失，建议结合提交内容中的关键证据进行人工复核。"
+
+            evidence = score_info.get("evidence", [])
+            if not isinstance(evidence, list):
+                evidence = [str(evidence)] if evidence else []
+            if not evidence:
+                evidence = ["未提取到明确证据，请在作业中补充与该能力点对应的内容。"]
+            score_info["evidence"] = evidence
+
+            suggestion = str(score_info.get("improvement_suggestion", "")).strip()
+            if not suggestion:
+                score_info["improvement_suggestion"] = "建议围绕该能力点补充关键概念说明、方法应用过程和结果对比分析，并给出可验证的改进证据。"
         
         # 确保能力评分是列表格式，并且在0-100之间
         ability_scores = normalized["ability_scores"]

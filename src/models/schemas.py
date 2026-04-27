@@ -151,6 +151,7 @@ class DimensionScoreResponse(BaseModel):
     confidence: float
     evidence: List[str]
     reasoning: str
+    improvement_suggestion: Optional[str] = None
 
 class EvaluationResultResponse(BaseModel):
     id: int
@@ -197,3 +198,13 @@ class ProgressReportResponse(BaseModel):
     key_insights: List[str]
     improvement_areas: List[str]
     report_id: Optional[str] = None
+    course_type: Optional[str] = None
+    score_policy: Optional[str] = None
+    overall_score: Optional[float] = None
+    policy_summary: Optional[Dict[str, Any]] = None
+    trend_series: Optional[Dict[str, Any]] = None
+    ability_dimension_trends: Optional[Dict[str, Any]] = None
+    trend_diagnostics: Optional[Dict[str, Any]] = None
+    stage_breakdown: Optional[List[Dict[str, Any]]] = None
+    report_sections: Optional[Dict[str, str]] = None
+    follow_up_points: Optional[List[str]] = None
