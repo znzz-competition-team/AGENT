@@ -3,6 +3,7 @@ import json
 import logging
 import mimetypes
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -53,6 +54,11 @@ class HandwritingExamGradingAgent:
         system_functions: Optional[str] = None,
         system_relationships: Optional[str] = None,
         validate_derivation: bool = True,
+        enable_thinking: bool = False,
+        thinking_budget: Optional[int] = None,
+        vl_high_resolution_images: bool = False,
+        retry_count: int = 2,
+        request_timeout: int = 300,
     ) -> Dict[str, Any]:
         if not image_paths:
             raise ValueError("至少需要上传一张试卷图片")
@@ -92,22 +98,56 @@ class HandwritingExamGradingAgent:
         for image_path in image_paths:
             content.append(self._build_image_content(image_path))
 
-        response = self.client.chat.completions.create(
-            model=self.ai_config["model"],
-            messages=[
+        request_kwargs: Dict[str, Any] = {
+            "model": self.ai_config["model"],
+            "messages": [
                 {
                     "role": "system",
                     "content": self._build_system_prompt(recognition_mode),
                 },
                 {"role": "user", "content": content},
             ],
-            temperature=min(float(self.ai_config.get("temperature", 0.2)), 0.3),
-            max_tokens=max(int(self.ai_config.get("max_tokens", 2000)), 2500),
-            response_format={"type": "json_object"},
-        )
+            "temperature": min(float(self.ai_config.get("temperature", 0.2)), 0.3),
+            "max_tokens": max(int(self.ai_config.get("max_tokens", 2000)), 2500),
+            "response_format": {"type": "json_object"},
+            "timeout": max(30, int(request_timeout)),
+        }
+
+        extra_body: Dict[str, Any] = {}
+        if enable_thinking:
+            extra_body["enable_thinking"] = True
+            if thinking_budget is not None and int(thinking_budget) > 0:
+                extra_body["thinking_budget"] = int(thinking_budget)
+        if vl_high_resolution_images:
+            extra_body["vl_high_resolution_images"] = True
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
+
+        response = None
+        last_error: Optional[Exception] = None
+        for attempt in range(max(0, int(retry_count)) + 1):
+            try:
+                response = self.client.chat.completions.create(**request_kwargs)
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt >= int(retry_count):
+                    raise
+                time.sleep(min(5.0, 1.2 * (2 ** attempt)))
+
+        if response is None and last_error is not None:
+            raise last_error
 
         raw_content = response.choices[0].message.content
-        result = self._parse_json_response(raw_content)
+        try:
+            result = self._parse_json_response(raw_content)
+        except Exception:
+            try:
+                repaired_content = self._repair_json_response(raw_content)
+                result = self._parse_json_response(repaired_content)
+            except Exception as repair_exc:
+                logger.exception("JSON repair failed, using fallback result: %s", repair_exc)
+                result = self._build_fallback_result(raw_content)
         return self._normalize_result(
             result=result,
             requested_total_score=total_score,
@@ -429,6 +469,56 @@ class HandwritingExamGradingAgent:
         preview = text[:500]
         logger.error("Failed to parse grading JSON. Raw preview: %s", preview)
         raise ValueError(f"模型返回的批改结果不是合法 JSON。解析失败详情：{' | '.join(errors)}")
+
+    def _repair_json_response(self, raw_content: Any) -> str:
+        """Repair malformed JSON output by asking model to return strict JSON only."""
+        if isinstance(raw_content, dict):
+            return json.dumps(raw_content, ensure_ascii=False)
+
+        text = str(raw_content or "")
+        # Keep repair prompt bounded to reduce timeout risk.
+        if len(text) > 12000:
+            text = text[:12000]
+        repair_prompt = (
+            "请将下面内容修复为一个合法 JSON 对象。"
+            "必须只输出 JSON 本体，不要 markdown，不要解释。"
+        )
+
+        response = self.client.chat.completions.create(
+            model=self.ai_config["model"],
+            messages=[
+                {"role": "system", "content": "Return valid JSON object only."},
+                {"role": "user", "content": f"{repair_prompt}\n\n{text}"},
+            ],
+            temperature=0,
+            max_tokens=max(int(self.ai_config.get("max_tokens", 2000)), 2500),
+            response_format={"type": "json_object"},
+            timeout=90,
+        )
+
+        repaired = response.choices[0].message.content
+        if isinstance(repaired, str):
+            return repaired
+        if isinstance(repaired, dict):
+            return json.dumps(repaired, ensure_ascii=False)
+        return str(repaired or "")
+
+    def _build_fallback_result(self, raw_content: Any) -> Dict[str, Any]:
+        """Last-resort fallback to avoid hard failure on malformed model output."""
+        text = str(raw_content or "")
+        recognized = text[:4000] if text else "模型输出解析失败，未提取到有效文本。"
+        return {
+            "recognized_text": recognized,
+            "total_score": 0,
+            "max_score": 100,
+            "overall_comment": "模型输出超时或JSON损坏，已返回兜底结果。建议降低输出长度并重试。",
+            "course_achievement_comment": "",
+            "strengths": [],
+            "areas_for_improvement": ["本次结果为兜底结果，请重试批改。"],
+            "formula_boxes": [],
+            "derivation_checks": [],
+            "question_results": [],
+        }
 
     def _normalize_formula_boxes(self, formula_boxes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         normalized_boxes: List[Dict[str, Any]] = []

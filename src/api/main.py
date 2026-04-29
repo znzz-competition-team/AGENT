@@ -190,6 +190,9 @@ def model_supports_vision(model_name: Optional[str]) -> bool:
         "gpt-4.1",
         "gpt-4-turbo",
         "glm-4v",
+        "qwen3.6",
+        "qwen3.5",
+        "qwen3-vl",
         "qwen-vl-ocr",
         "qvq",
         "vl",
@@ -726,6 +729,11 @@ async def grade_handwriting_exam(
     system_functions: Optional[str] = Form(None),
     system_relationships: Optional[str] = Form(None),
     validate_derivation: Optional[str] = Form("true"),
+    enable_thinking: Optional[str] = Form("false"),
+    thinking_budget: Optional[str] = Form(None),
+    vl_high_resolution_images: Optional[str] = Form("false"),
+    retry_count: Optional[str] = Form("2"),
+    request_timeout: Optional[str] = Form("300"),
     files: List[UploadFile] = File(...),
     db_service: DatabaseService = Depends(get_database_service)
 ):
@@ -740,6 +748,14 @@ async def grade_handwriting_exam(
 
     parsed_total_score = parse_float_form(total_score)
     parsed_validate_derivation = parse_bool_form(validate_derivation, default=True)
+    parsed_enable_thinking = parse_bool_form(enable_thinking, default=False)
+    parsed_vl_high_resolution = parse_bool_form(vl_high_resolution_images, default=False)
+    try:
+        parsed_thinking_budget = int(thinking_budget) if thinking_budget and thinking_budget.strip() else None
+        parsed_retry_count = max(0, int(retry_count or "2"))
+        parsed_request_timeout = max(30, int(request_timeout or "300"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="thinking_budget/retry_count/request_timeout 参数格式错误") from exc
     normalized_mode = (recognition_mode or "general").strip().lower()
     if normalized_mode not in {"general", "formula"}:
         raise HTTPException(status_code=400, detail="recognition_mode 仅支?general ?formula")
@@ -787,6 +803,11 @@ async def grade_handwriting_exam(
             system_functions=system_functions,
             system_relationships=system_relationships,
             validate_derivation=parsed_validate_derivation,
+            enable_thinking=parsed_enable_thinking,
+            thinking_budget=parsed_thinking_budget,
+            vl_high_resolution_images=parsed_vl_high_resolution,
+            retry_count=parsed_retry_count,
+            request_timeout=parsed_request_timeout,
         )
 
         return HandwritingExamGradeResponse(

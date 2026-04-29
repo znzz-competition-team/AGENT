@@ -6,6 +6,9 @@ from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
 import os
+import time
+import random
+import statistics
 from PIL import Image, ImageDraw
 
 # API 基础 URL
@@ -48,8 +51,11 @@ AI_PROVIDERS = {
     "qwen": {
         "name": "通义千问",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "models": ["qwen-turbo", "qwen-plus", "qwen-max", "qvq-max", "qwen-vl-ocr-latest"],
-        "default_model": "qwen-turbo",
+        "models": [
+            "qwen3.6-plus", "qwen3.5-plus", "qwen3-vl-plus", "qwen3-vl-flash",
+            "qwen-vl-ocr-latest", "qwen-turbo", "qwen-plus", "qwen-max", "qvq-max"
+        ],
+        "default_model": "qwen3.6-plus",
         "description": "阿里云通义千问系列"
     },
     "custom": {
@@ -310,6 +316,83 @@ def draw_formula_boxes(image_file, formula_df: pd.DataFrame):
         draw.text((x1, max(0, y1 - 16)), label[:28], fill=color)
 
     return image
+
+
+def _extract_message_text(resp_json: dict) -> str:
+    choices = (resp_json or {}).get("choices", [])
+    if not choices:
+        return ""
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+        return "\n".join([p for p in parts if p])
+    return str(content)
+
+
+def dashscope_call_with_retry(payload: dict, api_key: str, timeout: int = 180, max_retries: int = 2) -> dict:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    last_error = None
+
+    for attempt in range(max_retries + 1):
+        t0 = time.perf_counter()
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            latency = time.perf_counter() - t0
+            if response.status_code == 200:
+                body = response.json()
+                return {
+                    "ok": True,
+                    "latency": latency,
+                    "status_code": 200,
+                    "text": _extract_message_text(body),
+                    "usage": body.get("usage", {}),
+                    "raw": body,
+                    "error": "",
+                }
+            last_error = f"HTTP {response.status_code}: {response.text[:300]}"
+        except Exception as exc:
+            latency = time.perf_counter() - t0
+            last_error = f"{type(exc).__name__}: {exc}"
+
+        if attempt < max_retries:
+            sleep_s = min(6.0, (2 ** attempt) + random.uniform(0.1, 0.8))
+            time.sleep(sleep_s)
+
+    return {
+        "ok": False,
+        "latency": latency if "latency" in locals() else 0.0,
+        "status_code": None,
+        "text": "",
+        "usage": {},
+        "raw": {},
+        "error": last_error or "unknown error",
+    }
+
+
+def summarize_stability_results(run_results: list) -> dict:
+    total = len(run_results)
+    success = sum(1 for item in run_results if item.get("ok"))
+    latencies = [item.get("latency", 0.0) for item in run_results if item.get("latency") is not None]
+    avg_latency = float(sum(latencies) / len(latencies)) if latencies else 0.0
+    p95_latency = float(statistics.quantiles(latencies, n=20)[18]) if len(latencies) >= 20 else (max(latencies) if latencies else 0.0)
+    return {
+        "total": total,
+        "success": success,
+        "fail": total - success,
+        "success_rate": (success / total * 100.0) if total > 0 else 0.0,
+        "avg_latency_s": avg_latency,
+        "p95_latency_s": p95_latency,
+    }
 
 # 页面配置
 st.set_page_config(
@@ -1822,6 +1905,16 @@ elif page == "✏️ 手写识别":
             value=True,
             help="开启后会逐题检查公式推导是否自洽，并返回 valid/invalid/uncertain。"
         )
+        st.markdown("**高级识别参数（Qwen/DashScope）**")
+        adv_col1, adv_col2, adv_col3 = st.columns(3)
+        with adv_col1:
+            enable_thinking = st.checkbox("开启思考模式", value=True)
+            vl_high_resolution_images = st.checkbox("高分辨率图像模式", value=True)
+        with adv_col2:
+            thinking_budget = st.number_input("thinking_budget", min_value=0, max_value=120000, value=81920, step=1024)
+            retry_count = st.number_input("失败重试次数", min_value=0, max_value=8, value=2, step=1)
+        with adv_col3:
+            request_timeout = st.number_input("单次请求超时(秒)", min_value=30, max_value=900, value=300, step=10)
 
         grade_submit = st.form_submit_button("开始批改试卷", use_container_width=True)
 
@@ -1844,6 +1937,11 @@ elif page == "✏️ 手写识别":
                         "system_functions": system_functions,
                         "system_relationships": system_relationships,
                         "validate_derivation": str(validate_derivation).lower(),
+                        "enable_thinking": str(enable_thinking).lower(),
+                        "thinking_budget": str(int(thinking_budget)),
+                        "vl_high_resolution_images": str(vl_high_resolution_images).lower(),
+                        "retry_count": str(int(retry_count)),
+                        "request_timeout": str(int(request_timeout)),
                     }
                     files = [
                         ("files", (uploaded_file.name, uploaded_file, uploaded_file.type))
@@ -1999,6 +2097,179 @@ elif page == "✏️ 手写识别":
                         st.error(f"批改失败: {error_detail}")
                 except Exception as e:
                     st.error(f"批改失败: {str(e)}")
+
+# 复杂能力稳定性测试
+    st.markdown("---")
+    st.subheader("公式识别与图像理解稳定性测试")
+    st.caption("用于压测 OCR/公式识别、多图理解、视频理解、思考模式等复杂场景，输出成功率与时延指标。")
+
+    default_dashscope_key = os.getenv("DASHSCOPE_API_KEY", "sk-8ac33a82e02b42429a5b30b3ced6dfe3")
+    if "dashscope_test_api_key" not in st.session_state:
+        st.session_state.dashscope_test_api_key = default_dashscope_key
+
+    with st.form("dashscope_stability_test_form"):
+        test_col1, test_col2 = st.columns(2)
+        with test_col1:
+            dashscope_api_key = st.text_input(
+                "DashScope API Key",
+                value=st.session_state.dashscope_test_api_key,
+                type="password",
+                help="默认读取 DASHSCOPE_API_KEY 环境变量，若为空则使用你提供的默认 Key。"
+            )
+            test_rounds = st.slider("每个场景测试轮数", min_value=1, max_value=10, value=3)
+        with test_col2:
+            enable_thinking = st.checkbox("开启思考模式（qwen3.6-plus）", value=True)
+            thinking_budget = st.number_input("thinking_budget", min_value=0, max_value=120000, value=81920, step=1024)
+
+        st.markdown("**测试场景开关**")
+        case_col1, case_col2, case_col3, case_col4 = st.columns(4)
+        with case_col1:
+            run_formula_ocr = st.checkbox("公式/OCR 识别", value=True)
+        with case_col2:
+            run_multi_image = st.checkbox("多图理解", value=True)
+        with case_col3:
+            run_video = st.checkbox("视频理解", value=True)
+        with case_col4:
+            run_highres = st.checkbox("高分辨率图像", value=True)
+
+        run_stability_test = st.form_submit_button("开始稳定性测试", use_container_width=True)
+
+    st.session_state.dashscope_test_api_key = dashscope_api_key
+
+    if run_stability_test:
+        if not dashscope_api_key.strip():
+            st.error("请先填写 DashScope API Key。")
+        else:
+            scenarios = []
+            if run_formula_ocr:
+                scenarios.append({
+                    "name": "公式/OCR",
+                    "payload": {
+                        "model": "qwen-vl-ocr-latest",
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": "https://img.alicdn.com/imgextra/i2/O1CN01ktT8451iQutqReELT_!!6000000004408-0-tps-689-487.jpg"
+                                    }
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "提取图片中的关键信息，并给出包含可能公式或数字字段的结构化JSON。"
+                                }
+                            ]
+                        }],
+                        "max_tokens": 2048
+                    }
+                })
+            if run_multi_image:
+                scenarios.append({
+                    "name": "多图理解",
+                    "payload": {
+                        "model": "qwen3.6-plus",
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20241022/emyrja/dog_and_girl.jpeg"}},
+                                {"type": "image_url", "image_url": {"url": "https://dashscope.oss-cn-beijing.aliyuncs.com/images/tiger.png"}},
+                                {"type": "text", "text": "对比两张图片的主体、场景、动作和情绪差异。"}
+                            ]
+                        }],
+                        "max_tokens": 1500
+                    }
+                })
+            if run_video:
+                scenarios.append({
+                    "name": "视频理解",
+                    "payload": {
+                        "model": "qwen3.6-plus",
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "video_url",
+                                    "video_url": {"url": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20241115/cqqkru/1.mp4"},
+                                    "fps": 2
+                                },
+                                {"type": "text", "text": "总结这段视频的主要事件、角色和时间顺序。"}
+                            ]
+                        }],
+                        "max_tokens": 2000
+                    }
+                })
+            if run_highres:
+                scenarios.append({
+                    "name": "高分辨率细节",
+                    "payload": {
+                        "model": "qwen3.6-plus",
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": "https://help-static-aliyun-doc.aliyuncs.com/file-manage-files/zh-CN/20250212/earbrt/vcg_VCG211286867973_RF.jpg"}
+                                },
+                                {"type": "text", "text": "识别图中的节日氛围和关键细节，并说明依据。"}
+                            ]
+                        }],
+                        "extra_body": {"vl_high_resolution_images": True},
+                        "max_tokens": 1500
+                    }
+                })
+
+            if enable_thinking:
+                scenarios.append({
+                    "name": "思考模式",
+                    "payload": {
+                        "model": "qwen3.6-plus",
+                        "messages": [{"role": "user", "content": "请简洁说明：稳定性压测时应该如何设置重试、超时和退避策略？"}],
+                        "extra_body": {"enable_thinking": True, "thinking_budget": int(thinking_budget)},
+                        "max_tokens": 1200
+                    }
+                })
+
+            if not scenarios:
+                st.warning("至少选择一个测试场景。")
+            else:
+                all_rows = []
+                with st.spinner("正在执行稳定性测试，请稍候..."):
+                    for scenario in scenarios:
+                        run_results = []
+                        for _ in range(test_rounds):
+                            run_results.append(
+                                dashscope_call_with_retry(
+                                    payload=scenario["payload"],
+                                    api_key=dashscope_api_key.strip(),
+                                    timeout=240,
+                                    max_retries=2,
+                                )
+                            )
+                        summary = summarize_stability_results(run_results)
+                        errors = [r.get("error", "") for r in run_results if not r.get("ok")]
+                        sample_output = next((r.get("text", "") for r in run_results if r.get("ok") and r.get("text")), "")
+                        all_rows.append({
+                            "场景": scenario["name"],
+                            "轮数": summary["total"],
+                            "成功数": summary["success"],
+                            "失败数": summary["fail"],
+                            "成功率(%)": round(summary["success_rate"], 2),
+                            "平均耗时(s)": round(summary["avg_latency_s"], 2),
+                            "P95耗时(s)": round(summary["p95_latency_s"], 2),
+                            "错误示例": errors[0][:180] if errors else "",
+                            "返回示例": sample_output[:200],
+                        })
+
+                result_df = pd.DataFrame(all_rows)
+                st.dataframe(result_df, use_container_width=True, hide_index=True)
+                st.download_button(
+                    label="下载稳定性测试结果(JSON)",
+                    data=json.dumps(all_rows, ensure_ascii=False, indent=2),
+                    file_name=f"dashscope_stability_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
 
 # ==================== AI 设置 ====================
 elif page == "⚙️ AI设置":
