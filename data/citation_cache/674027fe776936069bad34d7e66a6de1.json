@@ -1,0 +1,27 @@
+{
+  "reference_index": 1,
+  "raw_text": "A. Tassanbi, A. Khan, A. Kashkynbayev, E. Shehab, T. Do, and M. Ali, \"Performance evaluation of developed controllers for unmanned aerial vehicles with reference camera,\" (in English), Meas. Control, ",
+  "verified": false,
+  "confidence": 0.3,
+  "source": "semantic_scholar_doi_mismatch",
+  "paper_info": {
+    "title": "Performance evaluation of developed controllers for unmanned aerial vehicles with reference camera",
+    "year": 2024,
+    "citation_count": 3,
+    "authors": [
+      "Aidana Tassanbi",
+      "Aizaz Ali Khan",
+      "A. Kashkynbayev",
+      "Essam Shehab",
+      "Ton Duc do"
+    ],
+    "venue": "Measurement and control (London. 1968)",
+    "doi": "10.1177/00202940241270863",
+    "abstract": "This research article aims to compare the performance of three distinct types of controllers, namely proportional-integral-derivative (PID), Fuzzy PID (F-PID), and Fuzzy PID controller with prefilter (PF-PID), for the “Quanser” QDrone. In quadrotor applications, control design and implementation are"
+  },
+  "suspicious_indicators": [
+    "DOI查到的论文标题与引用标题不匹配（相似度0%）"
+  ],
+  "verification_detail": "通过DOI找到论文，但标题不匹配: 引用标题「Tassanbi, A」 vs 实际论文「Performance evaluation of developed controllers for unmanned」",
+  "topic_mismatch": true
+}

@@ -106,6 +106,9 @@ class DatabaseService:
     def get_submission_by_id(self, submission_id: str) -> Optional[Submission]:
         return self.db.query(Submission).filter(Submission.submission_id == submission_id).first()
     
+    def get_submission_by_pk(self, pk: int) -> Optional[Submission]:
+        return self.db.query(Submission).filter(Submission.id == pk).first()
+    
     def get_submissions_by_student_id(self, student_id: str, skip: int = 0, limit: int = 100) -> List[Submission]:
         student = self.get_student_by_id(student_id)
         if not student:
@@ -158,11 +161,13 @@ class DatabaseService:
         return True
     
     # MediaFile operations
-    def create_media_file(self, submission_id: str, file_path: str, file_name: str, media_type: str,
+    def create_media_file(self, submission_id, file_path: str, file_name: str, media_type: str,
                          size_bytes: int, duration: Optional[float] = None) -> MediaFile:
-        # 获取submission对象以获取其id
-        submission = self.get_submission_by_id(submission_id)
-        submission_id_int = submission.id if submission else None
+        if isinstance(submission_id, int):
+            submission_id_int = submission_id
+        else:
+            submission = self.get_submission_by_id(submission_id)
+            submission_id_int = submission.id if submission else None
         
         media_file = MediaFile(
             submission_id=submission_id_int,

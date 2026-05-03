@@ -684,19 +684,22 @@ class SectionedEvaluator:
         for section in sections:
             all_content += section.get("content", "")[:3000] + "\n\n"
         
-        system_prompt = """你是一位专业的学术论文评审专家。你需要检查论文中的承诺是否被兑现。
+        system_prompt = """你是一位严谨的学术论文评审专家。你需要深度检查论文中的承诺是否被兑现。
 
 任务：
 1. 检查每个承诺在后续章节中是否被实现
-2. 如果实现了，指出在哪个章节、如何实现的
-3. 如果未实现，标记为未兑现
+2. 如果实现了，指出在哪个章节、如何实现的，引用原文证据
+3. 如果未实现，标记为未兑现，分析可能的原因
+4. 对于部分兑现的承诺，说明哪些部分兑现了，哪些没有
 
-注意：
+深度要求：
 - 承诺可能以不同的表述方式实现，需要语义理解
-- 部分承诺可能只是部分实现
-- 要检查整篇论文，而不仅仅是相邻章节"""
+- 部分承诺可能只是部分实现，需要仔细区分
+- 要检查整篇论文，而不仅仅是相邻章节
+- 每个承诺的兑现评价需要引用论文中的具体内容作为证据
+- 分析承诺未兑现对论文整体质量的影响"""
 
-        user_prompt = f"""请检查以下论文承诺的兑现情况：
+        user_prompt = f"""请深度检查以下论文承诺的兑现情况：
 
 ## 论文中的承诺列表
 
@@ -716,15 +719,17 @@ class SectionedEvaluator:
             "source_section": "来源章节",
             "is_fulfilled": true/false,
             "fulfillment_section": "兑现的章节（如果已兑现）",
-            "fulfillment_evidence": "兑现的证据（引用原文）",
+            "fulfillment_evidence": "兑现的证据（必须引用原文具体内容）",
             "fulfillment_degree": "兑现程度（完全兑现/部分兑现/未兑现）",
-            "comment": "评价说明"
+            "comment": "评价说明（50-100字，详细说明兑现或未兑现的具体情况）",
+            "impact_analysis": "该承诺兑现情况对论文整体质量的影响分析（30-50字）",
+            "improvement_suggestion": "如未完全兑现，给出具体的改进建议"
         }}
     ],
     "overall_fulfillment_rate": 兑现率（0.0-1.0）,
     "unfulfilled_promises": ["未兑现的承诺列表"],
     "partially_fulfilled_promises": ["部分兑现的承诺列表"],
-    "summary": "承诺兑现情况总结"
+    "summary": "承诺兑现情况总结（100-200字，分析整体兑现情况、对论文质量的影响、改进方向）"
 }}
 ```"""
 
@@ -787,17 +792,23 @@ class SectionedEvaluator:
         if main_works:
             main_works_str = f"\n### 论文主要工作（从摘要/绪论提取）\n" + "\n".join([f"- {work}" for work in main_works])
         
-        system_prompt = """你是一位专业的学术论文评审专家。你需要评估论文的各个章节，并检测章节之间的逻辑连贯性。
+        system_prompt = """你是一位严谨的学术论文评审专家。你需要对论文的各个章节进行深度评估，并检测章节之间的逻辑连贯性。
 
-评估要点：
-1. 章节内容质量：内容是否充实、论述是否清晰
-2. 与前后章节的衔接：是否与前后章节逻辑连贯
-3. 承诺兑现检测：绪论中承诺的工作是否在后续章节实现
-4. 内容一致性：前后章节的内容是否一致
+评估原则：
+1. 评分必须有充分依据，每个评分项都需引用论文中的具体内容作为证据
+2. 改进建议必须具体、可操作，不能泛泛而谈
+3. 问题诊断要精准，指出具体段落或句子的问题
+4. 对比学术标准给出评价，而非仅做表面描述
 
-请客观、公正地评分，并提供具体的改进建议。"""
+评估维度与深度要求：
+1. 内容质量（40%权重）：论述深度、数据充分性、论证严谨性、学术规范性
+2. 逻辑连贯性（30%权重）：章节内部逻辑、与前后章节衔接、论证链条完整性
+3. 创新与贡献（20%权重）：方法创新性、结果价值、与现有工作对比
+4. 表达规范性（10%权重）：语言准确性、图表规范性、格式合规性
 
-        user_prompt = f"""请评估以下论文章节：
+请严格按维度评分，每个维度都必须给出详细的评分理由和改进建议。"""
+
+        user_prompt = f"""请深度评估以下论文章节：
 
 ## 章节信息
 - 章节类型：{self.SECTION_TYPES.get(section_type, section_type)}
@@ -813,6 +824,14 @@ class SectionedEvaluator:
 
 {json.dumps(indicators, ensure_ascii=False, indent=2) if indicators else "无特定指标"}
 
+## 评估要求
+
+请严格按照以下维度进行深度评估，每个维度都需要：
+- 给出具体分数和等级
+- 引用章节中的具体内容作为评分依据（必须引用原文或概述原文内容）
+- 列出发现的具体问题（指出具体位置）
+- 给出可操作的改进建议
+
 ## 请返回JSON格式结果
 
 ```json
@@ -821,22 +840,46 @@ class SectionedEvaluator:
     "grade_level": "等级（优秀/良好/中等/及格/不及格）",
     "content_quality": {{
         "score": 分数,
-        "comment": "内容质量评价"
+        "comment": "内容质量总体评价（80-150字）",
+        "strengths": ["优点1（附具体证据）", "优点2（附具体证据）"],
+        "weaknesses": ["不足1（附具体证据）", "不足2（附具体证据）"],
+        "depth_analysis": "论述深度分析：是否仅停留在描述层面，还是有深入分析和推理",
+        "data_sufficiency": "数据充分性评价：实验数据/文献数据是否充足支撑结论"
     }},
     "logic_coherence": {{
         "score": 分数,
-        "comment": "逻辑连贯性评价",
-        "issues": ["问题1", "问题2"]
+        "comment": "逻辑连贯性总体评价（50-100字）",
+        "internal_logic": "章节内部逻辑评价：论证链条是否完整",
+        "cross_chapter_logic": "与前后章节的逻辑衔接评价",
+        "issues": ["问题1（指出具体位置和原因）", "问题2（指出具体位置和原因）"]
+    }},
+    "innovation_contribution": {{
+        "score": 分数,
+        "comment": "创新与贡献评价（50-100字）",
+        "novelty_type": "创新类型（原创/应用创新/改进/无创新）",
+        "concrete_contribution": "具体贡献描述",
+        "comparison_with_existing": "与现有工作的对比分析"
+    }},
+    "writing_quality": {{
+        "score": 分数,
+        "comment": "表达规范性评价（50字以内）",
+        "language_issues": ["语言问题1", "语言问题2"],
+        "format_issues": ["格式问题1", "格式问题2"]
     }},
     "key_points": [
-        "该章节的关键点1",
-        "该章节的关键点2"
+        "该章节的关键点1（具体内容概述）",
+        "该章节的关键点2（具体内容概述）",
+        "该章节的关键点3（具体内容概述）"
     ],
     "summary": "该章节的摘要（100字以内，用于后续章节评估参考）",
     "promises_made": ["该章节承诺要做的工作（如果是绪论）"],
     "promises_fulfilled": ["该章节兑现的工作（如果不是绪论）"],
-    "improvement_suggestions": ["改进建议1", "改进建议2"],
-    "evidence": "评分依据（引用章节中的具体内容）"
+    "improvement_suggestions": [
+        {{"aspect": "改进方面", "current_issue": "当前问题（附具体位置）", "suggestion": "具体建议", "priority": "高/中/低"}},
+        {{"aspect": "改进方面", "current_issue": "当前问题（附具体位置）", "suggestion": "具体建议", "priority": "高/中/低"}}
+    ],
+    "evidence": "总体评分依据（100-200字，必须引用章节中的具体内容）",
+    "detailed_score_reason": "各维度评分的详细推理过程（200-300字）：为什么给出这个分数，哪些内容加分，哪些内容扣分，与学术标准的差距在哪里"
 }}
 ```"""
 
@@ -847,7 +890,7 @@ class SectionedEvaluator:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=3000,
+            max_tokens=4000,
             response_format={"type": "json_object"}
         )
         
@@ -895,17 +938,23 @@ class SectionedEvaluator:
         if len(next_content) > 3000:
             next_content = next_content[:2000]
         
-        system_prompt = """你是一位专业的学术论文评审专家。你需要检测论文相邻章节之间的逻辑衔接是否合理。
+        system_prompt = """你是一位严谨的学术论文评审专家。你需要深度检测论文相邻章节之间的逻辑衔接是否合理。
 
-检测要点（只关注逻辑衔接，不检测承诺-兑现）：
-1. 逻辑连贯性：前后章节的论述是否连贯，是否有逻辑跳跃
-2. 内容一致性：前后章节的内容是否矛盾
-3. 过渡自然性：章节之间的过渡是否自然
+检测维度与深度要求（只关注逻辑衔接，不检测承诺-兑现）：
+1. 逻辑连贯性：前后章节的论述是否连贯，是否有逻辑跳跃，论证链条是否完整
+2. 内容一致性：前后章节的内容是否矛盾，术语使用是否统一
+3. 过渡自然性：章节之间的过渡是否自然，是否有承上启下的段落
 4. 论证完整性：前一章节提出的问题/方法是否在后一章节得到延续
+
+每个维度都需要：
+- 给出具体分数
+- 引用前后章节中的具体内容作为证据
+- 指出问题的具体位置
+- 给出可操作的改进建议
 
 注意：不要检测承诺-兑现，那是单独的检测任务。"""
 
-        user_prompt = f"""请检测以下两个相邻章节之间的逻辑衔接：
+        user_prompt = f"""请深度检测以下两个相邻章节之间的逻辑衔接：
 
 ## 前一章节信息
 - 类型：{self.SECTION_TYPES.get(prev_section.get('section_type'), '未知')}
@@ -938,29 +987,36 @@ class SectionedEvaluator:
     "grade_level": "等级（优秀/良好/中等/及格/不及格）",
     "logic_flow": {{
         "is_smooth": true/false,
-        "issues": ["逻辑问题1", "逻辑问题2"],
+        "issues": ["逻辑问题1（指出具体位置和原因）", "逻辑问题2（指出具体位置和原因）"],
         "score": 逻辑流畅分数,
-        "comment": "逻辑连贯性评价"
+        "comment": "逻辑连贯性评价（50-100字，引用具体内容）",
+        "improvement_suggestions": ["改进建议1", "改进建议2"]
     }},
     "content_consistency": {{
         "is_consistent": true/false,
-        "inconsistencies": ["不一致的地方"],
+        "inconsistencies": ["不一致的地方（引用具体内容）"],
         "score": 内容一致性分数,
-        "comment": "内容一致性评价"
+        "comment": "内容一致性评价（50-100字，引用具体内容）",
+        "improvement_suggestions": ["改进建议1", "改进建议2"]
     }},
     "transition_quality": {{
         "is_natural": true/false,
         "score": 过渡质量分数,
-        "comment": "过渡质量评价"
+        "comment": "过渡质量评价（50-100字，引用具体内容）",
+        "missing_transition": "缺失的过渡内容描述（如有）",
+        "improvement_suggestions": ["改进建议1", "改进建议2"]
     }},
     "argument_continuity": {{
         "is_continuous": true/false,
-        "issues": ["论证不连续的地方"],
+        "issues": ["论证不连续的地方（引用具体内容）"],
         "score": 论证连续性分数,
-        "comment": "论证连续性评价"
+        "comment": "论证连续性评价（50-100字，引用具体内容）",
+        "improvement_suggestions": ["改进建议1", "改进建议2"]
     }},
-    "improvement_suggestions": ["改进建议1", "改进建议2"],
-    "overall_comment": "整体衔接评价（只关注逻辑衔接）"
+    "improvement_suggestions": [
+        {{"aspect": "改进方面", "current_issue": "当前问题（附具体位置）", "suggestion": "具体建议", "priority": "高/中/低"}}
+    ],
+    "overall_comment": "整体衔接评价（100-150字，只关注逻辑衔接，需引用具体内容说明衔接好坏）"
 }}
 ```"""
 
@@ -971,7 +1027,7 @@ class SectionedEvaluator:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=2000,
+            max_tokens=3000,
             response_format={"type": "json_object"}
         )
         
@@ -1315,13 +1371,22 @@ class SectionedEvaluator:
         "comment": "承诺兑现情况分析"
     }},
     "detailed_evaluation": {{
-        "abstract_evaluation": "摘要部分评价",
-        "introduction_evaluation": "绪论部分评价",
-        "methodology_evaluation": "方法/设计部分评价",
-        "implementation_evaluation": "实现部分评价",
-        "experiment_evaluation": "实验部分评价",
-        "conclusion_evaluation": "结论部分评价"
+        "abstract_evaluation": "摘要部分评价（100-150字，评价摘要的完整性、准确性、精炼度，引用具体问题）",
+        "introduction_evaluation": "绪论部分评价（150-200字，评价研究背景阐述、文献综述质量、研究目标明确性、创新点表述，引用具体问题）",
+        "methodology_evaluation": "方法/设计部分评价（150-200字，评价方法选择的合理性、技术路线的可行性、方法描述的完整性，引用具体问题）",
+        "implementation_evaluation": "实现部分评价（150-200字，评价实现方案的完整性、技术细节的充分性、与设计的一致性，引用具体问题）",
+        "experiment_evaluation": "实验部分评价（150-200字，评价实验设计的科学性、数据的充分性、结果分析的深度、对比实验的公平性，引用具体问题）",
+        "conclusion_evaluation": "结论部分评价（100-150字，评价结论的准确性、展望的合理性、与正文的一致性，引用具体问题）"
     }},
+    "section_level_details": [
+        {{
+            "section_title": "章节标题",
+            "content_assessment": "内容评估（80-120字，详细评价该章节的内容质量、深度、与主题的相关性）",
+            "key_findings": ["该章节的主要发现或贡献1", "主要发现或贡献2"],
+            "specific_issues": ["具体问题1（指出位置和原因）", "具体问题2（指出位置和原因）"],
+            "improvement_advice": "针对该章节的具体改进建议（50-80字）"
+        }}
+    ],
     "improvement_suggestions": [
         {{
             "aspect": "改进方面",
@@ -1354,13 +1419,20 @@ class SectionedEvaluator:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.1,
-            max_tokens=8000,
+            max_tokens=10000,
             response_format={"type": "json_object"}
         )
         
         raw_content = response.choices[0].message.content
         
         result = safe_json_parse(raw_content)
+        
+        if "overall_score" in result:
+            try:
+                result["overall_score"] = float(result["overall_score"])
+            except (ValueError, TypeError):
+                logger.warning(f"overall_score无法转换为数字: {result.get('overall_score')}")
+                result["overall_score"] = 0
         
         result["section_evaluations"] = section_evaluations
         result["coherence_checks"] = coherence_checks
@@ -1460,6 +1532,26 @@ class SectionedEvaluator:
             institutional_result=institutional_result,
             indicators=indicators
         )
+        
+        if not final_result.get("overall_score") or final_result.get("overall_score", 0) <= 0:
+            logger.warning("最终评价overall_score为0，尝试从章节评分恢复...")
+            if section_evaluations:
+                scores = [e.get("section_score", 0) for e in section_evaluations if e.get("section_score")]
+                if scores:
+                    recovered = round(sum(scores) / len(scores), 1)
+                    logger.info(f"从章节评分恢复: {recovered}分 (基于{len(scores)}个章节)")
+                    final_result["overall_score"] = recovered
+                    if recovered >= 90:
+                        final_result["grade_level"] = "优秀"
+                    elif recovered >= 80:
+                        final_result["grade_level"] = "良好"
+                    elif recovered >= 70:
+                        final_result["grade_level"] = "中等"
+                    elif recovered >= 60:
+                        final_result["grade_level"] = "及格"
+                    else:
+                        final_result["grade_level"] = "不及格"
+                    final_result["score_recovery_note"] = f"LLM最终评分异常(返回0)，已从{len(scores)}个章节评分恢复"
         
         final_result["student_info"] = student_info
         final_result["thesis_structure"] = structure

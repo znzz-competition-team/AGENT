@@ -1010,30 +1010,21 @@ async def handwriting_recognize(
 
 # 文件上传路由
 @app.post("/submissions/{submission_id}/files", response_model=MediaFileResponse)
-async def upload_file(submission_id: int, file: UploadFile, db: Session = Depends(get_db)):
-    # ... 之前原有的保存文件、提取 text_content 的代码 ...
-    # 假设你已经把大纲内容提取到了变量 extracted_text 中
-
-    # [新增逻辑] 自动分析课程类型
-    detected_type = classify_course_type(extracted_text)
-
-    # [新增逻辑] 将分类结果更新到数据库中
-    submission = db.query(Submission).filter(Submission.id == submission_id).first()
-    if submission:
-        submission.course_type = detected_type
-        db.commit()
-        
-    # 检查提交是否存在
-    submission = db_service.get_submission_by_id(submission_id)
+async def upload_file(
+    submission_id: int, 
+    file: UploadFile = File(...),
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    submission = db_service.get_submission_by_pk(submission_id)
     if not submission:
         raise HTTPException(status_code=404, detail="提交不存在")
     
-    # 保存文件
     file_path = os.path.join(UPLOAD_DIR, f"{submission_id}_{file.filename}")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # 确定文件类型
     file_ext = os.path.splitext(file.filename)[1].lower()
     if file_ext in [".pdf", ".docx", ".doc", ".txt"]:
         media_type = "document"
@@ -1041,13 +1032,14 @@ async def upload_file(submission_id: int, file: UploadFile, db: Session = Depend
         media_type = "video"
     elif file_ext in [".mp3", ".wav"]:
         media_type = "audio"
+    elif file_ext in [".png", ".jpg", ".jpeg"]:
+        media_type = "image"
     else:
-        raise HTTPException(status_code=400, detail="不支持的文件类型")
+        os.remove(file_path)
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file_ext}")
     
-    # 获取文件大小
     size_bytes = os.path.getsize(file_path)
     
-    # 创建媒体文件记录
     media_file = db_service.create_media_file(
         submission_id=submission_id,
         file_path=file_path,
@@ -2661,6 +2653,439 @@ async def delete_evaluation(
     except Exception as e:
         logger.error(f"删除评估记录失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"删除评估记录失败: {str(e)}")
+
+
+@app.post("/evaluate_enhanced")
+async def evaluate_enhanced(
+    request: Dict = Body(...)
+):
+    """
+    增强评估 - 整合TextGrad、多模型评审、引用网络新颖度验证
+
+    在基础分段评估之上，增加三个高级模块：
+    1. 引用网络新颖度验证（自动启用）
+    2. 多模型共识评审（需配置额外模型）
+    3. TextGrad提示词自举优化（需提供论文样本）
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    - indicators: 评价指标
+    - student_info: 学生信息
+    - dimension_weights: 维度权重
+    - enable_novelty_verification: 是否启用新颖度验证（默认True）
+    - enable_multi_judge: 是否启用多模型评审（默认False）
+    - enable_textgrad: 是否启用TextGrad优化（默认False）
+    - extra_judge_models: 额外评审模型配置列表
+    - thesis_samples_for_textgrad: 用于TextGrad自举优化的论文样本列表
+    - semantic_scholar_api_key: Semantic Scholar API密钥（可选）
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        indicators = request.get('indicators', {})
+        student_info = request.get('student_info', {})
+        dimension_weights = request.get('dimension_weights', {})
+        enable_novelty = request.get('enable_novelty_verification', True)
+        enable_multi_judge = request.get('enable_multi_judge', False)
+        enable_textgrad = request.get('enable_textgrad', False)
+        extra_judge_models = request.get('extra_judge_models', [])
+        thesis_samples = request.get('thesis_samples_for_textgrad', [])
+        s2_api_key = request.get('semantic_scholar_api_key', None)
+        compassjudger_config = request.get('compassjudger_config', {})
+
+        from src.evaluation.enhanced_evaluator import EnhancedEvaluator
+
+        evaluator = EnhancedEvaluator(
+            enable_textgrad=enable_textgrad and len(thesis_samples) > 0,
+            enable_multi_judge=enable_multi_judge,
+            enable_novelty_verification=enable_novelty,
+            semantic_scholar_api_key=s2_api_key,
+        )
+
+        if enable_multi_judge and extra_judge_models:
+            for model_cfg in extra_judge_models:
+                evaluator.add_judge_model(
+                    name=model_cfg.get("name", "extra_model"),
+                    api_key=model_cfg.get("api_key", ""),
+                    base_url=model_cfg.get("base_url", ""),
+                    model_name=model_cfg.get("model_name", ""),
+                    weight=model_cfg.get("weight", 1.0),
+                    temperature=model_cfg.get("temperature", 0.1),
+                )
+
+        if enable_multi_judge and compassjudger_config and compassjudger_config.get("enabled"):
+            evaluator.add_compassjudger(
+                model_path=compassjudger_config.get("model_path", "opencompass/CompassJudger-2-7B-Instruct"),
+                weight=compassjudger_config.get("weight", 0.8),
+            )
+
+        result = evaluator.evaluate(
+            content=submission_content,
+            student_info=student_info,
+            indicators=indicators,
+            dimension_weights=dimension_weights if dimension_weights else None,
+        )
+
+        base_eval = result.get("base_evaluation", {})
+        base_overall = base_eval.get("overall_score", "N/A")
+        logger.info(f"增强评估结果: base_score={base_overall}, final={result.get('final_enhanced_score', 'N/A')}")
+        if base_eval.get("error"):
+            logger.warning(f"基础评估有错误: {base_eval['error']}")
+
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"增强评估失败: {str(e)}")
+
+
+@app.post("/save_evaluation_result")
+async def save_evaluation_result(
+    request: Dict = Body(...)
+):
+    evaluation_data = request.get('evaluation_data', {})
+    method = request.get('method', 'unknown')
+    student_info = request.get('student_info', {})
+
+    import os
+    import json
+    from datetime import datetime
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'saved_evaluations')
+    os.makedirs(save_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    student_id = student_info.get('student_id', 'unknown')
+    filename = f"eval_{method}_{student_id}_{timestamp}.json"
+    filepath = os.path.join(save_dir, filename)
+
+    save_obj = {
+        "saved_at": datetime.now().isoformat(),
+        "method": method,
+        "student_info": student_info,
+        "result": evaluation_data,
+    }
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(save_obj, f, ensure_ascii=False, indent=2, default=str)
+
+    return {"status": "ok", "filename": filename, "path": filepath}
+
+
+@app.get("/list_saved_evaluations")
+async def list_saved_evaluations():
+    import os
+    import json
+    from datetime import datetime
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'saved_evaluations')
+    if not os.path.exists(save_dir):
+        return {"evaluations": []}
+
+    evaluations = []
+    for fname in sorted(os.listdir(save_dir), reverse=True):
+        if fname.endswith('.json'):
+            fpath = os.path.join(save_dir, fname)
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                evaluations.append({
+                    "filename": fname,
+                    "saved_at": data.get("saved_at", ""),
+                    "method": data.get("method", ""),
+                    "student_info": data.get("student_info", {}),
+                    "overall_score": data.get("result", {}).get("overall_score") or data.get("result", {}).get("final_enhanced_score") or data.get("result", {}).get("base_evaluation", {}).get("overall_score", "N/A"),
+                })
+            except:
+                pass
+
+    return {"evaluations": evaluations}
+
+
+@app.get("/get_saved_evaluation/{filename}")
+async def get_saved_evaluation(filename: str):
+    import os
+    import json
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'saved_evaluations')
+    fpath = os.path.join(save_dir, filename)
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+
+    with open(fpath, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    return data
+
+
+@app.post("/export_evaluation_report")
+async def export_evaluation_report(
+    request: Dict = Body(...)
+):
+    evaluation_data = request.get('evaluation_data', {})
+    method = request.get('method', 'unknown')
+    student_info = request.get('student_info', {})
+    format_type = request.get('format', 'json')
+
+    import os
+    import json
+    from datetime import datetime
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'exported_reports')
+    os.makedirs(save_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    student_id = student_info.get('student_id', 'unknown')
+    student_name = student_info.get('student_name', student_info.get('name', 'unknown'))
+
+    if format_type == 'json':
+        filename = f"report_{student_id}_{timestamp}.json"
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(evaluation_data, f, ensure_ascii=False, indent=2, default=str)
+        return {"status": "ok", "filename": filename, "path": filepath, "format": "json"}
+
+    elif format_type == 'markdown':
+        report_md = _generate_markdown_report(evaluation_data, method, student_info)
+        filename = f"report_{student_id}_{timestamp}.md"
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(report_md)
+        return {"status": "ok", "filename": filename, "path": filepath, "format": "markdown"}
+
+    elif format_type == 'txt':
+        report_txt = _generate_text_report(evaluation_data, method, student_info)
+        filename = f"report_{student_id}_{timestamp}.txt"
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(report_txt)
+        return {"status": "ok", "filename": filename, "path": filepath, "format": "txt"}
+
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的导出格式: {format_type}")
+
+
+def _generate_markdown_report(data: dict, method: str, student_info: dict) -> str:
+    from datetime import datetime
+    lines = []
+    lines.append("# 毕业设计评估报告\n")
+    lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    lines.append(f"**评估方式**: {method}\n")
+
+    si = student_info or {}
+    if si:
+        lines.append(f"**学生**: {si.get('student_name', si.get('name', 'N/A'))} ({si.get('student_id', 'N/A')})\n")
+        if si.get('title'):
+            lines.append(f"**论文题目**: {si['title']}\n")
+    lines.append("\n---\n")
+
+    if method == 'enhanced':
+        base_eval = data.get('base_evaluation', {})
+        overall = data.get('final_enhanced_score', base_eval.get('overall_score', 0))
+        grade = data.get('final_enhanced_grade', base_eval.get('grade_level', ''))
+        base_score = data.get('base_score', base_eval.get('overall_score', 0))
+        adjustment = data.get('total_adjustment', 0)
+
+        lines.append("## 评估结果总览\n")
+        lines.append(f"| 项目 | 分数 |")
+        lines.append(f"| --- | --- |")
+        lines.append(f"| 基础评分 | {base_score}分 |")
+        lines.append(f"| 校准调整 | {adjustment:+.1f}分 |")
+        lines.append(f"| **最终评分** | **{overall}分** |")
+        lines.append(f"| 等级 | {grade} |")
+        lines.append("\n")
+
+        novelty = data.get('novelty_verification', {})
+        if novelty:
+            lines.append("## 引用网络新颖度验证\n")
+            lines.append(f"- 新颖度评分: {novelty.get('novelty_score', 'N/A')}分\n")
+            lines.append(f"- 新颖度等级: {novelty.get('novelty_grade', 'N/A')}\n")
+            ref_stats = novelty.get('reference_statistics', {})
+            if ref_stats:
+                lines.append(f"- 总引用数: {ref_stats.get('total_references', 'N/A')}\n")
+                lines.append(f"- 已验证: {ref_stats.get('verified_count', 'N/A')}\n")
+                lines.append(f"- 验证率: {ref_stats.get('verification_rate', 'N/A')}%\n")
+            lines.append("\n")
+
+    elif method == 'sectioned':
+        overall = data.get('overall_score', 0)
+        grade = data.get('grade_level', '')
+        lines.append("## 评估结果总览\n")
+        lines.append(f"- **总分**: {overall}分\n")
+        lines.append(f"- **等级**: {grade}\n")
+        lines.append("\n")
+
+    section_evals = data.get('section_evaluations', [])
+    if section_evals:
+        lines.append("## 各章节评估\n")
+        for se in section_evals:
+            title = se.get('section_title', '未知')
+            score = se.get('section_score', 0)
+            grade = se.get('grade_level', '')
+            lines.append(f"### {title} - {score}分 ({grade})\n")
+
+            cq = se.get('content_quality', {})
+            if cq:
+                lines.append(f"**内容质量** ({cq.get('score', 'N/A')}分): {cq.get('comment', '')}\n")
+                for s in cq.get('strengths', []):
+                    lines.append(f"- ✅ {s}\n")
+                for w in cq.get('weaknesses', []):
+                    lines.append(f"- ❌ {w}\n")
+
+            lc = se.get('logic_coherence', {})
+            if lc:
+                lines.append(f"**逻辑连贯性** ({lc.get('score', 'N/A')}分): {lc.get('comment', '')}\n")
+                for iss in lc.get('issues', []):
+                    lines.append(f"- ⚠️ {iss}\n")
+
+            ic = se.get('innovation_contribution', {})
+            if ic:
+                lines.append(f"**创新与贡献** ({ic.get('score', 'N/A')}分): {ic.get('comment', '')}\n")
+                lines.append(f"- 创新类型: {ic.get('novelty_type', 'N/A')}\n")
+
+            suggestions = se.get('improvement_suggestions', [])
+            if suggestions:
+                lines.append("**改进建议:**\n")
+                for sug in suggestions:
+                    if isinstance(sug, dict):
+                        lines.append(f"- [{sug.get('priority', '中')}] **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}\n")
+                    else:
+                        lines.append(f"- {sug}\n")
+            lines.append("\n")
+
+    strengths = data.get('strengths', [])
+    if strengths:
+        lines.append("## 优势\n")
+        for s in strengths:
+            lines.append(f"- ✅ {s}\n")
+        lines.append("\n")
+
+    weaknesses = data.get('weaknesses', [])
+    if weaknesses:
+        lines.append("## 不足\n")
+        for w in weaknesses:
+            lines.append(f"- ❌ {w}\n")
+        lines.append("\n")
+
+    suggestions = data.get('improvement_suggestions', [])
+    if suggestions:
+        lines.append("## 改进建议\n")
+        for sug in suggestions:
+            if isinstance(sug, dict):
+                lines.append(f"- [{sug.get('priority', '中')}] **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}\n")
+                if sug.get('current_issue'):
+                    lines.append(f"  - 当前问题: {sug['current_issue']}\n")
+            else:
+                lines.append(f"- {sug}\n")
+        lines.append("\n")
+
+    overall_eval = data.get('overall_evaluation', data.get('overall_comment', ''))
+    if overall_eval:
+        lines.append("## 总体评价\n")
+        lines.append(f"{overall_eval}\n")
+
+    return '\n'.join(lines)
+
+
+def _generate_text_report(data: dict, method: str, student_info: dict) -> str:
+    md = _generate_markdown_report(data, method, student_info)
+    import re
+    text = md
+    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'^\|.*\|$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^---$', '=' * 60, text, flags=re.MULTILINE)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text
+
+
+@app.post("/verify_novelty")
+async def verify_novelty(
+    request: Dict = Body(...)
+):
+    """
+    单独运行引用网络新颖度验证
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    - semantic_scholar_api_key: Semantic Scholar API密钥（可选）
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        s2_api_key = request.get('semantic_scholar_api_key', None)
+
+        from src.evaluation.citation_novelty_verifier import NoveltyVerifier
+
+        verifier = NoveltyVerifier(semantic_scholar_api_key=s2_api_key)
+        result = verifier.verify_thesis_novelty(submission_content)
+
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"新颖度验证失败: {str(e)}")
+
+
+@app.post("/optimize_prompts_bootstrap")
+async def optimize_prompts_bootstrap(
+    request: Dict = Body(...)
+):
+    """
+    TextGrad提示词自举优化（无需人工评分）
+
+    请求参数:
+    - thesis_samples: 论文样本列表（只需论文文本，至少2篇）
+    - n_iterations: 迭代次数（默认2）
+    """
+    try:
+        thesis_samples = request.get('thesis_samples', [])
+        n_iterations = request.get('n_iterations', 2)
+
+        if len(thesis_samples) < 2:
+            raise HTTPException(status_code=400, detail="至少需要2篇论文样本进行自举优化")
+
+        from src.evaluation.textgrad_optimizer import TextGradOptimizer
+        from src.prompts.thesis_prompts import ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT
+
+        optimizer = TextGradOptimizer()
+
+        user_template = """请对以下毕业设计论文进行校方固有评价体系维度评分。
+
+## 论文内容
+
+{content}
+
+请返回JSON格式的评分结果。"""
+
+        result = optimizer.optimize_prompt_bootstrap(
+            initial_system_prompt=ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT,
+            initial_user_prompt_template=user_template,
+            thesis_samples=thesis_samples,
+            n_iterations=n_iterations,
+        )
+
+        return {
+            "status": "success",
+            "best_consistency": result.get("best_consistency"),
+            "n_iterations_completed": result.get("n_iterations_completed"),
+            "optimization_history": result.get("optimization_history"),
+            "optimized_system_prompt_preview": result.get("optimized_system_prompt", "")[:500],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"提示词优化失败: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

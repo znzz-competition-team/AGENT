@@ -2719,3 +2719,421 @@ elif page == "📈 成长分析":
             st.error("❌ 获取学生列表失败")
     except Exception as e:
         st.error(f"❌ 加载学生列表失败: {str(e)}")
+
+# ==================== 学生管理 ====================
+elif page == "👥 学生管理":
+    st.title("👥 学生管理")
+    
+    tab1, tab2, tab3 = st.tabs(["➕ 添加学生", "📋 学生列表", "🔍 查询学生"])
+    
+    with tab1:
+        st.subheader("添加新学生")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            student_id = st.text_input("学号 *", placeholder="如: 2021001")
+            name = st.text_input("姓名 *", placeholder="学生姓名")
+            gender = st.selectbox("性别", options=["男", "女", "其他"])
+        
+        with col2:
+            grade = st.text_input("年级", placeholder="如: 2021")
+            major = st.text_input("专业", placeholder="如: 计算机科学与技术")
+            class_name = st.text_input("班级", placeholder="如: 计科2101班")
+        
+        email = st.text_input("邮箱", placeholder="student@example.com")
+        phone = st.text_input("电话", placeholder="13800138000")
+        
+        if st.button("➕ 添加学生", use_container_width=True, type="primary"):
+            if not student_id or not name:
+                st.error("❌ 学号和姓名为必填项")
+            else:
+                try:
+                    response = requests.post(
+                        f"{API_BASE_URL}/students",
+                        json={
+                            "student_id": student_id,
+                            "name": name,
+                            "gender": gender,
+                            "grade": grade,
+                            "major": major,
+                            "class_name": class_name,
+                            "email": email,
+                            "phone": phone
+                        }
+                    )
+                    if response.status_code == 200:
+                        st.success(f"✅ 学生 {name} 添加成功！")
+                    else:
+                        error_detail = response.json().get('detail', '未知错误')
+                        st.error(f"❌ 添加失败: {error_detail}")
+                except Exception as e:
+                    st.error(f"❌ 请求失败: {str(e)}")
+    
+    with tab2:
+        st.subheader("学生列表")
+        
+        try:
+            response = requests.get(f"{API_BASE_URL}/students")
+            if response.status_code == 200:
+                students = response.json()
+                
+                if students:
+                    st.info(f"共 {len(students)} 名学生")
+                    
+                    for student in students:
+                        with st.expander(f"📋 {student['name']} ({student['student_id']})"):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.markdown(f"**性别:** {student.get('gender', 'N/A')}")
+                                st.markdown(f"**年级:** {student.get('grade', 'N/A')}")
+                            with col2:
+                                st.markdown(f"**专业:** {student.get('major', 'N/A')}")
+                                st.markdown(f"**班级:** {student.get('class_name', 'N/A')}")
+                            with col3:
+                                st.markdown(f"**邮箱:** {student.get('email', 'N/A')}")
+                                st.markdown(f"**电话:** {student.get('phone', 'N/A')}")
+                            
+                            if st.button(f"🗑️ 删除", key=f"del_{student['student_id']}"):
+                                del_response = requests.delete(f"{API_BASE_URL}/students/{student['student_id']}")
+                                if del_response.status_code == 200:
+                                    st.success("✅ 删除成功")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ 删除失败")
+                else:
+                    st.info("📭 暂无学生记录")
+            else:
+                st.error("❌ 获取学生列表失败")
+        except Exception as e:
+            st.error(f"❌ 请求失败: {str(e)}")
+    
+    with tab3:
+        st.subheader("按学号查询")
+        search_id = st.text_input("输入学号")
+        if st.button("🔍 查询"):
+            if search_id:
+                try:
+                    response = requests.get(f"{API_BASE_URL}/students/{search_id}")
+                    if response.status_code == 200:
+                        student = response.json()
+                        st.json(student)
+                    else:
+                        st.error("❌ 未找到该学生")
+                except Exception as e:
+                    st.error(f"❌ 请求失败: {str(e)}")
+
+# ==================== 文件上传 ====================
+elif page == "📁 文件上传":
+    st.title("📁 文件上传")
+    
+    tab1, tab2 = st.tabs(["📤 上传文件", "📋 上传记录"])
+    
+    with tab1:
+        st.subheader("上传学生文件")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            try:
+                response = requests.get(f"{API_BASE_URL}/students")
+                if response.status_code == 200:
+                    students = response.json()
+                    if students:
+                        student_options = {f"{s['name']} ({s['student_id']})": s['student_id'] for s in students}
+                        selected_student = st.selectbox("选择学生", options=list(student_options.keys()))
+                        selected_student_id = student_options[selected_student]
+                    else:
+                        st.warning("⚠️ 请先添加学生")
+                        selected_student_id = None
+                else:
+                    st.error("❌ 获取学生列表失败")
+                    selected_student_id = None
+            except Exception as e:
+                st.error(f"❌ 请求失败: {str(e)}")
+                selected_student_id = None
+        
+        with col2:
+            submission_type = st.selectbox(
+                "提交类型",
+                options=["作业", "论文", "报告", "演示", "其他"],
+                help="选择文件的提交类型"
+            )
+            
+            submission_title = st.text_input("提交标题", placeholder="如: 期中论文")
+            
+            is_graduation = st.checkbox(
+                "🎓 标记为毕业设计",
+                value=False,
+                help="勾选后，此提交将在毕业设计评估页面显示"
+            )
+        
+        uploaded_files = st.file_uploader(
+            "选择文件",
+            accept_multiple_files=True,
+            type=['pdf', 'docx', 'doc', 'txt', 'mp4', 'mov', 'mp3', 'wav', 'png', 'jpg', 'jpeg']
+        )
+        
+        st.markdown("""
+        **⚠️ PDF文件上传须知：**
+        - 请上传**可编辑的PDF文件**（文字可选中复制）
+        - 扫描版PDF（图片型）无法直接提取文字，需要OCR识别
+        - 如有扫描版PDF，建议先用PDF工具转换为可编辑版本
+        """)
+        
+        if uploaded_files:
+            st.info(f"已选择 {len(uploaded_files)} 个文件")
+            for f in uploaded_files:
+                st.markdown(f"- {f.name} ({f.size / 1024:.2f} KB)")
+        
+        if st.button("📤 上传文件", use_container_width=True, type="primary"):
+            if not selected_student_id:
+                st.error("❌ 请先选择学生")
+            elif not uploaded_files:
+                st.error("❌ 请选择要上传的文件")
+            else:
+                try:
+                    create_response = requests.post(
+                        f"{API_BASE_URL}/submissions",
+                        json={
+                            "student_id": selected_student_id,
+                            "title": f"[{submission_type}] {submission_title or '未命名提交'}",
+                            "submission_type": "file",
+                            "submission_purpose": "graduation" if is_graduation else "normal"
+                        }
+                    )
+                    
+                    if create_response.status_code != 200:
+                        try:
+                            error_detail = create_response.json().get('detail', '未知错误')
+                        except:
+                            error_detail = f"HTTP {create_response.status_code}"
+                        st.error(f"❌ 创建提交失败: {error_detail}")
+                    else:
+                        submission_data = create_response.json()
+                        submission_id = submission_data.get('id')
+                        
+                        if not submission_id:
+                            st.error("❌ 未获取到提交ID")
+                        else:
+                            upload_success = 0
+                            upload_failed = 0
+                            
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            for i, uploaded_file in enumerate(uploaded_files):
+                                status_text.text(f"正在上传: {uploaded_file.name}...")
+                                progress_bar.progress((i + 1) / len(uploaded_files))
+                                
+                                files_data = {
+                                    'file': (uploaded_file.name, uploaded_file.getvalue(), 'application/octet-stream')
+                                }
+                                
+                                file_response = requests.post(
+                                    f"{API_BASE_URL}/submissions/{submission_id}/files",
+                                    files=files_data
+                                )
+                                
+                                if file_response.status_code == 200:
+                                    upload_success += 1
+                                else:
+                                    upload_failed += 1
+                            
+                            if upload_success > 0:
+                                st.success(f"✅ 上传成功！提交ID: {submission_data.get('submission_id')}，成功上传 {upload_success} 个文件")
+                            if upload_failed > 0:
+                                st.warning(f"⚠️ {upload_failed} 个文件上传失败")
+                            
+                            progress_bar.empty()
+                            status_text.empty()
+                            
+                except Exception as e:
+                    st.error(f"❌ 上传失败: {str(e)}")
+    
+    with tab2:
+        st.subheader("最近上传记录")
+        
+        try:
+            response = requests.get(f"{API_BASE_URL}/submissions", params={"limit": 20})
+            if response.status_code == 200:
+                submissions = response.json()
+                
+                if submissions:
+                    for sub in submissions:
+                        with st.expander(f"📄 {sub.get('title', 'N/A')} - {sub.get('submission_type', 'N/A')}"):
+                            st.markdown(f"**提交ID:** {sub.get('submission_id')}")
+                            st.markdown(f"**学生ID:** {sub.get('student_id')}")
+                            st.markdown(f"**提交时间:** {sub.get('submitted_at', 'N/A')}")
+                            
+                            files = sub.get('files', [])
+                            if files:
+                                st.markdown("**文件:**")
+                                for f in files:
+                                    st.markdown(f"- {f.get('filename', f.get('file_name', 'N/A'))}")
+                else:
+                    st.info("📭 暂无上传记录")
+            else:
+                st.error("❌ 获取上传记录失败")
+        except Exception as e:
+            st.error(f"❌ 请求失败: {str(e)}")
+
+# ==================== 评估管理 ====================
+elif page == "🤖 评估管理":
+    st.title("🤖 评估管理")
+    
+    tab1, tab2, tab3 = st.tabs(["▶️ 启动评估", "📋 评估记录", "📊 评估对比"])
+    
+    with tab1:
+        st.subheader("启动新评估")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            try:
+                response = requests.get(f"{API_BASE_URL}/students")
+                if response.status_code == 200:
+                    students = response.json()
+                    if students:
+                        student_options = {f"{s['name']} ({s['student_id']})": s['student_id'] for s in students}
+                        selected_student = st.selectbox("选择学生", options=list(student_options.keys()), key="eval_student")
+                        selected_student_id = student_options[selected_student]
+                    else:
+                        st.warning("⚠️ 请先添加学生")
+                        selected_student_id = None
+                else:
+                    selected_student_id = None
+            except:
+                selected_student_id = None
+        
+        with col2:
+            eval_type = st.selectbox(
+                "评估类型",
+                options=["综合评估", "毕业设计评估", "作业评估", "报告评估"]
+            )
+        
+        if st.button("▶️ 启动评估", use_container_width=True, type="primary"):
+            if not selected_student_id:
+                st.error("❌ 请先选择学生")
+            else:
+                st.info("⏳ 正在启动评估...")
+                try:
+                    response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/submissions")
+                    if response.status_code == 200:
+                        submissions = response.json()
+                        if submissions:
+                            st.success(f"✅ 找到 {len(submissions)} 个提交，请前往结果查询查看评估结果")
+                        else:
+                            st.warning("⚠️ 该学生暂无提交记录，请先上传文件")
+                    else:
+                        st.error("❌ 获取提交记录失败")
+                except Exception as e:
+                    st.error(f"❌ 请求失败: {str(e)}")
+    
+    with tab2:
+        st.subheader("评估记录")
+        
+        try:
+            response = requests.get(f"{API_BASE_URL}/students")
+            if response.status_code == 200:
+                students = response.json()
+                
+                for student in students[:10]:
+                    try:
+                        eval_response = requests.get(f"{API_BASE_URL}/students/{student['student_id']}/evaluations")
+                        if eval_response.status_code == 200:
+                            evaluations = eval_response.json()
+                            if evaluations:
+                                with st.expander(f"📋 {student['name']} - {len(evaluations)} 条评估"):
+                                    for ev in evaluations:
+                                        st.markdown(f"**评估ID:** {ev.get('evaluation_id')}")
+                                        st.markdown(f"**总分:** {ev.get('overall_score', 'N/A')}")
+                                        st.markdown(f"**等级:** {ev.get('grade_level', 'N/A')}")
+                                        st.markdown(f"**时间:** {ev.get('evaluated_at', 'N/A')}")
+                                        st.divider()
+                    except:
+                        pass
+        except Exception as e:
+            st.error(f"❌ 请求失败: {str(e)}")
+    
+    with tab3:
+        st.subheader("学生评估对比")
+        
+        try:
+            response = requests.get(f"{API_BASE_URL}/students")
+            if response.status_code == 200:
+                students = response.json()
+                if students:
+                    student_options = {f"{s['name']} ({s['student_id']})": s['student_id'] for s in students}
+                    selected = st.multiselect("选择要对比的学生", options=list(student_options.keys()))
+                    
+                    if st.button("📊 生成对比"):
+                        st.info("对比功能开发中...")
+                else:
+                    st.info("📭 暂无学生记录")
+        except Exception as e:
+            st.error(f"❌ 请求失败: {str(e)}")
+
+# ==================== API文档 ====================
+elif page == "🔧 API文档":
+    st.title("🔧 API 文档")
+    
+    st.markdown("""
+    ### API 基础信息
+    - **Base URL:** `http://localhost:8000`
+    - **文档地址:** `http://localhost:8000/docs`
+    - **ReDoc:** `http://localhost:8000/redoc`
+    """)
+    
+    st.markdown("---")
+    
+    st.subheader("📚 主要端点")
+    
+    api_endpoints = [
+        ("GET", "/", "API 根路径，返回系统信息"),
+        ("GET", "/health", "健康检查"),
+        ("GET", "/students", "获取所有学生列表"),
+        ("POST", "/students", "添加新学生"),
+        ("GET", "/students/{student_id}", "获取指定学生信息"),
+        ("PUT", "/students/{student_id}", "更新学生信息"),
+        ("DELETE", "/students/{student_id}", "删除学生"),
+        ("GET", "/submissions", "获取所有提交"),
+        ("POST", "/submissions", "创建新提交（上传文件）"),
+        ("GET", "/submissions/{submission_id}", "获取指定提交"),
+        ("DELETE", "/submissions/{submission_id}", "删除提交"),
+        ("POST", "/submissions/{submission_id}/files", "向提交添加文件"),
+        ("GET", "/submissions/{submission_id}/files", "获取提交的所有文件"),
+        ("POST", "/analyze_syllabus", "分析课程大纲"),
+        ("POST", "/evaluate_graduation_project", "评估毕业设计"),
+        ("POST", "/evaluate_with_rule_engine", "规则引擎评分"),
+        ("POST", "/evaluate_sectioned", "分段评估"),
+        ("POST", "/evaluate_enhanced", "增强评估（含引用验证、多模型评审）"),
+        ("POST", "/verify_novelty", "引用网络新颖度验证"),
+        ("POST", "/optimize_prompts_bootstrap", "TextGrad提示词自举优化"),
+        ("GET", "/evaluations/{evaluation_id}", "获取评估结果"),
+        ("DELETE", "/evaluations/{evaluation_id}", "删除评估记录"),
+        ("GET", "/students/{student_id}/evaluations", "获取学生的所有评估"),
+        ("GET", "/students/{student_id}/progress-report", "获取学生进度报告"),
+        ("GET", "/ai-config", "获取AI配置"),
+        ("POST", "/ai-config", "更新AI配置"),
+        ("POST", "/ai-config/test", "测试AI连接"),
+    ]
+    
+    for method, endpoint, description in api_endpoints:
+        method_color = {
+            "GET": "🟢",
+            "POST": "🟡",
+            "PUT": "🔵",
+            "DELETE": "🔴"
+        }.get(method, "⚪")
+        
+        st.markdown(f"{method_color} **{method}** `{endpoint}`")
+        st.markdown(f"   {description}")
+    
+    st.markdown("---")
+    
+    st.subheader("🔗 快速链接")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"[📖 Swagger UI]({API_BASE_URL}/docs)")
+    with col2:
+        st.markdown(f"[📕 ReDoc]({API_BASE_URL}/redoc)")
