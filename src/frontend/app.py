@@ -5,12 +5,89 @@ import pandas as pd
 from datetime import datetime
 import os
 import re
+import time
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 
 # API 基础 URL
 API_BASE_URL = "http://localhost:8000"
+
+
+def build_auth_headers(target_student_id: str = "") -> dict:
+    """构造评估相关接口鉴权头。"""
+    role = st.session_state.get("auth_role", "teacher")
+    user_id = st.session_state.get("auth_user_id", "").strip()
+    api_key = st.session_state.get("evaluation_api_key", "").strip()
+    headers = {
+        "X-User-Role": role,
+        "X-API-Key": api_key
+    }
+    if role == "student":
+        headers["X-User-Id"] = target_student_id or user_id
+    elif user_id:
+        headers["X-User-Id"] = user_id
+    return headers
+
+
+def run_evaluation_task(eval_payload: dict, target_student_id: str = "") -> tuple[bool, dict, str]:
+    """创建评估任务并轮询状态，返回 (成功, 结果, 错误信息)。"""
+    try:
+        create_resp = requests.post(
+            f"{API_BASE_URL}/evaluate/tasks",
+            json=eval_payload,
+            headers=build_auth_headers(target_student_id),
+            timeout=30
+        )
+    except Exception as e:
+        return False, {}, f"创建评估任务失败: {str(e)}"
+
+    if create_resp.status_code != 200:
+        try:
+            detail = create_resp.json().get("detail", f"HTTP {create_resp.status_code}")
+        except Exception:
+            detail = f"HTTP {create_resp.status_code}"
+        return False, {}, f"创建评估任务失败: {detail}"
+
+    task_id = create_resp.json().get("task_id")
+    if not task_id:
+        return False, {}, "创建评估任务失败: 返回中缺少 task_id"
+
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    start_time = time.time()
+
+    while True:
+        try:
+            task_resp = requests.get(
+                f"{API_BASE_URL}/evaluate/tasks/{task_id}",
+                headers=build_auth_headers(target_student_id),
+                timeout=30
+            )
+        except Exception as e:
+            return False, {}, f"查询评估任务状态失败: {str(e)}"
+
+        if task_resp.status_code != 200:
+            try:
+                detail = task_resp.json().get("detail", f"HTTP {task_resp.status_code}")
+            except Exception:
+                detail = f"HTTP {task_resp.status_code}"
+            return False, {}, f"查询评估任务状态失败: {detail}"
+
+        task_data = task_resp.json()
+        progress_value = float(task_data.get("progress", 0.0) or 0.0)
+        progress_bar.progress(min(1.0, max(0.0, progress_value)))
+        status_text.info(f"任务状态：{task_data.get('status', 'unknown')} - {task_data.get('message', '处理中')}")
+
+        if task_data.get("status") == "completed":
+            progress_bar.progress(1.0)
+            return True, task_data.get("result", {}), ""
+        if task_data.get("status") == "failed":
+            return False, {}, task_data.get("error", "评估任务执行失败")
+
+        if time.time() - start_time > 300:
+            return False, {}, "评估任务超时，请稍后重试"
+        time.sleep(1)
 
 # 初始化 session state
 if 'ai_settings' not in st.session_state:
@@ -539,6 +616,12 @@ if 'system_status' not in st.session_state:
     st.session_state.system_status = None
 if 'ai_settings' not in st.session_state:
     st.session_state.ai_settings = None
+if 'auth_role' not in st.session_state:
+    st.session_state.auth_role = "teacher"
+if 'auth_user_id' not in st.session_state:
+    st.session_state.auth_user_id = ""
+if 'evaluation_api_key' not in st.session_state:
+    st.session_state.evaluation_api_key = os.getenv("EVALUATION_API_KEY", "dev-eval-key")
 
 # 侧边栏导航
 st.sidebar.title("📚 学生多维度能力评估系统")
@@ -559,6 +642,25 @@ except Exception as e:
     st.sidebar.markdown("\n**提示：** 请确保后端API服务正在运行")
     st.sidebar.markdown("- 请在终端运行命令: `uvicorn src.api.main:app --reload`")
     st.sidebar.markdown("- 或检查app.py里的服务地址是否是: http://localhost:8000")
+
+st.sidebar.markdown("---")
+
+st.sidebar.markdown("### 🔐 评估接口鉴权")
+st.session_state.auth_role = st.sidebar.selectbox(
+    "当前角色",
+    options=["student", "teacher", "admin"],
+    index=["student", "teacher", "admin"].index(st.session_state.auth_role)
+)
+st.session_state.auth_user_id = st.sidebar.text_input(
+    "用户ID（学生角色必填）",
+    value=st.session_state.auth_user_id,
+    placeholder="例如：2023001"
+)
+st.session_state.evaluation_api_key = st.sidebar.text_input(
+    "X-API-Key",
+    value=st.session_state.evaluation_api_key,
+    type="password"
+)
 
 st.sidebar.markdown("---")
 
@@ -2165,21 +2267,12 @@ elif page == "🤖 评估管理":
                                 
                                 # 启动评估
                                 with st.spinner("🤖 AI正在评估中，请稍候..."):
-                                    progress_bar = st.progress(0)
-                                    
-                                    # 模拟评估进度
-                                    import time
-                                    for i in range(100):
-                                        time.sleep(0.05)
-                                        progress_bar.progress(i + 1)
-                                    
-                                    response = requests.post(
-                                        f"{API_BASE_URL}/evaluate",
-                                        json=eval_payload
+                                    ok, evaluation_result, error_detail = run_evaluation_task(
+                                        eval_payload=eval_payload,
+                                        target_student_id=selected_student_id
                                     )
-                                    
-                                    if response.status_code == 200:
-                                        evaluation_result = response.json()
+
+                                    if ok:
                                         st.session_state.evaluation_result = evaluation_result
                                         st.success("✅ 评估完成！")
                                         
@@ -2220,10 +2313,6 @@ elif page == "🤖 评估管理":
                                         
                                         render_dimension_score_details(evaluation_result)
                                     else:
-                                        try:
-                                            error_detail = response.json().get('detail', '未知错误')
-                                        except:
-                                            error_detail = f"HTTP {response.status_code}"
                                         st.error(f"❌ 评估失败: {error_detail}")
                 else:
                     st.info("📭 暂无提交记录")
@@ -2310,21 +2399,12 @@ elif page == "🤖 评估管理":
                         
                         # 启动评估
                         with st.spinner("🤖 AI正在评估中，请稍候..."):
-                            progress_bar = st.progress(0)
-                            
-                            # 模拟评估进度
-                            import time
-                            for i in range(100):
-                                time.sleep(0.05)
-                                progress_bar.progress(i + 1)
-                            
-                            response = requests.post(
-                                f"{API_BASE_URL}/evaluate",
-                                json=eval_payload
+                            ok, evaluation_result, error_detail = run_evaluation_task(
+                                eval_payload=eval_payload,
+                                target_student_id=selected_student_id
                             )
-                            
-                            if response.status_code == 200:
-                                evaluation_result = response.json()
+
+                            if ok:
                                 st.session_state.evaluation_result = evaluation_result
                                 st.success("✅ 评估完成！")
                                 
@@ -2395,10 +2475,6 @@ elif page == "🤖 评估管理":
                                 with st.expander("查看完整JSON结果"):
                                     st.json(evaluation_result)
                             else:
-                                try:
-                                    error_detail = response.json().get('detail', '未知错误')
-                                except:
-                                    error_detail = f"HTTP {response.status_code}"
                                 st.error(f"❌ 评估失败: {error_detail}")
                 else:
                     st.info("📭 暂无学生记录")
@@ -2833,7 +2909,10 @@ elif page == "📊 结果查询":
                 # 查询按钮
                 if st.button("🔍 查询", use_container_width=True, key="search_by_student"):
                     try:
-                        response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/evaluations")
+                        response = requests.get(
+                            f"{API_BASE_URL}/students/{selected_student_id}/evaluations",
+                            headers=build_auth_headers(selected_student_id)
+                        )
                         if response.status_code == 200:
                             results = response.json()
                             st.session_state['evaluation_results'] = results
@@ -2890,7 +2969,8 @@ elif page == "📊 结果查询":
                                     if st.button("✅ 确认删除", key=f"confirm_delete_{i}"):
                                         try:
                                             response = requests.delete(
-                                                f"{API_BASE_URL}/evaluations/{result['evaluation_id']}"
+                                                f"{API_BASE_URL}/evaluations/{result['evaluation_id']}",
+                                                headers=build_auth_headers(selected_student_id)
                                             )
                                             if response.status_code == 200:
                                                 st.success("✅ 评估记录删除成功！")
@@ -2900,13 +2980,13 @@ elif page == "📊 结果查询":
                                                 # 强制刷新页面，重新获取数据
                                                 st.rerun()
                                             else:
-                                                st.error("❌ 删除失败")
+                                                try:
+                                                    detail = response.json().get("detail", "删除失败")
+                                                except Exception:
+                                                    detail = f"HTTP {response.status_code}"
+                                                st.error(f"❌ 删除失败: {detail}")
                                         except Exception as e:
-                                            # 即使后端服务不可用，也显示成功消息并刷新页面
-                                            st.success("✅ 评估记录删除成功！")
-                                            st.session_state['show_delete_confirm'] = False
-                                            st.session_state['delete_evaluation_id'] = ''
-                                            st.rerun()
+                                            st.error(f"❌ 删除失败: {str(e)}")
                                 with col2:
                                     if st.button("❌ 取消", key=f"cancel_delete_{i}"):
                                         st.session_state['show_delete_confirm'] = False
@@ -2966,7 +3046,10 @@ elif page == "📊 结果查询":
                 st.subheader("📜 总进度评估历史记录")
                 try:
                     # 获取总进度评估历史记录
-                    response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/progress-reports")
+                    response = requests.get(
+                        f"{API_BASE_URL}/students/{selected_student_id}/progress-reports",
+                        headers=build_auth_headers(selected_student_id)
+                    )
                     if response.status_code == 200:
                         progress_reports = response.json()
                         if progress_reports:
@@ -2987,7 +3070,10 @@ elif page == "📊 结果查询":
                                     
                                     # 获取并显示报告详细内容
                                     try:
-                                        report_detail_response = requests.get(f"{API_BASE_URL}/progress-reports/{report_id}")
+                                        report_detail_response = requests.get(
+                                            f"{API_BASE_URL}/progress-reports/{report_id}",
+                                            headers=build_auth_headers(selected_student_id)
+                                        )
                                         if report_detail_response.status_code == 200:
                                             report_detail = report_detail_response.json()
                                             render_policy_progress_report(report_detail, key_prefix=f"history_{report_id}_{i}")
@@ -3018,16 +3104,21 @@ elif page == "📊 结果查询":
                         else:
                             st.info("📭 暂无总进度评估历史记录")
                     else:
-                        # API 端点可能不存在，使用本地模拟数据
-                        st.info("📭 总进度评估历史记录功能正在开发中")
+                        try:
+                            error_detail = response.json().get("detail", f"HTTP {response.status_code}")
+                        except Exception:
+                            error_detail = f"HTTP {response.status_code}"
+                        st.error(f"❌ 获取总进度评估历史记录失败: {error_detail}")
                 except Exception as e:
-                    # 即使API调用失败，也显示友好提示
-                    st.info("📭 总进度评估历史记录功能正在开发中")
+                    st.error(f"❌ 获取总进度评估历史记录失败: {str(e)}")
                 
                 if st.button("🔍 生成总进度评估报告", use_container_width=True, key="generate_progress_report"):
                     try:
                         with st.spinner("🤖 正在分析学生的能力发展趋势..."):
-                            response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/progress-report")
+                            response = requests.get(
+                                f"{API_BASE_URL}/students/{selected_student_id}/progress-report",
+                                headers=build_auth_headers(selected_student_id)
+                            )
                             if response.status_code == 200:
                                 report_data = response.json()
                                 
@@ -3203,7 +3294,8 @@ if st.session_state.get('show_edit_evaluation_form', False):
                     
                     response = requests.put(
                         f"{API_BASE_URL}/evaluations/{evaluation_id}",
-                        json=update_data
+                        json=update_data,
+                        headers=build_auth_headers(selected_student_id)
                     )
                     
                     # 添加调试信息
@@ -3215,7 +3307,10 @@ if st.session_state.get('show_edit_evaluation_form', False):
                         # 刷新评估记录
                         if st.session_state.get('selected_student_id'):
                             try:
-                                response = requests.get(f"{API_BASE_URL}/students/{st.session_state['selected_student_id']}/evaluations")
+                                response = requests.get(
+                                    f"{API_BASE_URL}/students/{st.session_state['selected_student_id']}/evaluations",
+                                    headers=build_auth_headers(st.session_state['selected_student_id'])
+                                )
                                 if response.status_code == 200:
                                     st.session_state['evaluation_results'] = response.json()
                             except:
@@ -4227,7 +4322,10 @@ elif page == "📈 成长分析":
                 st.subheader("📜 学生总评估历史记录")
                 try:
                     # 获取学生的所有评估记录
-                    response = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/evaluations")
+                    response = requests.get(
+                        f"{API_BASE_URL}/students/{selected_student_id}/evaluations",
+                        headers=build_auth_headers(selected_student_id)
+                    )
                     if response.status_code == 200:
                         evaluations = response.json()
                         if evaluations:
@@ -4276,7 +4374,10 @@ elif page == "📈 成长分析":
                 # 结构查询页按课程类型细则进行总进度分析，不再使用旧十维图表集合
                 if st.button("🔍 分析成长数据", use_container_width=True):
                     try:
-                        report_resp = requests.get(f"{API_BASE_URL}/students/{selected_student_id}/progress-report")
+                        report_resp = requests.get(
+                            f"{API_BASE_URL}/students/{selected_student_id}/progress-report",
+                            headers=build_auth_headers(selected_student_id)
+                        )
                         if report_resp.status_code == 200:
                             report_data = report_resp.json()
                             st.success("✅ 成长数据分析完成（课程细则口径）")

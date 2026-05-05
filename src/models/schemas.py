@@ -106,6 +106,10 @@ class SubmissionPurpose(str, Enum):
     GRADUATION = "graduation"
 
 class SubmissionStatus(str, Enum):
+    DRAFTED = "drafted"
+    OPEN = "open"
+    CLOSED = "closed"
+    ARCHIVED = "archived"
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -170,6 +174,9 @@ class EvaluationRequest(BaseModel):
     stage_progress: Optional[float] = None  # 0.0-1.0 之间的进度值
     custom_prompts: Optional[Dict[str, str]] = None  # 自定义提示词
     syllabus_analysis: Optional[Dict] = None  # 大纲分析结果
+    force_re_evaluate: bool = False  # 是否允许对已完成提交强制重评
+    window_start: Optional[datetime] = None  # 允许评估的时间窗口开始
+    window_end: Optional[datetime] = None  # 允许评估的时间窗口结束
 
 class EvaluationResponse(BaseModel):
     evaluation_id: str
@@ -188,6 +195,21 @@ class EvaluationResponse(BaseModel):
     evaluator_agent: str
     stage: Optional[str] = None
     stage_progress: Optional[float] = None  # 0.0-1.0 之间的进度值
+
+class EvaluationTaskCreateResponse(BaseModel):
+    task_id: str
+    status: str
+    created_at: datetime
+
+class EvaluationTaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: float = Field(ge=0, le=1)
+    created_at: datetime
+    updated_at: datetime
+    message: Optional[str] = None
+    result: Optional[EvaluationResponse] = None
+    error: Optional[str] = None
 
 class ProgressReportResponse(BaseModel):
     student_id: str
