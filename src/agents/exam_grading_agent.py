@@ -41,6 +41,58 @@ class HandwritingExamGradingAgent:
             base_url=self.ai_config.get("base_url"),
         )
 
+    def _get_max_output_tokens(
+        self,
+        default: int = 2000,
+        minimum: int = 256,
+        maximum: int = 2500,
+    ) -> int:
+        """Clamp output length so UI settings stay effective but bounded."""
+        configured = self.ai_config.get("max_tokens", default)
+        try:
+            value = int(configured)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(value, maximum))
+
+    def _get_json_contract(self, recognition_mode: str, validate_derivation: bool = True) -> str:
+        derivation_line = (
+            '"derivation_checks": [{"question_number": "1", "status": "valid|invalid|uncertain", "evidence": "", "issue": "", "suggestion": ""}],'
+            if validate_derivation
+            else '"derivation_checks": [],'
+        )
+        formula_line = (
+            '"formula_boxes": [{"page_index": 1, "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.1, "text": "", "latex": "", "confidence": 0.9, "box_type": "formula"}],'
+            if recognition_mode == "formula"
+            else '"formula_boxes": [],'
+        )
+        return (
+            "Output exactly one valid JSON object and nothing else. "
+            "Do not wrap the response in markdown fences. "
+            "Do not add any explanation before or after the JSON object. "
+            "All keys must always be present; use empty strings or empty arrays when needed. "
+            "Keep the JSON compact to avoid truncation. "
+            "recognized_text must be a concise transcript no longer than 1200 characters, preserving only question numbers, key formulas, and final answers. "
+            "overall_comment must be no longer than 120 Chinese characters. "
+            "Each question_result.reasoning must be no longer than 80 Chinese characters. "
+            "Each strengths or mistakes list should contain at most 2 short items. "
+            "If recognition_mode is formula, formula_boxes must contain at most 8 critical formulas only, not every intermediate line. "
+            "derivation_checks must contain at most 1 concise item per question. "
+            "Use this JSON shape: "
+            "{"
+            '"recognized_text": "", '
+            '"total_score": 0, '
+            '"max_score": 0, '
+            '"overall_comment": "", '
+            '"course_achievement_comment": "", '
+            '"strengths": [], '
+            '"areas_for_improvement": [], '
+            '"question_results": [{"question_number": "1", "max_score": 0, "score": 0, "recognized_answer": "", "reference_answer": "", "reasoning": "", "strengths": [], "mistakes": []}], '
+            f"{formula_line} "
+            f"{derivation_line} "
+            "}"
+        )
+
     def grade_exam(
         self,
         image_paths: List[str],
@@ -103,12 +155,12 @@ class HandwritingExamGradingAgent:
             "messages": [
                 {
                     "role": "system",
-                    "content": self._build_system_prompt(recognition_mode),
+                    "content": self._build_system_prompt(recognition_mode, validate_derivation),
                 },
                 {"role": "user", "content": content},
             ],
             "temperature": min(float(self.ai_config.get("temperature", 0.2)), 0.3),
-            "max_tokens": max(int(self.ai_config.get("max_tokens", 2000)), 2500),
+            "max_tokens": self._get_max_output_tokens(),
             "response_format": {"type": "json_object"},
             "timeout": max(30, int(request_timeout)),
         }
@@ -332,17 +384,19 @@ class HandwritingExamGradingAgent:
                 blocks.append(f"{title}：\n{text}")
         return blocks
 
-    def _build_system_prompt(self, recognition_mode: str) -> str:
+    def _build_system_prompt(self, recognition_mode: str, validate_derivation: bool = True) -> str:
         if recognition_mode == "formula":
             return (
                 "你是一名严谨的手写试卷批改 agent，当前工作在公式识别专用模式。"
                 "你需要先做高精度公式识别与定位，再按答案和评分细则评分。"
                 "只输出 JSON，不要输出 markdown。"
+                + self._get_json_contract(recognition_mode, validate_derivation)
             )
         return (
             "你是一名严谨的试卷批改 agent。"
             "你需要先识别手写内容，再严格按照答案和评分标准评分。"
             "如果图片模糊或信息不足，要在结果里明确指出不确定性。"
+            + self._get_json_contract(recognition_mode, validate_derivation)
         )
 
     def _build_image_content(self, image_path: str) -> Dict[str, Any]:
@@ -482,16 +536,20 @@ class HandwritingExamGradingAgent:
         repair_prompt = (
             "请将下面内容修复为一个合法 JSON 对象。"
             "必须只输出 JSON 本体，不要 markdown，不要解释。"
+            "所有字段都要保留；若缺失则用空字符串、空数组或 0 补全。"
         )
 
         response = self.client.chat.completions.create(
             model=self.ai_config["model"],
             messages=[
-                {"role": "system", "content": "Return valid JSON object only."},
+                {
+                    "role": "system",
+                    "content": "Return exactly one valid JSON object and nothing else. Do not use markdown fences. Preserve the original keys and structure whenever possible.",
+                },
                 {"role": "user", "content": f"{repair_prompt}\n\n{text}"},
             ],
             temperature=0,
-            max_tokens=max(int(self.ai_config.get("max_tokens", 2000)), 2500),
+            max_tokens=self._get_max_output_tokens(default=1200, minimum=256, maximum=1200),
             response_format={"type": "json_object"},
             timeout=90,
         )

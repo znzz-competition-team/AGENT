@@ -759,8 +759,9 @@ async def grade_handwriting_exam(
     normalized_mode = (recognition_mode or "general").strip().lower()
     if normalized_mode not in {"general", "formula"}:
         raise HTTPException(status_code=400, detail="recognition_mode 仅支?general ?formula")
-    allowed_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+    allowed_exts = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".pdf"}
     temp_paths: List[str] = []
+    grading_input_paths: List[str] = []
 
     try:
         current_ai_config = get_current_ai_config()
@@ -788,11 +789,33 @@ async def grade_handwriting_exam(
                 shutil.copyfileobj(file.file, buffer)
             temp_paths.append(file_path)
 
+            if file_ext == ".pdf":
+                import fitz
+
+                doc = fitz.open(file_path)
+                try:
+                    for page_index in range(len(doc)):
+                        page = doc[page_index]
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                        page_image_name = (
+                            f"exam_{int(time.time() * 1000)}_"
+                            f"{os.path.splitext(os.path.basename(file.filename))[0]}_"
+                            f"page_{page_index + 1}.png"
+                        )
+                        page_image_path = os.path.join(UPLOAD_DIR, page_image_name)
+                        pix.save(page_image_path)
+                        temp_paths.append(page_image_path)
+                        grading_input_paths.append(page_image_path)
+                finally:
+                    doc.close()
+            else:
+                grading_input_paths.append(file_path)
+
         from src.agents.exam_grading_agent import HandwritingExamGradingAgent
 
         grading_agent = HandwritingExamGradingAgent(ai_config=current_ai_config)
         result = grading_agent.grade_exam(
-            image_paths=temp_paths,
+            image_paths=grading_input_paths,
             answer_key=answer_key,
             rubric=rubric,
             subject=subject,
@@ -1655,12 +1678,27 @@ async def test_ai_connection():
                 base_url=config["base_url"]
             )
             
+            model_name = str(config.get("model", "") or "")
+            lower_model_name = model_name.lower()
+
+            # OCR/VL 模型在兼容接口下对 messages 结构更敏感，测试连接时尽量使用最小请求体。
+            if any(tag in lower_model_name for tag in ["ocr", "vl", "vision", "qvq"]):
+                test_messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "你好，请只回复：连接测试成功"}
+                        ],
+                    }
+                ]
+            else:
+                test_messages = [
+                    {"role": "user", "content": "你好，请只回复：连接测试成功"}
+                ]
+
             response = client.chat.completions.create(
-                model=config["model"],
-                messages=[
-                    {"role": "system", "content": "你是一?helpful assistant."},
-                    {"role": "user", "content": "你好，请回复'连接测试成功'"}
-                ],
+                model=model_name,
+                messages=test_messages,
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )

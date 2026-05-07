@@ -1857,11 +1857,11 @@ elif page == "✏️ 手写识别":
             )
 
         exam_files = st.file_uploader(
-            "上传试卷图片",
-            type=["png", "jpg", "jpeg", "bmp", "webp"],
+            "上传试卷图片或 PDF",
+            type=["png", "jpg", "jpeg", "bmp", "webp", "pdf"],
             accept_multiple_files=True,
             key="handwriting_exam_files",
-            help="支持多页试卷，一次可上传多张图片"
+            help="支持多页试卷，可一次上传多张图片，也可直接上传 PDF；PDF 会在后端按页转为图片后再批改"
         )
 
         answer_key = st.text_area(
