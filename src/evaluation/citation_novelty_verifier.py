@@ -128,12 +128,32 @@ class ReferenceExtractor:
         }
 
     def _extract_title(self, raw_text: str) -> Optional[str]:
-        if '.' in raw_text:
-            parts = raw_text.split('.')
-            if len(parts) >= 2:
-                title_candidate = parts[1].strip()
-                if 10 <= len(title_candidate) <= 200:
-                    return title_candidate[:200]
+        if not raw_text:
+            return None
+
+        quoted = re.findall(r'["\u201c\u201d\u300c\u300e]([^"\u201d\u300d\u300f]{5,200})["\u201c\u201d\u300d\u300f]', raw_text)
+        if quoted:
+            for q in quoted:
+                q_stripped = q.strip().rstrip('.,;:')
+                if 10 <= len(q_stripped) <= 200:
+                    return q_stripped[:200]
+
+        italic_match = re.findall(r'<i>([^<]{5,200})</i>', raw_text)
+        if italic_match:
+            for im in italic_match:
+                im_stripped = im.strip().rstrip('.,;:')
+                if 10 <= len(im_stripped) <= 200:
+                    return im_stripped[:200]
+
+        comma_parts = raw_text.split(',')
+        for i, part in enumerate(comma_parts):
+            part = part.strip()
+            if 15 <= len(part) <= 200 and not re.match(r'^\d', part) and not re.match(r'^pp', part, re.IGNORECASE) and not re.match(r'^vol', part, re.IGNORECASE) and not re.match(r'^doi', part, re.IGNORECASE) and not re.match(r'^\d{4}$', part) and not re.match(r'^[A-Z]\.', part):
+                has_upper = any(c.isupper() for c in part)
+                has_lower = any(c.islower() for c in part)
+                if has_upper and has_lower:
+                    return part.rstrip('.,;:')[:200]
+
         return None
 
     def _extract_by_line_splitting(self, ref_section: str) -> List[Dict]:
@@ -239,7 +259,7 @@ class CitationNetworkVerifier:
             return None
 
     def verify_reference(self, reference: Dict, thesis_keywords: set = None) -> Dict:
-        cache_key = f"verify_{reference.get('raw_text', '')[:100]}"
+        cache_key = f"verify_v3_{reference.get('raw_text', '')[:100]}"
         cached = self._load_cache(cache_key)
         if cached:
             return cached
@@ -254,6 +274,8 @@ class CitationNetworkVerifier:
             "suspicious_indicators": [],
             "verification_detail": "",
             "topic_mismatch": False,
+            "title_mismatch": False,
+            "author_mismatch": False,
         }
 
         suspicious = self._check_suspicious_indicators(reference)
@@ -265,18 +287,58 @@ class CitationNetworkVerifier:
                 title_match = self._title_similarity(
                     reference.get("title", ""), paper_info.get("title", "")
                 )
-                if title_match < 0.3:
+                raw_text_match = self._check_title_in_raw_text(
+                    reference.get("raw_text", ""), paper_info.get("title", "")
+                )
+                author_consistent = self._check_author_consistency(
+                    reference.get("authors", ""), paper_info.get("authors", [])
+                )
+
+                if raw_text_match:
+                    result.update({
+                        "verified": True,
+                        "confidence": 0.95,
+                        "source": "semantic_scholar_doi",
+                        "paper_info": paper_info,
+                        "verification_detail": f"通过DOI在Semantic Scholar找到匹配论文: {paper_info.get('title', '')[:80]}",
+                    })
+                    self._save_cache(cache_key, result)
+                    return result
+
+                if title_match < 0.5:
+                    result["title_mismatch"] = True
                     result["topic_mismatch"] = True
                     result["suspicious_indicators"].append(
                         f"DOI查到的论文标题与引用标题不匹配（相似度{title_match:.0%}）"
                     )
+                    if not author_consistent:
+                        result["author_mismatch"] = True
+                        result["suspicious_indicators"].append(
+                            "DOI查到的论文作者与引用作者不匹配"
+                        )
                     result["verification_detail"] = (
-                        f"通过DOI找到论文，但标题不匹配: 引用标题「{reference.get('title', '')[:60]}」"
+                        f"🚨 通过DOI找到论文，但标题不匹配: 引用标题「{reference.get('title', '')[:60]}」"
                         f" vs 实际论文「{paper_info.get('title', '')[:60]}」"
+                        f"{'，且作者也不匹配' if not author_consistent else ''}"
                     )
-                    result["confidence"] = 0.3
+                    result["confidence"] = 0.2
                     result["paper_info"] = paper_info
                     result["source"] = "semantic_scholar_doi_mismatch"
+                    self._save_cache(cache_key, result)
+                    return result
+
+                if not author_consistent:
+                    result["author_mismatch"] = True
+                    result["suspicious_indicators"].append(
+                        "DOI查到的论文作者与引用作者不匹配，可能是错误引用"
+                    )
+                    result["verification_detail"] = (
+                        f"通过DOI找到论文，标题匹配但作者不匹配: 引用作者「{reference.get('authors', '')[:60]}」"
+                        f" vs 实际作者「{', '.join(paper_info.get('authors', [])[:3])}」"
+                    )
+                    result["confidence"] = 0.5
+                    result["paper_info"] = paper_info
+                    result["source"] = "semantic_scholar_doi_author_mismatch"
                     self._save_cache(cache_key, result)
                     return result
 
@@ -295,18 +357,58 @@ class CitationNetworkVerifier:
             paper_info = self._verify_by_title(title)
             if paper_info:
                 title_match = self._title_similarity(title, paper_info.get("title", ""))
-                if title_match < 0.4:
+                raw_text_match = self._check_title_in_raw_text(
+                    reference.get("raw_text", ""), paper_info.get("title", "")
+                )
+                author_consistent = self._check_author_consistency(
+                    reference.get("authors", ""), paper_info.get("authors", [])
+                )
+
+                if raw_text_match:
+                    result.update({
+                        "verified": True,
+                        "confidence": 0.8,
+                        "source": "semantic_scholar_title",
+                        "paper_info": paper_info,
+                        "verification_detail": f"通过标题在Semantic Scholar找到匹配论文: {paper_info.get('title', '')[:80]}",
+                    })
+                    self._save_cache(cache_key, result)
+                    return result
+
+                if title_match < 0.5:
+                    result["title_mismatch"] = True
                     result["topic_mismatch"] = True
                     result["suspicious_indicators"].append(
                         f"标题搜索结果与引用标题不匹配（相似度{title_match:.0%}）"
                     )
+                    if not author_consistent:
+                        result["author_mismatch"] = True
+                        result["suspicious_indicators"].append(
+                            "搜索结果的作者与引用作者不匹配"
+                        )
                     result["verification_detail"] = (
-                        f"通过标题搜索找到论文，但标题不匹配: 引用「{title[:60]}」"
+                        f"🚨 通过标题搜索找到论文，但标题不匹配: 引用「{title[:60]}」"
                         f" vs 实际「{paper_info.get('title', '')[:60]}」"
+                        f"{'，且作者也不匹配' if not author_consistent else ''}"
                     )
-                    result["confidence"] = 0.3
+                    result["confidence"] = 0.2
                     result["paper_info"] = paper_info
                     result["source"] = "semantic_scholar_title_mismatch"
+                    self._save_cache(cache_key, result)
+                    return result
+
+                if not author_consistent:
+                    result["author_mismatch"] = True
+                    result["suspicious_indicators"].append(
+                        "搜索结果的作者与引用作者不匹配，可能是错误引用"
+                    )
+                    result["verification_detail"] = (
+                        f"通过标题搜索找到论文，标题匹配但作者不匹配: 引用作者「{reference.get('authors', '')[:60]}」"
+                        f" vs 实际作者「{', '.join(paper_info.get('authors', [])[:3])}」"
+                    )
+                    result["confidence"] = 0.5
+                    result["paper_info"] = paper_info
+                    result["source"] = "semantic_scholar_title_author_mismatch"
                     self._save_cache(cache_key, result)
                     return result
 
@@ -320,6 +422,26 @@ class CitationNetworkVerifier:
                 self._save_cache(cache_key, result)
                 return result
 
+            partial_matches = self._search_partial_title(title)
+            if partial_matches:
+                best_match = partial_matches[0]
+                best_sim = best_match.get("similarity", 0)
+                if 0.3 <= best_sim < 0.5:
+                    result["title_mismatch"] = True
+                    result["topic_mismatch"] = True
+                    result["suspicious_indicators"].append(
+                        f"标题部分匹配（相似度{best_sim:.0%}），可能是修改过的引用"
+                    )
+                    result["verification_detail"] = (
+                        f"🚨 标题部分匹配，可能是修改过的引用: 引用「{title[:60]}」"
+                        f" vs 最相似论文「{best_match.get('title', '')[:60]}」（相似度{best_sim:.0%}）"
+                    )
+                    result["confidence"] = 0.25
+                    result["paper_info"] = best_match
+                    result["source"] = "semantic_scholar_partial_match"
+                    self._save_cache(cache_key, result)
+                    return result
+
         authors = reference.get("authors", "")
         year = reference.get("year", "")
         if authors or year:
@@ -327,18 +449,34 @@ class CitationNetworkVerifier:
             if paper_info:
                 ref_title = reference.get("title", "") or ""
                 found_title = paper_info.get("title", "")
+                raw_text_match = self._check_title_in_raw_text(
+                    reference.get("raw_text", ""), found_title
+                )
+
+                if raw_text_match:
+                    result.update({
+                        "verified": True,
+                        "confidence": 0.6,
+                        "source": "crossref",
+                        "paper_info": paper_info,
+                        "verification_detail": f"通过CrossRef找到匹配论文: {paper_info.get('title', '')[:80]}",
+                    })
+                    self._save_cache(cache_key, result)
+                    return result
+
                 if ref_title and found_title:
                     title_match = self._title_similarity(ref_title, found_title)
-                    if title_match < 0.3:
+                    if title_match < 0.4:
+                        result["title_mismatch"] = True
                         result["topic_mismatch"] = True
                         result["suspicious_indicators"].append(
                             f"CrossRef结果与引用标题不匹配（相似度{title_match:.0%}）"
                         )
                         result["verification_detail"] = (
-                            f"通过CrossRef找到论文，但标题不匹配: 引用「{ref_title[:60]}」"
+                            f"🚨 通过CrossRef找到论文，但标题不匹配: 引用「{ref_title[:60]}」"
                             f" vs 实际「{found_title[:60]}」"
                         )
-                        result["confidence"] = 0.2
+                        result["confidence"] = 0.15
                         result["paper_info"] = paper_info
                         result["source"] = "crossref_mismatch"
                         self._save_cache(cache_key, result)
@@ -510,6 +648,96 @@ class CitationNetworkVerifier:
         union = words1 | words2
         return len(intersection) / len(union)
 
+    def _check_title_in_raw_text(self, raw_text: str, found_title: str) -> bool:
+        if not raw_text or not found_title:
+            return False
+
+        found_lower = found_title.lower().strip()
+        raw_lower = raw_text.lower()
+
+        if found_lower in raw_lower:
+            return True
+
+        found_words = set(found_lower.split())
+        raw_words = set(raw_lower.split())
+        if not found_words:
+            return False
+
+        significant_words = {w for w in found_words if len(w) >= 4 and w not in {
+            'the', 'and', 'with', 'from', 'this', 'that', 'based', 'using',
+            'study', 'analysis', 'research', 'method', 'approach', 'model',
+            'system', 'design', 'performance', 'evaluation', 'comparison',
+            'novel', 'new', 'improved', 'enhanced', 'efficient', 'effective',
+            'control', 'controller', 'proposed', 'applied', 'results',
+        }}
+        if not significant_words:
+            return False
+
+        overlap = significant_words & raw_words
+        overlap_ratio = len(overlap) / len(significant_words)
+
+        return overlap_ratio >= 0.7
+
+    def _check_author_consistency(self, ref_authors: str, found_authors: list) -> bool:
+        if not ref_authors or not found_authors:
+            return True
+
+        ref_lower = ref_authors.lower().replace('et al.', '').replace('et al', '').strip()
+        ref_words = set(re.findall(r'[a-z]+', ref_lower))
+
+        found_lower = ' '.join(a.lower() for a in found_authors if a)
+        found_words = set(re.findall(r'[a-z]+', found_lower))
+
+        if not ref_words or not found_words:
+            return True
+
+        overlap = ref_words & found_words
+        if not overlap:
+            return False
+
+        if len(overlap) >= 2:
+            return True
+
+        if len(overlap) == 1 and len(ref_words) <= 3:
+            return True
+
+        return len(overlap) / min(len(ref_words), len(found_words)) >= 0.3
+
+    def _search_partial_title(self, title: str) -> list:
+        if not title or len(title) < 10:
+            return []
+
+        keywords = re.findall(r'[A-Za-z]{4,}', title)
+        keywords = [k for k in keywords if k.lower() not in {
+            'the', 'and', 'with', 'from', 'this', 'that', 'based', 'using',
+            'study', 'analysis', 'research', 'method', 'approach', 'model',
+            'system', 'design', 'performance', 'evaluation', 'comparison',
+            'novel', 'new', 'improved', 'enhanced', 'efficient', 'effective',
+        }]
+        keywords = keywords[:5]
+
+        if not keywords:
+            return []
+
+        query = ' '.join(keywords)
+        data = self._semantic_scholar_request(
+            f"paper/search",
+            {"query": query[:200], "limit": 5, "fields": "title,year,citationCount,authors,venue,externalIds"},
+        )
+
+        results = []
+        if data and data.get("data"):
+            for paper in data["data"][:5]:
+                if paper.get("title"):
+                    sim = self._title_similarity(title, paper["title"])
+                    if sim >= 0.3:
+                        info = self._format_paper_info(paper)
+                        info["similarity"] = round(sim, 3)
+                        results.append(info)
+
+        results.sort(key=lambda x: x.get("similarity", 0), reverse=True)
+        return results
+
 
 class NoveltyVerifier:
     """新颖度验证器 - 综合评估论文创新性"""
@@ -551,19 +779,23 @@ class NoveltyVerifier:
         for ref in refs_to_verify:
             result = self.verifier.verify_reference(ref, thesis_keywords=thesis_keywords)
             verification_results.append(result)
-            if result.get("topic_mismatch"):
+            if result.get("topic_mismatch") or result.get("title_mismatch"):
                 topic_mismatch_refs.append({
                     "index": ref.get("index"),
                     "raw_text": ref.get("raw_text", "")[:150],
                     "found_title": result.get("paper_info", {}).get("title", ""),
                     "reason": result.get("verification_detail", ""),
                     "source": result.get("source", ""),
+                    "title_mismatch": result.get("title_mismatch", False),
+                    "author_mismatch": result.get("author_mismatch", False),
                 })
                 suspicious_refs.append({
                     "index": ref.get("index"),
                     "raw_text": ref.get("raw_text", "")[:150],
                     "indicators": result.get("suspicious_indicators", []),
                     "detail": result.get("verification_detail", ""),
+                    "title_mismatch": result.get("title_mismatch", False),
+                    "author_mismatch": result.get("author_mismatch", False),
                 })
             elif result.get("verified"):
                 verified_count += 1
@@ -610,6 +842,12 @@ class NoveltyVerifier:
             claimed_innovations, verification_results
         )
 
+        citation_format_check = None
+        try:
+            citation_format_check = self.check_citation_format(thesis_content)
+        except Exception as e:
+            logger.warning(f"引用格式检查失败（不影响主流程）: {str(e)}")
+
         verified_details = []
         for r in verification_results:
             if r.get("verified") and r.get("paper_info"):
@@ -647,6 +885,7 @@ class NoveltyVerifier:
             "reference_relevance": reference_relevance,
             "claimed_innovations": claimed_innovations,
             "innovation_verification": innovation_verification,
+            "citation_format_check": citation_format_check,
             "verification_details": verification_results[:10],
         }
 
@@ -680,7 +919,9 @@ class NoveltyVerifier:
             topic_mismatch_refs = []
 
         unverified = [r for r in verification_results if not r.get("verified") and not r.get("topic_mismatch")]
-        topic_mismatched = [r for r in verification_results if r.get("topic_mismatch")]
+        topic_mismatched = [r for r in verification_results if r.get("topic_mismatch") or r.get("title_mismatch")]
+        title_mismatched = [r for r in verification_results if r.get("title_mismatch")]
+        author_mismatched = [r for r in verification_results if r.get("author_mismatch")]
         unverified_rate = len(unverified) / total
         topic_mismatch_rate = len(topic_mismatched) / total
 
@@ -697,7 +938,21 @@ class NoveltyVerifier:
         fake_probability = 0
         risk_factors = []
 
-        if topic_mismatched:
+        if title_mismatched:
+            fake_probability += min(len(title_mismatched) * 25, 60)
+            if len(title_mismatched) == 1:
+                risk_factors.append(f"1条引用的标题与数据库中的论文标题不匹配，极可能是修改过的虚假引用")
+            else:
+                risk_factors.append(f"{len(title_mismatched)}条引用的标题与数据库中的论文标题不匹配，极可能包含虚假引用")
+
+        if author_mismatched:
+            fake_probability += min(len(author_mismatched) * 15, 30)
+            if len(author_mismatched) == 1:
+                risk_factors.append(f"1条引用的作者与数据库中的论文作者不匹配，可能是错误引用")
+            else:
+                risk_factors.append(f"{len(author_mismatched)}条引用的作者与数据库中的论文作者不匹配，可能包含错误引用")
+
+        if topic_mismatched and not title_mismatched:
             fake_probability += min(len(topic_mismatched) * 20, 50)
             if len(topic_mismatched) == 1:
                 risk_factors.append(f"1条引用与论文主题严重不匹配，可能是虚假引用或错误引用")
@@ -750,8 +1005,23 @@ class NoveltyVerifier:
         if topic_mismatched:
             assessment = f"🚨 发现{len(topic_mismatched)}条引用与论文主题严重不匹配，极可能为虚假引用或AI编造引用！"
 
+        if title_mismatched:
+            assessment = f"🚨 发现{len(title_mismatched)}条引用的标题与数据库记录不匹配，极可能是被修改过的虚假引用！"
+            if author_mismatched:
+                assessment += f" 其中{len(author_mismatched)}条引用的作者也不匹配。"
+
         recommendations = []
-        if topic_mismatched:
+        if title_mismatched:
+            mismatch_indices = [str(r.get("reference_index", r.get("index", "?"))) for r in title_mismatched]
+            recommendations.append(f"🚨 第{', '.join(mismatch_indices)}条引用的标题与数据库中的论文标题不匹配，极可能是被修改过的虚假引用，强烈建议人工核查！")
+            for tm in topic_mismatch_refs[:3]:
+                found_title = tm.get("found_title", "")
+                if found_title:
+                    recommendations.append(f"引用[{tm.get('index')}]实际对应的论文为「{found_title[:80]}」，与引用中的标题不符")
+        if author_mismatched and not title_mismatched:
+            mismatch_indices = [str(r.get("reference_index", r.get("index", "?"))) for r in author_mismatched]
+            recommendations.append(f"⚠️ 第{', '.join(mismatch_indices)}条引用的作者与数据库中的论文作者不匹配，可能是错误引用")
+        if topic_mismatched and not title_mismatched:
             mismatch_indices = [str(r.get("reference_index", r.get("index", "?"))) for r in topic_mismatched]
             recommendations.append(f"⚠️ 第{', '.join(mismatch_indices)}条引用与论文主题严重不匹配，强烈建议人工核查，可能是虚假引用或AI编造的引用")
             for tm in topic_mismatch_refs[:3]:
@@ -1221,3 +1491,150 @@ class NoveltyVerifier:
             })
 
         return innovation_verifications
+
+    def _ensure_llm_client(self):
+        if not hasattr(self, '_llm_client') or self._llm_client is None:
+            from src.config import get_ai_config
+            import openai
+            self._llm_ai_config = get_ai_config()
+            if not self._llm_ai_config.get("api_key"):
+                raise Exception("API密钥未设置，请在AI设置页面中配置API密钥")
+            self._llm_client = openai.OpenAI(
+                api_key=self._llm_ai_config["api_key"],
+                base_url=self._llm_ai_config["base_url"]
+            )
+
+    def _call_llm(self, system_prompt: str, user_prompt: str, temperature: float = 0.1, max_tokens: int = 4000) -> str:
+        self._ensure_llm_client()
+        response = self._llm_client.chat.completions.create(
+            model=self._llm_ai_config["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"}
+        )
+        return response.choices[0].message.content
+
+    def check_citation_format(self, thesis_content: str) -> Dict:
+        """
+        使用大模型检查论文参考文献的格式规范性
+
+        检查内容包括：
+        1. 拼写错误（库名、人名、期刊名等）
+        2. 引用格式不统一（编号风格、标点、空格等）
+        3. 信息缺失（缺作者、缺年份、缺页码等）
+        4. 格式规范问题（大小写、斜体、引号等）
+
+        Args:
+            thesis_content: 论文全文内容
+
+        Returns:
+            格式检查结果字典
+        """
+        logger.info("开始引用格式检查...")
+
+        references = self.extractor.extract_references(thesis_content)
+        logger.info(f"提取到{len(references)}条参考文献")
+
+        if not references:
+            return {
+                "has_issues": False,
+                "issue_count": 0,
+                "issues": [],
+                "assessment": "未检测到参考文献"
+            }
+
+        refs_text = ""
+        for ref in references:
+            idx = ref.get("index", "?")
+            raw = ref.get("raw_text", "")
+            refs_text += f"\n[{idx}] {raw}"
+
+        system_prompt = """你是一位专业的学术论文格式审查专家，精通GB/T 7714、APA、IEEE等主流引用格式规范。
+
+你的任务是逐条检查参考文献列表中的格式问题，包括但不限于：
+
+1. **拼写错误**：库名（如scikit-learn拼成sicki t）、人名、期刊名、机构名等拼写错误
+2. **格式不统一**：同一篇论文中引用格式不一致（如有的用[1]有的用(Author,Year)、标点使用不统一、作者列表格式不统一等）
+3. **信息缺失**：缺少必要字段（作者、年份、标题、期刊/会议名、卷号、页码、DOI等）
+4. **大小写错误**：专有名词大小写不正确（如IEEE不应写成ieee、Python不应写成python）
+5. **标点/空格问题**：多余空格、缺失逗号/句号、中文标点与英文标点混用
+6. **作者格式问题**：作者姓名格式不统一（如有的用全名有的用缩写、et al.使用不当）
+7. **文献类型标识缺失**：如[J]、[M]、[D]、[C]等文献类型标识缺失或不正确
+
+请逐条仔细检查，对每个发现的问题给出：
+- 具体是第几条引用
+- 问题类型
+- 原始错误内容
+- 修正建议
+
+请严格按照以下JSON格式返回：
+{
+    "total_references": 引用总数,
+    "checked_references": 实际检查的引用数,
+    "issue_count": 发现的问题总数,
+    "issues": [
+        {
+            "ref_index": 引用序号,
+            "issue_type": "拼写错误/格式不统一/信息缺失/大小写错误/标点空格/作者格式/类型标识",
+            "severity": "严重/中等/轻微",
+            "original_text": "原始错误内容",
+            "description": "问题描述",
+            "suggestion": "修正建议"
+        }
+    ],
+    "format_consistency": {
+        "detected_style": "检测到的主要引用格式（如GB/T 7714、APA、IEEE等）",
+        "is_consistent": true/false,
+        "inconsistency_description": "格式不统一的具体描述（如一致则为空字符串）"
+    },
+    "assessment": "总体格式规范性评价（50-100字）",
+    "overall_quality": "优秀/良好/中等/较差"
+}"""
+
+        user_prompt = f"""请逐条检查以下参考文献列表的格式规范性：
+
+## 参考文献列表
+{refs_text}
+
+请仔细检查每一条引用，找出所有格式问题。"""
+
+        try:
+            raw = self._call_llm(system_prompt, user_prompt, temperature=0.1, max_tokens=6000)
+            result = json.loads(raw)
+
+            issue_count = len(result.get("issues", []))
+            severe_count = sum(1 for i in result.get("issues", []) if i.get("severity") == "严重")
+            logger.info(f"引用格式检查完成: 发现{issue_count}个问题，其中{severe_count}个严重问题")
+
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"引用格式检查结果解析失败: {str(e)}")
+            try:
+                start_idx = raw.find('{')
+                end_idx = raw.rfind('}') + 1
+                if start_idx != -1 and end_idx != -1:
+                    result = json.loads(raw[start_idx:end_idx])
+                    return result
+            except Exception:
+                pass
+            return {
+                "has_issues": True,
+                "issue_count": 0,
+                "issues": [],
+                "assessment": f"格式检查结果解析失败: {str(e)}",
+                "overall_quality": "未知"
+            }
+        except Exception as e:
+            logger.error(f"引用格式检查失败: {str(e)}")
+            return {
+                "has_issues": True,
+                "issue_count": 0,
+                "issues": [],
+                "assessment": f"格式检查失败: {str(e)}",
+                "overall_quality": "未知"
+            }

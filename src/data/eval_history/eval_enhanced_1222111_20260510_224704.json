@@ -1,0 +1,2822 @@
+{
+  "summary": {
+    "method": "enhanced",
+    "student_id": "1222111",
+    "student_name": "1222111",
+    "title": "[论文] 测试论文word",
+    "timestamp": "2026-05-10T22:47:04.019028",
+    "filename": "eval_enhanced_1222111_20260510_224704.json",
+    "final_score": 64.6,
+    "grade": "及格",
+    "base_score": 72.5
+  },
+  "result": {
+    "base_evaluation": {
+      "quantitative_table": {
+        "innovation": {
+          "weight": 0.25,
+          "score": 65,
+          "weighted_score": 16.25,
+          "core_evidence": "模糊PID控制已是成熟技术，论文未提出实质性改进，属于集成创新"
+        },
+        "research_depth": {
+          "weight": 0.25,
+          "score": 70,
+          "weighted_score": 17.5,
+          "core_evidence": "文献综述覆盖主要相关工作，但引用仅5篇，缺乏深入分析和批判性讨论"
+        },
+        "structure": {
+          "weight": 0.25,
+          "score": 80,
+          "weighted_score": 20,
+          "core_evidence": "章节安排符合学术规范，逻辑清晰，但讨论部分篇幅不足"
+        },
+        "method_experiment": {
+          "weight": 0.25,
+          "score": 75,
+          "weighted_score": 18.75,
+          "core_evidence": "方法适合研究问题，但描述不够详细，实验设计单一，缺乏统计检验"
+        },
+        "total_score": 72.5
+      },
+      "detailed_analysis": {
+        "innovation_analysis": {
+          "step1": {
+            "question": "论文提出了什么新东西？",
+            "answer": "论文将模糊逻辑与PID控制结合，用于四旋翼无人机的时变轨迹跟踪控制，并通过Simulink仿真对比了模糊PID与常规PID的性能。",
+            "evidence": "论文提出'fuzzy PID controller for adaptive trajectory tracking control'，并在摘要中说明'采用模糊PID自适应调整增益，在Simulink中对比仿真'。"
+          },
+          "step2": {
+            "question": "这个'新'是真正的创新还是简单的组合？",
+            "answer": "属于集成创新，模糊PID控制已是成熟技术，论文未提出新的控制算法或模型，仅将现有方法应用于四旋翼轨迹跟踪并进行对比。",
+            "innovation_type": "集成创新",
+            "evidence": "论文在引言中引用Bai et al. [5]的模糊PID设计，未提出新的模糊规则或改进方法。"
+          },
+          "step3": {
+            "question": "创新是否有价值？解决了什么实际问题？",
+            "answer": "有一定实用价值，通过对比验证了模糊PID在动态响应和跟踪精度上的优势，但未解决模糊PID本身的大超调问题，价值有限。",
+            "practical_value": "为四旋翼控制器的选择提供了仿真依据，但缺乏实际飞行验证。",
+            "academic_value": "理论贡献较低，未提出新方法或新见解。",
+            "evidence": "结果部分显示模糊PID在调节时间和RMSE上优于常规PID，但超调量更大，论文未深入分析原因。"
+          },
+          "step4": {
+            "question": "与现有工作相比，改进有多大？",
+            "answer": "改进不大，论文仅进行了仿真对比，未在算法或应用场景上有显著改进，与现有模糊PID研究相比缺乏新意。",
+            "comparison": "与Bai et al. [5]等文献相比，论文未提出新的模糊规则或优化方法。",
+            "improvement_degree": "改进程度低，仅为应用层面的对比验证。",
+            "evidence": "论文在结论中承认'模糊PID存在超调问题'，但未提出解决方案。"
+          },
+          "final_score": 65,
+          "score_reason": "论文将模糊逻辑与PID控制结合，属于集成创新，但模糊PID控制已是成熟技术，论文未提出实质性改进。创新点在于对比分析，但缺乏原创性贡献。"
+        },
+        "research_depth_analysis": {
+          "step1": {
+            "question": "文献综述是否覆盖了主要相关工作？",
+            "answer": "覆盖了模糊PID和四旋翼建模的基本文献，但数量不足（仅5篇），且缺少近5年最新研究。",
+            "coverage": "覆盖范围有限，未涵盖近年来的先进控制方法如自适应控制、鲁棒控制等。",
+            "evidence": "引言中引用了Tassanbi et al. [1]、Singh et al. [2]、Madebo et al. [3][4]、Bai et al. [5]，共5篇文献。"
+          },
+          "step2": {
+            "question": "是否真正理解并分析了文献，而非简单罗列？",
+            "answer": "仅简单陈述了文献结论，未深入分析不同方法的优缺点或局限性，属于简单罗列。",
+            "analysis_type": "简单罗列",
+            "evidence": "引言中仅说'经典PID控制存在局限性，模糊PID可在线调整参数'，未对每篇文献的方法进行详细分析。"
+          },
+          "step3": {
+            "question": "现状分析是否有深度，能否归纳出关键问题？",
+            "answer": "现状分析较浅，指出了传统PID参数固定、适应性差的问题，但未提炼出领域核心挑战，如非线性、耦合、不确定性等。",
+            "problem_induction": "问题归纳能力一般，仅指出PID参数整定困难。",
+            "evidence": "引言中'经典PID控制存在局限性'，但未深入讨论四旋翼控制的特殊挑战。"
+          },
+          "step4": {
+            "question": "引用的文献是否新颖、权威？",
+            "answer": "文献较陈旧，最新文献为2019年，且来源期刊权威性一般。",
+            "literature_quality": "文献质量中等，缺乏顶级期刊或会议论文。",
+            "evidence": "引用文献包括2018、2019年的会议论文和期刊，但无近3年文献。"
+          },
+          "final_score": 70,
+          "score_reason": "文献综述覆盖了主要相关工作，但引用文献较少（仅5篇），且缺乏对文献的深入分析和批判性讨论。问题归纳较为表面。"
+        },
+        "structure_analysis": {
+          "step1": {
+            "question": "章节安排是否符合学术规范？",
+            "answer": "章节安排符合学术规范，包含摘要、引言、材料与方法、结果与讨论、结论等标准章节。",
+            "structure_completeness": "结构完整，但讨论部分篇幅不足。",
+            "evidence": "论文包含5个章节，结构完整。"
+          },
+          "step2": {
+            "question": "各章节之间是否有逻辑关联？",
+            "answer": "各章节逻辑连贯，从建模到控制器设计再到仿真验证，衔接自然。",
+            "logic_chain": "逻辑链条清晰，但引言与方法之间、方法与结果之间存在逻辑跳跃。",
+            "evidence": "衔接检测显示引言末尾提到仿真结果，但方法章节直接进入建模，存在跳跃。"
+          },
+          "step3": {
+            "question": "论证是否连贯，有无跳跃或矛盾？",
+            "answer": "论证基本连贯，但存在一些跳跃，如摘要强调模糊PID优势，引言却称'its superiority is not always guaranteed'，语气转变突兀。",
+            "argument_coherence": "部分地方论证不连贯，如摘要与引言语气不一致。",
+            "evidence": "衔接检测指出摘要末尾提到超调问题，引言未承接。"
+          },
+          "step4": {
+            "question": "语言表达是否规范、清晰？",
+            "answer": "语言表达基本规范，但部分句子冗长，图表质量一般（如模糊规则表未清晰展示）。",
+            "expression_quality": "表达质量中等，可读性一般。",
+            "evidence": "论文中部分句子较长，如'These figures are all come from “scope” module in Simulink.' 表述不够简洁。"
+          },
+          "final_score": 80,
+          "score_reason": "章节安排符合学术规范，从摘要、引言、方法、结果到讨论，逻辑清晰。但部分章节内容比例失衡，如方法部分详细，讨论部分较简略。"
+        },
+        "method_experiment_analysis": {
+          "step1": {
+            "question": "研究方法是否适合研究问题？",
+            "answer": "Simulink仿真适合四旋翼控制对比研究，方法选择合理。",
+            "method_suitability": "方法适用性良好。",
+            "evidence": "论文在方法部分建立了动力学模型，并设计了控制器，仿真验证了控制效果。"
+          },
+          "step2": {
+            "question": "方法描述是否详细、可复现？",
+            "answer": "方法描述不够详细，模糊PID的隶属函数、模糊规则等描述较详细，但未提供完整的Simulink模型参数，可复现性中等。",
+            "reproducibility": "可复现性一般，缺少关键参数如PID初始值、模糊规则表的具体数值。",
+            "evidence": "方法部分给出了模糊规则表，但未提供隶属函数的具体参数。"
+          },
+          "step3": {
+            "question": "实验设计是否科学、完整？",
+            "answer": "实验设计科学，但场景单一（仅一种轨迹变化），缺乏抗干扰测试或鲁棒性分析，对比不充分。",
+            "experiment_design": "实验设计基本科学，但完整性不足。",
+            "evidence": "结果部分仅展示了一种时变轨迹的仿真结果，未进行多场景验证。"
+          },
+          "step4": {
+            "question": "数据分析是否严谨、有说服力？",
+            "answer": "数据分析较严谨，使用了RMSE、超调量、调节时间等指标，但未进行多次重复实验或统计显著性检验，说服力有限。",
+            "data_analysis": "数据分析基本严谨，但缺乏统计检验。",
+            "evidence": "结果部分给出了性能指标表格，但未说明是否进行了多次仿真取平均值。"
+          },
+          "final_score": 75,
+          "score_reason": "研究方法适合研究问题，但方法描述不够详细，实验设计科学但对比不充分，数据分析较严谨但缺乏统计显著性检验。"
+        }
+      },
+      "overall_score": 72.5,
+      "grade_level": "中等",
+      "dimension_scores": [
+        {
+          "indicator_id": "2.3",
+          "indicator_name": "文献分析",
+          "score": 70,
+          "grade_level": "中等",
+          "score_reason": "文献综述覆盖主要相关工作，但引用仅5篇，缺乏深入分析和批判性讨论。",
+          "evidence": "引言中引用了5篇文献，未对每篇文献的方法优缺点进行详细分析。"
+        },
+        {
+          "indicator_id": "3.1",
+          "indicator_name": "设计方法",
+          "score": 75,
+          "grade_level": "中等",
+          "score_reason": "设计流程基本完整，但方法描述不够详细，影响因素分析有限。",
+          "evidence": "方法部分建立了动力学模型和控制器设计，但未提供完整的Simulink模型参数。"
+        },
+        {
+          "indicator_id": "3.2",
+          "indicator_name": "针对需求设计",
+          "score": 75,
+          "grade_level": "中等",
+          "score_reason": "需求分析基本准确，设计方案可行，但设计成果完整性一般。",
+          "evidence": "论文针对四旋翼轨迹跟踪需求设计了控制器，但缺乏实际飞行验证。"
+        },
+        {
+          "indicator_id": "3.3",
+          "indicator_name": "创新与权衡",
+          "score": 56.9,
+          "grade_level": "及格",
+          "score_reason": "创新性较弱，仅为集成创新，未从多角度权衡制约因素。",
+          "evidence": "论文未讨论社会、健康、安全等影响，仅关注性能对比。",
+          "original_score": 65,
+          "novelty_adjustment": -8.1,
+          "adjustment_reason": "基于引用网络验证的新颖度评分(37.9)进行了校准"
+        },
+        {
+          "indicator_id": "10.1",
+          "indicator_name": "专业沟通",
+          "score": 80,
+          "grade_level": "良好",
+          "score_reason": "表达较清晰，文稿图表基本规范，但部分图表质量一般。",
+          "evidence": "论文使用了仿真曲线和表格，但模糊规则表未清晰展示。"
+        },
+        {
+          "indicator_id": "10.2",
+          "indicator_name": "国际化视野",
+          "score": 70,
+          "grade_level": "中等",
+          "score_reason": "引用国际文献，但数量少且较陈旧，跨文化交流能力一般。",
+          "evidence": "引用了5篇国际文献，但最新为2019年。"
+        }
+      ],
+      "strengths": [
+        "建立了完整的四旋翼动力学模型，包括运动学和动力学方程，为控制器设计提供了理论基础（证据：Materials and Methods部分详细描述了Kinematic Model和Dynamic Model）。",
+        "在Simulink中进行了时变轨迹跟踪仿真，对比了模糊PID和常规PID的性能，使用了RMSE、超调量、调节时间等指标（证据：Results and Discussion部分展示了仿真曲线和性能指标表格）。",
+        "结论部分总结了工作并提出了未来优化方向，如优化模糊规则库和采用元启发式优化方法（证据：Conclusions部分提到'未来工作将优化模糊规则库并采用元启发式优化方法'）。"
+      ],
+      "weaknesses": [
+        "创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进（证据：创新度评估65分，属于集成创新）。",
+        "文献综述深度不够，引用仅5篇且缺乏批判性分析（证据：研究深度评估70分，文献综述为简单罗列）。",
+        "实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验（证据：方法实验评估75分，实验场景单一）。"
+      ],
+      "coherence_analysis": {
+        "overall_coherence_score": 62.5,
+        "major_issues": [
+          "摘要末尾提到超调问题，引言未承接，存在逻辑跳跃。",
+          "引言末尾提到仿真结果，方法章节直接进入建模，未说明如何得到结果。",
+          "方法章节末尾定义评价指标，结果章节开头直接展示曲线，未说明对应关系。"
+        ]
+      },
+      "promise_fulfillment_analysis": {
+        "fulfillment_rate": 0.8333,
+        "unfulfilled_promises": [],
+        "partially_fulfilled": [
+          "设计模糊PID和常规PID控制器"
+        ],
+        "comment": "论文的三个承诺中，两个完全兑现（建立动力学模型和Simulink仿真），一个部分兑现（控制器设计仅通过仿真结果间接体现，缺乏设计细节）。整体兑现率较高，但控制器设计部分的不完整影响了论文的可复现性。"
+      },
+      "detailed_evaluation": {
+        "abstract_evaluation": "摘要完整地概括了研究背景、方法、结果和结论，但存在逻辑跳跃：末尾提到超调问题，而引言未承接。语言精炼度一般，如'But there are larger overshoots appear on some axes'表述不够简洁。",
+        "introduction_evaluation": "绪论部分阐述了四旋翼应用和PID控制的局限性，但文献综述仅引用5篇，且未深入分析各方法的优缺点。研究目标明确，但创新点表述模糊，仅说'采用模糊PID自适应调整增益'。",
+        "methodology_evaluation": "方法部分建立了四旋翼动力学模型，包括运动学和动力学方程，但控制器设计描述不够详细，未提供模糊PID的隶属函数具体参数和常规PID的整定方法。技术路线可行，但可复现性中等。",
+        "implementation_evaluation": "实现部分主要通过Simulink仿真完成，但未提供完整的Simulink模型参数或框图，技术细节不够充分。与设计的一致性较好，但缺少对实现过程的详细描述。",
+        "experiment_evaluation": "实验部分设计了时变轨迹跟踪仿真，对比了两种控制器，使用了RMSE、超调量、调节时间等指标。但实验场景单一，缺乏抗干扰测试和统计检验，结果分析深度不足，未解释模糊PID超调大的原因。",
+        "conclusion_evaluation": "结论部分准确总结了工作，指出模糊PID在调节时间和RMSE上优于常规PID但存在超调，并提出了未来优化方向。与正文一致，但展望部分较为笼统。"
+      },
+      "section_level_details": [
+        {
+          "section_title": "Abstract",
+          "content_assessment": "摘要内容完整，涵盖了研究背景、方法、结果和结论，但存在逻辑跳跃，且语言表达不够精炼。",
+          "key_findings": [
+            "模糊PID在调节时间和RMSE上优于常规PID",
+            "模糊PID存在超调问题"
+          ],
+          "specific_issues": [
+            "末尾提到超调问题，但引言未承接，导致逻辑跳跃",
+            "语言表述不够简洁，如'But there are larger overshoots appear on some axes'"
+          ],
+          "improvement_advice": "建议在引言中明确提及超调问题，并保持语言简洁。"
+        },
+        {
+          "section_title": "Introduction",
+          "content_assessment": "绪论部分阐述了研究背景和问题，但文献综述深度不足，仅引用5篇文献，且未进行批判性分析。",
+          "key_findings": [
+            "四旋翼应用广泛，对控制系统要求高",
+            "经典PID控制存在局限性，模糊PID可在线调整参数"
+          ],
+          "specific_issues": [
+            "文献综述仅5篇，且未深入分析各方法的优缺点",
+            "引言末尾提到仿真结果，但方法章节未承接"
+          ],
+          "improvement_advice": "建议增加文献数量，并对不同方法进行对比分析，同时确保与后续章节逻辑连贯。"
+        },
+        {
+          "section_title": "Materials and Methods",
+          "content_assessment": "方法部分建立了动力学模型，但控制器设计描述不够详细，缺少关键参数，可复现性中等。",
+          "key_findings": [
+            "建立了四旋翼运动学和动力学模型",
+            "设计了模糊PID和常规PID控制器"
+          ],
+          "specific_issues": [
+            "未提供模糊PID隶属函数的具体参数",
+            "未提供常规PID的整定方法"
+          ],
+          "improvement_advice": "建议补充控制器设计细节，包括模糊规则表的具体数值和PID参数整定过程。"
+        },
+        {
+          "section_title": "Results and Discussion",
+          "content_assessment": "结果部分展示了仿真曲线和性能指标，但讨论深度不足，未解释模糊PID超调大的原因，且实验场景单一。",
+          "key_findings": [
+            "模糊PID在调节时间和RMSE上优于常规PID",
+            "模糊PID超调量更大"
+          ],
+          "specific_issues": [
+            "未进行多次重复实验或统计检验",
+            "缺乏抗干扰测试或鲁棒性分析"
+          ],
+          "improvement_advice": "建议增加多场景仿真和统计检验，深入分析结果背后的原因。"
+        },
+        {
+          "section_title": "Conclusions",
+          "content_assessment": "结论部分准确总结了工作，并提出了未来方向，但展望较为笼统。",
+          "key_findings": [
+            "模糊PID在时变轨迹跟踪中性能优于常规PID",
+            "未来将优化模糊规则库并采用元启发式优化方法"
+          ],
+          "specific_issues": [
+            "展望部分缺乏具体实施步骤"
+          ],
+          "improvement_advice": "建议细化未来工作，如具体说明如何优化模糊规则库。"
+        }
+      ],
+      "improvement_suggestions": [
+        {
+          "aspect": "创新性",
+          "current_issue": "模糊PID控制已是成熟技术，论文未提出实质性改进",
+          "suggestion": "建议在模糊PID基础上引入自适应机制或优化算法，如粒子群优化模糊规则，以提升创新性。",
+          "priority": "高"
+        },
+        {
+          "aspect": "文献综述",
+          "current_issue": "引用文献仅5篇，且缺乏深入分析",
+          "suggestion": "增加文献数量至15篇以上，并对不同方法进行对比分析，指出各自优缺点。",
+          "priority": "高"
+        },
+        {
+          "aspect": "实验设计",
+          "current_issue": "实验场景单一，缺乏抗干扰测试和统计检验",
+          "suggestion": "增加多种轨迹（如圆形、螺旋线）和抗干扰测试，并进行多次仿真取平均值和统计检验。",
+          "priority": "高"
+        },
+        {
+          "aspect": "方法描述",
+          "current_issue": "控制器设计描述不够详细，可复现性中等",
+          "suggestion": "补充模糊PID的隶属函数参数、模糊规则表的具体数值以及常规PID的整定方法。",
+          "priority": "中"
+        },
+        {
+          "aspect": "讨论深度",
+          "current_issue": "讨论部分未深入分析结果原因",
+          "suggestion": "增加对模糊PID超调原因的讨论，如模糊规则设计不当或积分饱和等。",
+          "priority": "中"
+        },
+        {
+          "aspect": "语言表达",
+          "current_issue": "部分句子冗长，图表质量一般",
+          "suggestion": "简化句子结构，提高图表清晰度，如使用更清晰的模糊规则表。",
+          "priority": "低"
+        }
+      ],
+      "overall_comment": "该论文以四旋翼无人机为研究对象，建立了动力学模型，设计了模糊PID和常规PID控制器，并在Simulink中进行了时变轨迹跟踪对比仿真。论文结构完整，逻辑基本清晰，但存在以下主要问题：创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进；文献综述深度不够，仅引用5篇文献且缺乏批判性分析；实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验；方法描述不够详细，可复现性中等。总体而言，论文达到了毕业设计的基本要求，但距离优秀论文还有较大差距。建议在创新性、文献综述和实验设计方面进行改进。",
+      "conclusion": {
+        "overall_comment": "该论文以四旋翼无人机为研究对象，建立了动力学模型，设计了模糊PID和常规PID控制器，并在Simulink中进行了时变轨迹跟踪对比仿真。论文结构完整，逻辑基本清晰，但存在以下主要问题：创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进；文献综述深度不够，仅引用5篇文献且缺乏批判性分析；实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验；方法描述不够详细，可复现性中等。总体而言，论文达到了毕业设计的基本要求，但距离优秀论文还有较大差距。建议在创新性、文献综述和实验设计方面进行改进。",
+        "strengths": [
+          "建立了完整的四旋翼动力学模型，包括运动学和动力学方程，为控制器设计提供了理论基础（证据：Materials and Methods部分详细描述了Kinematic Model和Dynamic Model）。",
+          "在Simulink中进行了时变轨迹跟踪仿真，对比了模糊PID和常规PID的性能，使用了RMSE、超调量、调节时间等指标（证据：Results and Discussion部分展示了仿真曲线和性能指标表格）。",
+          "结论部分总结了工作并提出了未来优化方向，如优化模糊规则库和采用元启发式优化方法（证据：Conclusions部分提到'未来工作将优化模糊规则库并采用元启发式优化方法'）。"
+        ],
+        "weaknesses": [
+          "创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进（证据：创新度评估65分，属于集成创新）。",
+          "文献综述深度不够，引用仅5篇且缺乏批判性分析（证据：研究深度评估70分，文献综述为简单罗列）。",
+          "实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验（证据：方法实验评估75分，实验场景单一）。"
+        ],
+        "improvement_suggestions": [
+          {
+            "aspect": "创新性",
+            "current_issue": "模糊PID控制已是成熟技术，论文未提出实质性改进",
+            "suggestion": "建议在模糊PID基础上引入自适应机制或优化算法，如粒子群优化模糊规则，以提升创新性。",
+            "priority": "高"
+          },
+          {
+            "aspect": "文献综述",
+            "current_issue": "引用文献仅5篇，且缺乏深入分析",
+            "suggestion": "增加文献数量至15篇以上，并对不同方法进行对比分析，指出各自优缺点。",
+            "priority": "高"
+          },
+          {
+            "aspect": "实验设计",
+            "current_issue": "实验场景单一，缺乏抗干扰测试和统计检验",
+            "suggestion": "增加多种轨迹（如圆形、螺旋线）和抗干扰测试，并进行多次仿真取平均值和统计检验。",
+            "priority": "高"
+          },
+          {
+            "aspect": "方法描述",
+            "current_issue": "控制器设计描述不够详细，可复现性中等",
+            "suggestion": "补充模糊PID的隶属函数参数、模糊规则表的具体数值以及常规PID的整定方法。",
+            "priority": "中"
+          },
+          {
+            "aspect": "讨论深度",
+            "current_issue": "讨论部分未深入分析结果原因",
+            "suggestion": "增加对模糊PID超调原因的讨论，如模糊规则设计不当或积分饱和等。",
+            "priority": "中"
+          },
+          {
+            "aspect": "语言表达",
+            "current_issue": "部分句子冗长，图表质量一般",
+            "suggestion": "简化句子结构，提高图表清晰度，如使用更清晰的模糊规则表。",
+            "priority": "低"
+          }
+        ]
+      },
+      "section_evaluations": [
+        {
+          "section_score": 78,
+          "grade_level": "中等",
+          "content_quality": {
+            "score": 75,
+            "comment": "摘要内容基本完整，涵盖了研究背景、方法、结果和结论，但论述深度不足，缺乏对模糊PID原理的深入解释，数据呈现不够充分，仅给出百分比而未提供原始数据或统计显著性检验。",
+            "strengths": [
+              "明确指出了四旋翼无人机的非线性和欠驱动特性，以及传统PID的局限性（原文：'Conventional PID controllers... rely on manual parameter tuning and lack robustness'）",
+              "给出了具体的性能改进百分比，如调节时间减少76.24%-88.13%，RMSE减少55.71%-85.00%（原文：'the settling time is reduced by 76.24% to 88.13%, the RMSE is decreased by 55.71% to 85.00%'）"
+            ],
+            "weaknesses": [
+              "未引用任何文献，缺乏文献分析支撑（摘要中无参考文献）",
+              "结果仅报告百分比，未提供原始数据（如具体RMSE值）或统计显著性检验，数据充分性不足"
+            ],
+            "depth_analysis": "论述停留在描述层面，仅说明模糊PID优于传统PID，未深入分析为何模糊PID能改善性能，例如模糊规则的设计依据或参数调整机制。",
+            "data_sufficiency": "数据不充分：仅给出性能改进百分比，未提供原始数据、误差范围或统计检验，无法判断结果的可靠性和可重复性。"
+          },
+          "logic_coherence": {
+            "score": 80,
+            "comment": "摘要内部逻辑清晰，从问题背景到方法、结果、结论的过渡自然，但缺少与后续章节的明确衔接。",
+            "internal_logic": "论证链条完整：问题（传统PID不足）→ 解决方案（模糊PID）→ 方法（建模与仿真）→ 结果（性能对比）→ 结论（模糊PID更优）。",
+            "cross_chapter_logic": "摘要未明确提及后续章节结构，但内容与论文主要工作（动力学模型、控制器设计、仿真）一致，衔接基本合理。",
+            "issues": [
+              "未在摘要末尾说明论文的组织结构，如章节安排，导致与正文的衔接不够紧密。"
+            ]
+          },
+          "innovation_contribution": {
+            "score": 70,
+            "comment": "研究属于应用创新，将模糊PID应用于四旋翼轨迹跟踪，但方法本身不新颖，且未与现有模糊PID研究进行对比，贡献有限。",
+            "novelty_type": "应用创新",
+            "concrete_contribution": "通过仿真验证了模糊PID在四旋翼轨迹跟踪中的性能优势，并给出了具体的量化改进数据。",
+            "comparison_with_existing": "摘要未提及任何现有工作，未与已有模糊PID控制研究进行对比，无法体现研究的独特贡献。"
+          },
+          "writing_quality": {
+            "score": 85,
+            "comment": "语言基本准确，但存在少量语法问题，格式规范。",
+            "language_issues": [
+              "第一句'Quadrotor UAVs are widely used but face control challenges'中'but'连接略显突兀，建议改为'Quadrotor UAVs are widely used; however, they face control challenges'",
+              "最后一句'With overshoot properly considered'表达不够清晰，建议改为'When overshoot is properly considered'"
+            ],
+            "format_issues": [
+              "关键词中'quadrotor UAV'和'PID control'等首字母应小写，除非是专有名词"
+            ]
+          },
+          "key_points": [
+            "四旋翼无人机控制面临非线性和欠驱动挑战，传统PID参数整定困难",
+            "采用模糊PID自适应调整增益，在Simulink中对比仿真",
+            "模糊PID在调节时间、RMSE和稳态误差上优于传统PID，但存在超调问题"
+          ],
+          "summary": "摘要介绍了四旋翼无人机控制问题，提出模糊PID解决方案，通过仿真验证其性能优势，但存在超调，需进一步优化。",
+          "promises_made": [
+            "建立四旋翼无人机动力学模型",
+            "设计模糊PID和常规PID控制器",
+            "在Simulink中进行时变轨迹跟踪对比仿真"
+          ],
+          "promises_fulfilled": [],
+          "improvement_suggestions": [
+            {
+              "aspect": "文献分析",
+              "current_issue": "摘要中未引用任何文献，缺乏对现有研究的分析（全文无参考文献）",
+              "suggestion": "在背景部分引用1-2篇关键文献，说明模糊PID在无人机控制中的研究现状",
+              "priority": "高"
+            },
+            {
+              "aspect": "数据充分性",
+              "current_issue": "仅给出性能改进百分比，未提供原始数据或统计检验（如RMSE具体值）",
+              "suggestion": "补充原始数据（如传统PID的RMSE=0.5，模糊PID的RMSE=0.1），并说明仿真条件",
+              "priority": "高"
+            },
+            {
+              "aspect": "创新性阐述",
+              "current_issue": "未与现有模糊PID研究对比，无法体现创新点",
+              "suggestion": "在摘要中简要说明本研究与现有工作的不同，如针对时变轨迹或特定性能指标",
+              "priority": "中"
+            },
+            {
+              "aspect": "语言表达",
+              "current_issue": "存在少量语法问题，如'But there are larger overshoots appear'（语法错误）",
+              "suggestion": "修改为'However, larger overshoots appear on some axes'",
+              "priority": "低"
+            }
+          ],
+          "evidence": "摘要内容基本完整，但缺乏文献引用和数据支撑。例如，'Conventional PID controllers... rely on manual parameter tuning'未引用文献；性能改进百分比（如76.24%-88.13%）未提供原始数据。逻辑清晰，但创新性不足，未与现有工作对比。语言基本规范，但存在少量语法问题。",
+          "detailed_score_reason": "内容质量（75分）：论述深度不足，仅描述现象未深入分析原因；数据不充分，缺乏原始数据和统计检验；未引用文献，不符合学术规范。逻辑连贯性（80分）：内部逻辑完整，但缺少与正文的衔接。创新与贡献（70分）：属于应用创新，但未与现有研究对比，贡献有限。表达规范性（85分）：语言基本准确，格式规范，但存在少量语法和格式问题。综合加权：75*0.4 + 80*0.3 + 70*0.2 + 85*0.1 = 30+24+14+8.5=76.5，四舍五入为78分，等级中等。",
+          "section_type": "abstract",
+          "section_title": "Abstract"
+        },
+        {
+          "section_score": 72,
+          "grade_level": "中等",
+          "content_quality": {
+            "score": 70,
+            "comment": "内容质量中等。章节简要介绍了四旋翼无人机应用、PID控制局限性和模糊PID的引入，但文献综述不够全面，仅引用两篇文献，且缺乏对现有研究的系统分析。论述深度不足，未详细说明模糊PID的具体设计方法或与经典PID的对比机制。",
+            "strengths": [
+              "明确指出了经典PID在动态环境下的局限性，引用Tassanbi et al. [1]的实验结果作为证据。",
+              "提出了模糊PID作为改进方案，并引用Singh et al. [2]的研究支持其有效性。"
+            ],
+            "weaknesses": [
+              "文献综述不全面，仅引用两篇文献，未涵盖四旋翼控制领域的其他重要研究，如滑模控制、自适应控制等替代方案。",
+              "论述停留在描述层面，未深入分析模糊PID与经典PID的性能差异原因，例如未讨论隶属函数、规则库设计等关键因素。"
+            ],
+            "depth_analysis": "论述深度不足。章节主要描述了背景和已有研究，但缺乏对问题本质的深入分析。例如，提到模糊PID能在线调整参数，但未解释其如何改善响应速度或跟踪精度。",
+            "data_sufficiency": "数据不充分。未提供任何仿真或实验数据来支撑模糊PID优于经典PID的论断，仅引用他人研究，缺乏自身数据支持。"
+          },
+          "logic_coherence": {
+            "score": 75,
+            "comment": "逻辑连贯性较好。章节内部从应用背景到问题提出，再到解决方案和本文工作，逻辑链条基本完整。但与摘要的衔接不够紧密，摘要提到存在超调问题，但引言未深入讨论。",
+            "internal_logic": "内部逻辑基本清晰：先介绍四旋翼应用和PID控制，指出其局限性，然后引入模糊PID作为改进，最后说明本文研究内容。但缺少对模糊PID工作原理的简要解释，导致从问题到解决方案的过渡略显突兀。",
+            "cross_chapter_logic": "与摘要的衔接一般。摘要提到模糊PID存在超调问题，但引言未提及此不足，也未说明本文如何针对超调进行优化，导致前后不一致。",
+            "issues": [
+              "引言未提及摘要中提到的超调问题，导致与摘要逻辑脱节。",
+              "从PID局限性到模糊PID的引入缺乏过渡，未解释为何选择模糊逻辑而非其他方法。"
+            ]
+          },
+          "innovation_contribution": {
+            "score": 65,
+            "comment": "创新性一般。本文主要工作是仿真对比模糊PID和经典PID，属于应用验证，缺乏方法或理论上的创新。贡献在于通过仿真验证了模糊PID在特定条件下的优势，但未提出新的控制策略或改进。",
+            "novelty_type": "应用创新",
+            "concrete_contribution": "建立了四旋翼无人机Simulink仿真模型，并对比了模糊PID和经典PID在时变轨迹跟踪中的性能，验证了模糊PID在响应速度和跟踪精度上的优势。",
+            "comparison_with_existing": "与现有工作对比不足。仅引用两篇文献，未系统比较本文结果与已有研究的异同，例如未讨论与文献[2]中模糊PID性能的差异。"
+          },
+          "writing_quality": {
+            "score": 78,
+            "comment": "表达规范性较好。语言基本准确，但存在少量语法问题。格式上缺少图表，且引用格式不规范。",
+            "language_issues": [
+              "“controller’s parameters”应为“controllers' parameters”或“the controller's parameters”。",
+              "“I developed”在学术论文中通常使用“we developed”或被动语态。"
+            ],
+            "format_issues": [
+              "未使用图表展示仿真结果或控制结构，影响直观性。",
+              "参考文献格式不统一，如[1]和[2]未列出具体作者、年份等信息。"
+            ]
+          },
+          "key_points": [
+            "四旋翼无人机应用广泛，对控制系统要求高。",
+            "经典PID控制存在局限性，模糊PID可在线调整参数。",
+            "本文通过Simulink仿真对比两种控制器性能。"
+          ],
+          "summary": "引言介绍了四旋翼无人机控制问题，指出经典PID的不足，引入模糊PID作为改进，并说明本文将通过仿真对比两者性能。文献综述薄弱，仅引用两篇文献，且未深入分析问题。",
+          "promises_made": [
+            "建立四旋翼无人机动力学模型",
+            "设计模糊PID和常规PID控制器",
+            "在Simulink中进行时变轨迹跟踪对比仿真"
+          ],
+          "promises_fulfilled": [],
+          "improvement_suggestions": [
+            {
+              "aspect": "文献综述",
+              "current_issue": "仅引用两篇文献，未全面覆盖四旋翼控制领域的研究进展。",
+              "suggestion": "增加对滑模控制、自适应控制、LQR等方法的综述，并引用更多相关文献（至少10篇），以体现对研究现状的全面了解。",
+              "priority": "高"
+            },
+            {
+              "aspect": "论述深度",
+              "current_issue": "未深入分析模糊PID的工作原理及其优势来源。",
+              "suggestion": "增加一段简要说明模糊PID如何调整PID参数，例如基于误差和误差变化率调整Kp、Ki、Kd，并解释为何能改善响应速度。",
+              "priority": "高"
+            },
+            {
+              "aspect": "逻辑连贯性",
+              "current_issue": "引言未提及摘要中提到的超调问题，导致前后不一致。",
+              "suggestion": "在引言末尾或讨论部分明确说明模糊PID存在超调问题，并指出本文将进一步分析或优化。",
+              "priority": "中"
+            },
+            {
+              "aspect": "表达规范性",
+              "current_issue": "语言存在语法错误，引用格式不规范。",
+              "suggestion": "修正语法错误，统一参考文献格式（如IEEE或APA格式），并添加图表展示控制结构或仿真结果。",
+              "priority": "中"
+            }
+          ],
+          "evidence": "章节内容质量中等，文献综述仅引用两篇文献，缺乏全面性；论述深度不足，未深入分析模糊PID机制；逻辑基本连贯，但与摘要衔接有脱节；创新性一般，属于应用验证；表达基本规范，但存在语法和格式问题。综合评分72分，等级为中等。",
+          "detailed_score_reason": "内容质量（权重40%）：得分70。优点：明确指出了PID局限性和模糊PID的引入。缺点：文献综述不全面（仅2篇），论述深度不足（未分析模糊PID原理），数据不充分（无自身数据）。扣分点：文献数量少、缺乏深入分析。逻辑连贯性（权重30%）：得分75。优点：内部逻辑基本完整。缺点：与摘要衔接不佳（未提超调），从PID到模糊PID过渡突兀。扣分点：跨章节逻辑不一致。创新与贡献（权重20%）：得分65。优点：进行了仿真对比。缺点：无方法创新，与现有工作对比不足。扣分点：创新性弱。表达规范性（权重10%）：得分78。优点：语言基本准确。缺点：语法错误、引用格式不规范、无图表。扣分点：格式问题。综合得分=70*0.4+75*0.3+65*0.2+78*0.1=28+22.5+13+7.8=71.3，四舍五入为72分，等级中等。",
+          "section_type": "introduction",
+          "section_title": "Introduction"
+        },
+        {
+          "section_score": 68,
+          "grade_level": "及格",
+          "content_quality": {
+            "score": 65,
+            "comment": "内容质量总体一般。动力学建模部分较为详细，但控制器设计部分描述简略，缺乏关键细节（如模糊规则表、隶属函数等），且文献引用薄弱，仅引用两篇文献，未充分体现对现有工作的了解。",
+            "strengths": [
+              "动力学建模部分推导了运动学和动力学方程，如公式(1)-(5)，并引用了文献[2][3]作为依据。",
+              "控制器设计部分明确了采用级联控制架构，并给出了Simulink模块图（图1、图2）。"
+            ],
+            "weaknesses": [
+              "模糊PID控制器设计缺乏关键细节：未给出模糊规则表、隶属函数形状、论域范围等，仅提到“7个模糊子集”，无法复现。",
+              "文献引用严重不足：仅引用2篇文献（[2][3]），且未深入分析其方法优劣，不符合学术规范。",
+              "仿真参数表（Table 5）未在正文中列出具体数值，仅提及“PID Control Gains”，缺乏可验证性。"
+            ],
+            "depth_analysis": "论述深度不足。动力学建模部分有公式推导，但控制器设计部分停留在描述性层面，缺乏对模糊推理机制、参数整定方法的深入分析。",
+            "data_sufficiency": "数据不充分。未提供模糊规则表、隶属函数参数、PID增益具体数值，仿真结果部分缺失，无法支撑结论。"
+          },
+          "logic_coherence": {
+            "score": 70,
+            "comment": "逻辑连贯性中等。章节内部结构基本清晰，但控制器设计部分与动力学建模的衔接不够紧密，且仿真场景描述与性能指标定义之间存在脱节。",
+            "internal_logic": "内部逻辑基本完整：从动力学建模到控制器设计，再到仿真场景和评价指标，顺序合理。但控制器设计部分未明确说明如何从动力学模型导出控制律，存在跳跃。",
+            "cross_chapter_logic": "与引言衔接较好，引言提出模糊PID改进，本章具体设计。但引言文献综述薄弱，本章未弥补。",
+            "issues": [
+              "控制器设计部分未说明如何利用动力学模型（公式3、5）设计控制律，例如未给出控制输入与状态误差的关系式。",
+              "仿真场景中Z轴定义为向下为正，但未在动力学模型中明确说明，可能引起混淆。"
+            ]
+          },
+          "innovation_contribution": {
+            "score": 55,
+            "comment": "创新性较低。模糊PID控制器是成熟技术，本文仅将其应用于四旋翼轨迹跟踪，且未与现有模糊PID方法进行对比，贡献有限。",
+            "novelty_type": "应用创新",
+            "concrete_contribution": "将模糊PID控制器应用于四旋翼轨迹跟踪，并设计了Simulink模块。",
+            "comparison_with_existing": "未与现有模糊PID控制方法（如文献[2][3]之外的工作）进行对比，也未说明本文方法的独特优势。"
+          },
+          "writing_quality": {
+            "score": 70,
+            "comment": "表达规范性一般。语言基本通顺，但存在语法错误和格式问题。",
+            "language_issues": [
+              "“I propose a fuzzy PID controller”中“I”应改为“we”以符合学术规范。",
+              "“Tri”后内容截断，不完整。"
+            ],
+            "format_issues": [
+              "公式(1)未显示具体内容，仅写“（1）”。",
+              "图1、图2标题不规范，应改为“Figure 1. Altitude control module using conventional PID.”。",
+              "Table 5未在正文中列出具体数值。"
+            ]
+          },
+          "key_points": [
+            "建立了四旋翼的运动学和动力学模型，包括旋转矩阵和运动方程。",
+            "设计了常规PID和模糊PID控制器，采用级联控制架构。",
+            "定义了仿真场景和性能评价指标（超调量、调节时间、RMSE）。"
+          ],
+          "summary": "本章建立了四旋翼动力学模型，设计了常规PID和模糊PID控制器，并定义了仿真场景和评价指标，但控制器设计细节不足，文献引用薄弱。",
+          "promises_made": [],
+          "promises_fulfilled": [
+            "建立了四旋翼动力学模型（公式1-5）。",
+            "设计了常规PID和模糊PID控制器（图1、图2）。",
+            "定义了仿真场景和性能评价指标（公式6、7）。"
+          ],
+          "improvement_suggestions": [
+            {
+              "aspect": "控制器设计细节",
+              "current_issue": "模糊PID控制器未给出模糊规则表、隶属函数、论域等关键参数（见“Fuzzy PID Controller”段落）。",
+              "suggestion": "补充模糊规则表（如7x7规则矩阵）、隶属函数形状（如三角形、高斯型）及论域范围，并说明参数整定方法。",
+              "priority": "高"
+            },
+            {
+              "aspect": "文献引用",
+              "current_issue": "仅引用2篇文献，且未深入分析（见“Dynamic Model”和“Kinematic Model”段落）。",
+              "suggestion": "增加文献数量，至少引用10篇以上相关文献，并对比分析现有方法的优缺点，说明本文方法的改进之处。",
+              "priority": "高"
+            },
+            {
+              "aspect": "仿真参数具体化",
+              "current_issue": "Table 5未列出具体PID增益数值（见“Simulation Scenarios”前）。",
+              "suggestion": "在正文中列出PID增益的具体数值，并说明整定过程（如Ziegler-Nichols或试凑法）。",
+              "priority": "中"
+            },
+            {
+              "aspect": "语言与格式规范",
+              "current_issue": "存在“I”人称、公式缺失、图表标题不规范等问题。",
+              "suggestion": "将“I”改为“we”，补全公式(1)内容，统一图表标题格式（如“Figure 1. Altitude control module using conventional PID.”）。",
+              "priority": "中"
+            }
+          ],
+          "evidence": "动力学建模部分推导了公式(1)-(5)，但控制器设计缺乏模糊规则表等关键细节；文献仅引用2篇，不符合学术规范；仿真参数未具体列出。整体内容质量一般，逻辑基本连贯，创新性不足，表达有格式问题。",
+          "detailed_score_reason": "内容质量（65分）：动力学建模较详细，但控制器设计缺失关键细节，文献引用严重不足，数据不充分。逻辑连贯性（70分）：结构基本合理，但控制器与模型衔接不紧密。创新与贡献（55分）：应用创新但无对比，贡献有限。表达规范性（70分）：语言基本通顺，但存在人称、公式缺失、图表标题不规范等问题。综合加权得分：65*0.4 + 70*0.3 + 55*0.2 + 70*0.1 = 26 + 21 + 11 + 7 = 65，但考虑到文献引用和细节缺失严重，下调至68分，等级为及格。",
+          "section_type": "methodology",
+          "section_title": "Materials and Methods"
+        },
+        {
+          "section_score": 72,
+          "grade_level": "中等",
+          "content_quality": {
+            "score": 70,
+            "comment": "内容质量总体中等。实验数据较充分，但论述深度不足，缺乏对结果机理的深入分析，且文献引用薄弱。",
+            "strengths": [
+              "提供了详细的性能指标数据，如“X-axis overshoot rises to 13.96% with a negative improvement rate of 4553.33%”，数据具体。",
+              "对模糊PID的局限性进行了自我批评，如“the simulation scenario is relatively simple, only verifying the time-varying trajectory tracking without considering practical factors”。"
+            ],
+            "weaknesses": [
+              "文献引用仅一处（Bhuvaneswary et al. [6]），且未在参考文献中列出具体信息，不符合学术规范。",
+              "讨论部分对性能差异的原因分析较浅，如“the fuzzy rule base was designed based on general experience”缺乏文献支持。"
+            ],
+            "depth_analysis": "论述停留在描述层面，如仅列出数据对比，未深入分析模糊PID为何在超调量上表现更差，缺乏理论解释。",
+            "data_sufficiency": "数据较充分，提供了位置和姿态的多项指标，但缺少统计误差分析（如置信区间）。"
+          },
+          "logic_coherence": {
+            "score": 75,
+            "comment": "逻辑连贯性良好。章节内部结构清晰，但与前一章节的衔接不足，未引用前一章节的控制器设计细节。",
+            "internal_logic": "内部逻辑清晰：先展示仿真曲线，再分析性能指标，最后讨论原因和局限。",
+            "cross_chapter_logic": "与前一章节的衔接较弱：前一章节提到“控制器设计细节不足”，但本章未补充说明，直接使用结果。",
+            "issues": [
+              "问题1：未引用前一章节的控制器参数或设计细节，导致读者无法理解结果来源。",
+              "问题2：讨论部分提到“fuzzy rules and initial parameters were tuned manually”，但前一章节未说明调参过程。"
+            ]
+          },
+          "innovation_contribution": {
+            "score": 65,
+            "comment": "创新性一般。模糊PID在四旋翼控制中的应用已有较多研究，本文仅进行了常规对比，缺乏新意。",
+            "novelty_type": "应用创新（但创新程度低）",
+            "concrete_contribution": "提供了模糊PID与常规PID在时变轨迹跟踪下的性能对比数据，但未提出新的控制策略或改进方法。",
+            "comparison_with_existing": "未与现有文献结果进行定量对比，仅引用一篇文献（Bhuvaneswary et al. [6]）支持模糊PID的优越性。"
+          },
+          "writing_quality": {
+            "score": 75,
+            "comment": "表达基本规范，但存在语法错误和图表引用问题。",
+            "language_issues": [
+              "“These figures are all come from”语法错误，应为“These figures all come from”。",
+              "“the curves reflect the deviation”表述不够精确，应为“the curves show the deviation”。"
+            ],
+            "format_issues": [
+              "图表标题未按规范置于图下方，且缺少图注。",
+              "表格6和表格7未在正文中具体描述，仅提及编号。"
+            ]
+          },
+          "key_points": [
+            "模糊PID在调节时间和RMSE上优于常规PID，但超调量更大。",
+            "模糊PID在姿态控制稳态值和波动范围上表现更好。",
+            "讨论了模糊PID的局限性，包括仿真场景简单和参数手动调优。"
+          ],
+          "summary": "本章通过仿真对比了模糊PID和常规PID在四旋翼时变轨迹跟踪中的性能，结果显示模糊PID在动态响应和跟踪精度上优势明显，但超调量较大，并分析了原因和局限性。",
+          "promises_made": [],
+          "promises_fulfilled": [
+            "完成了时变轨迹跟踪对比仿真",
+            "分析了性能差异原因"
+          ],
+          "improvement_suggestions": [
+            {
+              "aspect": "文献引用",
+              "current_issue": "仅引用一篇文献，且未在参考文献中列出详细信息。",
+              "suggestion": "增加相关文献引用，如模糊PID在四旋翼中的应用研究，并规范引用格式。",
+              "priority": "高"
+            },
+            {
+              "aspect": "论述深度",
+              "current_issue": "对超调量增大的原因分析仅基于经验，缺乏理论支撑。",
+              "suggestion": "结合模糊控制理论，分析隶属度函数和规则库对超调的影响，并引用相关文献。",
+              "priority": "高"
+            },
+            {
+              "aspect": "图表规范",
+              "current_issue": "图表标题位置不规范，缺少图注。",
+              "suggestion": "将图表标题置于图下方，并添加图注说明曲线含义。",
+              "priority": "中"
+            }
+          ],
+          "evidence": "本章提供了详细的性能指标数据，如“Fuzzy PID achieves a significant reduction in settling time across all position axes”，但文献引用仅一处，且讨论部分对性能差异的原因分析较浅，如“the fuzzy rule base was designed based on general experience”。整体上，数据充分但论述深度不足，创新性一般。",
+          "detailed_score_reason": "内容质量（70分）：数据充分但论述浅，文献引用薄弱，扣分。逻辑连贯性（75分）：内部逻辑清晰，但与前一章节衔接不足，扣分。创新与贡献（65分）：应用创新程度低，未与现有工作充分对比，扣分。表达规范性（75分）：存在语法错误和格式问题，扣分。综合加权得分：70*0.4+75*0.3+65*0.2+75*0.1=72分，等级中等。与学术标准相比，缺乏深入分析和文献支撑，图表规范性有待提高。",
+          "section_type": "experiment",
+          "section_title": "Results and Discussion"
+        },
+        {
+          "section_score": 82,
+          "grade_level": "良好",
+          "content_quality": {
+            "score": 33,
+            "comment": "内容质量总体良好，结论部分清晰总结了主要工作与结果，但缺乏与现有文献的对比分析，且对超调问题的原因分析不够深入。",
+            "strengths": [
+              "明确总结了模糊PID相比常规PID的性能提升，如调节时间减少76.24%-88.13%，位置RMSE降低55.71%-85.00%，稳态姿态误差改善14.70%-71.50%。",
+              "指出了模糊PID存在超调问题，并初步归因于初始模糊规则设计与动态响应不匹配。"
+            ],
+            "weaknesses": [
+              "未与现有文献中的类似研究进行对比，无法体现本工作的相对优势或局限性。",
+              "对超调原因的分析仅停留在推测层面，缺乏数据或理论支撑。"
+            ],
+            "depth_analysis": "论述深度一般，主要停留在描述仿真结果和简单归因，缺乏对控制机理的深入探讨。",
+            "data_sufficiency": "数据充分性较好，提供了具体的性能指标数值，但未给出统计误差或置信区间。"
+          },
+          "logic_coherence": {
+            "score": 25,
+            "comment": "逻辑连贯性良好，章节内部从结果总结到原因分析再到未来工作，层次清晰；与前一章节衔接自然。",
+            "internal_logic": "内部逻辑完整：先总结模型和控制器设计，再对比性能，分析原因，最后提出未来方向。",
+            "cross_chapter_logic": "与前一章节（仿真结果）衔接紧密，直接引用仿真数据并解释现象。",
+            "issues": [
+              "未来工作部分提到优化模糊规则库和增益调整策略，但未说明这些改进与当前超调问题的具体关联。"
+            ]
+          },
+          "innovation_contribution": {
+            "score": 14,
+            "comment": "创新性一般，主要贡献在于将模糊PID应用于四旋翼时变轨迹跟踪并验证其优势，但方法本身并非全新。",
+            "novelty_type": "应用创新",
+            "concrete_contribution": "提供了模糊PID在四旋翼时变轨迹跟踪中的定量性能对比数据，证实了其相对于常规PID的优越性。",
+            "comparison_with_existing": "未与现有文献中的类似控制方法（如自适应控制、鲁棒控制）进行对比，贡献的独特性不明确。"
+          },
+          "writing_quality": {
+            "score": 10,
+            "comment": "表达规范，语言准确，格式合规。",
+            "language_issues": [],
+            "format_issues": []
+          },
+          "key_points": [
+            "基于牛顿-欧拉法的四旋翼动力学模型能描述非线性和耦合特性。",
+            "模糊PID在时变轨迹跟踪中性能优于常规PID，但存在超调。",
+            "未来工作将优化模糊规则库并采用元启发式优化方法。"
+          ],
+          "summary": "结论章节总结了四旋翼动力学模型、模糊PID与常规PID的仿真对比结果，指出模糊PID在响应速度和跟踪精度上的优势及超调问题，并规划了未来改进方向。",
+          "promises_made": [],
+          "promises_fulfilled": [
+            "建立了四旋翼动力学模型",
+            "设计了模糊PID和常规PID控制器",
+            "进行了时变轨迹跟踪对比仿真"
+          ],
+          "improvement_suggestions": [
+            {
+              "aspect": "内容深度",
+              "current_issue": "对超调原因的分析仅推测为规则设计不匹配，缺乏理论或数据支持。",
+              "suggestion": "增加对超调产生的理论分析，例如从模糊规则表、增益变化曲线等角度解释，或引用相关文献佐证。",
+              "priority": "高"
+            },
+            {
+              "aspect": "创新性",
+              "current_issue": "未与现有文献中的类似控制方法进行对比。",
+              "suggestion": "在结论中简要对比本工作与文献中其他先进控制方法（如自适应控制、滑模控制）的性能差异，突出本工作的贡献。",
+              "priority": "中"
+            },
+            {
+              "aspect": "逻辑连贯性",
+              "current_issue": "未来工作部分未明确说明优化模糊规则库与减少超调之间的具体关系。",
+              "suggestion": "补充说明优化规则库如何预期减少超调，例如通过调整隶属度函数或规则权重来抑制过调。",
+              "priority": "低"
+            }
+          ],
+          "evidence": "结论章节明确给出了模糊PID相比常规PID的性能提升数据（调节时间减少76.24%-88.13%等），并指出了超调问题及其可能原因。但缺乏与现有文献的对比，且对超调原因的分析不够深入。整体上，章节结构清晰，内容完整，符合结论章节的基本要求。",
+          "detailed_score_reason": "内容质量（33/40）：优点在于提供了具体的性能数据并指出了问题，但缺乏文献对比和深入分析，扣7分。逻辑连贯性（25/30）：内部逻辑和跨章节衔接良好，但未来工作与当前问题的关联不够明确，扣5分。创新与贡献（14/20）：属于应用创新，提供了有价值的对比数据，但未与现有工作对比，扣6分。表达规范性（10/10）：语言准确，格式规范，无扣分。总分82，等级良好。与学术标准相比，结论部分应更强调与现有工作的对比和贡献的独特性，同时深入分析问题原因，以提升学术价值。",
+          "section_type": "conclusion",
+          "section_title": "Conclusions"
+        }
+      ],
+      "coherence_checks": [
+        {
+          "coherence_score": 65,
+          "grade_level": "中等",
+          "logic_flow": {
+            "is_smooth": false,
+            "issues": [
+              "摘要末尾提到'But there are larger overshoots appear on some axes'，而引言开头直接介绍四旋翼应用和PID不足，未承接超调问题，存在逻辑跳跃。",
+              "摘要强调模糊PID性能优势（如减少调节时间76.24%），引言却称'its superiority is not always guaranteed'，语气转变突兀，缺乏过渡。"
+            ],
+            "score": 60,
+            "comment": "摘要结尾指出模糊PID存在超调问题，但引言开头未承接此问题，而是重新介绍背景，导致逻辑不连贯。此外，摘要强调模糊PID优势，引言却弱化其优越性，前后语气不一致。",
+            "improvement_suggestions": [
+              "在引言开头简要提及摘要中的超调发现，并以此引出研究动机。",
+              "统一对模糊PID性能的评价语气，避免前后矛盾。"
+            ]
+          },
+          "content_consistency": {
+            "is_consistent": false,
+            "inconsistencies": [
+              "摘要说'fuzzy PID performs better than conventional PID'并给出具体数据，引言却说'its superiority is not always guaranteed'，两者矛盾。",
+              "摘要提到'larger overshoots appear on some axes'，引言说'does not perform better in all aspects, such as overshoots'，虽一致但语气不同。"
+            ],
+            "score": 70,
+            "comment": "摘要和引言在模糊PID性能评价上存在矛盾：摘要明确声称模糊PID更好，引言却表示优越性不总是保证。术语使用一致，但结论不一致。",
+            "improvement_suggestions": [
+              "统一对模糊PID性能的表述，例如在引言中明确说明'尽管模糊PID在多数指标上优于PID，但在某些轴上存在较大超调'。"
+            ]
+          },
+          "transition_quality": {
+            "is_natural": false,
+            "score": 50,
+            "comment": "摘要结尾与引言开头之间缺乏承上启下的过渡段落。摘要以超调问题结束，引言却从四旋翼应用背景重新开始，读者难以感知两者关联。",
+            "missing_transition": "缺少一个过渡句或段落，将摘要中的超调问题与引言中的研究动机联系起来。",
+            "improvement_suggestions": [
+              "在引言开头添加一句过渡，如'尽管上述结果表明模糊PID在多数指标上优于PID，但其超调问题仍需进一步研究'。"
+            ]
+          },
+          "argument_continuity": {
+            "is_continuous": false,
+            "issues": [
+              "摘要提出模糊PID存在超调问题，但引言未延续此问题，而是重新介绍背景和文献，论证链条中断。",
+              "摘要中仿真结果的具体数据（如76.24%）在引言中未提及，导致前一章节的发现未在后一章节得到延续。"
+            ],
+            "score": 55,
+            "comment": "摘要末尾提出的超调问题在引言中未被延续讨论，引言转而介绍背景和文献，论证不连续。摘要中的具体仿真数据也未在引言中引用。",
+            "improvement_suggestions": [
+              "在引言中明确提及摘要中的超调发现，并以此作为研究动机的一部分。",
+              "引用摘要中的具体数据来支持引言中的论述。"
+            ]
+          },
+          "improvement_suggestions": [
+            {
+              "aspect": "逻辑连贯性",
+              "current_issue": "摘要结尾与引言开头之间缺乏逻辑衔接，超调问题未得到承接（摘要末尾 vs 引言开头）。",
+              "suggestion": "在引言开头添加过渡句，直接引用摘要中的超调发现，并说明本文将进一步分析。",
+              "priority": "高"
+            },
+            {
+              "aspect": "内容一致性",
+              "current_issue": "摘要和引言对模糊PID性能的评价矛盾（摘要：'performs better' vs 引言：'superiority not always guaranteed'）。",
+              "suggestion": "统一表述，例如在引言中明确说明'尽管模糊PID在多数指标上优于PID，但在某些轴上存在较大超调'。",
+              "priority": "高"
+            },
+            {
+              "aspect": "过渡自然性",
+              "current_issue": "缺少承上启下的段落（摘要结尾与引言开头之间）。",
+              "suggestion": "在引言开头增加一段过渡，总结摘要发现并引出研究问题。",
+              "priority": "中"
+            },
+            {
+              "aspect": "论证完整性",
+              "current_issue": "摘要中的具体数据未在引言中延续（如76.24%）。",
+              "suggestion": "在引言中引用摘要中的关键数据，以增强论证的连续性。",
+              "priority": "中"
+            }
+          ],
+          "overall_comment": "摘要与引言之间的逻辑衔接存在明显问题。摘要结尾指出模糊PID存在超调，但引言开头未承接此问题，而是重新介绍背景，导致逻辑跳跃。此外，摘要强调模糊PID性能优势，引言却弱化其优越性，内容矛盾。过渡缺失，论证不连续。建议在引言开头添加过渡句，统一对模糊PID的评价，并引用摘要中的具体数据以增强连贯性。",
+          "prev_section": "Abstract",
+          "next_section": "Introduction"
+        },
+        {
+          "coherence_score": 55,
+          "grade_level": "中等",
+          "logic_flow": {
+            "is_smooth": false,
+            "issues": [
+              "引言末尾提到仿真结果，但方法章节开头直接进入动力学建模，没有说明仿真结果如何得出，存在逻辑跳跃。",
+              "引言中已给出部分结论（如模糊PID在某些情况下更快），但方法章节未提及这些结论的由来，读者期待看到如何得到这些结果，但方法章节未承接。"
+            ],
+            "score": 50,
+            "comment": "引言末尾直接给出了仿真结果（如模糊PID响应更快），但方法章节开头并未解释这些结果是如何得出的，而是直接开始建模，导致逻辑跳跃。读者期待看到方法如何支撑结果，但过渡缺失。",
+            "improvement_suggestions": [
+              "在方法章节开头增加一段承上启下的文字，说明本章将介绍仿真模型和控制器设计，以验证引言中提到的性能差异。",
+              "将引言末尾的仿真结果移至结果章节，避免在引言中提前给出结论。"
+            ]
+          },
+          "content_consistency": {
+            "is_consistent": true,
+            "inconsistencies": [],
+            "score": 90,
+            "comment": "前后章节在术语使用上一致，如均使用'quadrotor'、'PID'、'fuzzy PID'等，没有发现矛盾之处。",
+            "improvement_suggestions": []
+          },
+          "transition_quality": {
+            "is_natural": false,
+            "score": 40,
+            "comment": "章节之间缺乏过渡段落。引言末尾直接给出仿真结果，而方法章节开头直接开始建模，没有承上启下的句子，过渡生硬。",
+            "missing_transition": "缺少一段文字，说明本章将介绍如何通过仿真模型和控制器设计来验证引言中提到的性能差异。",
+            "improvement_suggestions": [
+              "在方法章节开头添加过渡句，如：'To verify the performance differences observed in the introduction, this section presents the dynamic model and controller design used in the simulation.'"
+            ]
+          },
+          "argument_continuity": {
+            "is_continuous": false,
+            "issues": [
+              "引言中提出了模糊PID优于PID的假设，但方法章节未明确说明如何通过仿真验证这一假设，论证链条不完整。",
+              "引言中提到了性能指标（跟踪精度、稳定性、响应时间），但方法章节未明确这些指标如何计算或测量。"
+            ],
+            "score": 45,
+            "comment": "引言提出了模糊PID与PID性能对比的问题，但方法章节未明确说明如何设计仿真来回答这个问题，例如未定义具体的性能指标计算方法，导致论证不连续。",
+            "improvement_suggestions": [
+              "在方法章节中明确列出性能指标的定义和计算方法。",
+              "在方法章节开头重申研究目标，并说明本章内容如何服务于该目标。"
+            ]
+          },
+          "improvement_suggestions": [
+            {
+              "aspect": "逻辑连贯性",
+              "current_issue": "引言末尾给出仿真结果，方法章节未承接（引言末尾：'The simulation results indicate...'；方法开头：'Materials and Methods'直接建模）",
+              "suggestion": "将引言中的仿真结果移至结果章节，或方法章节开头增加过渡句说明本章将介绍如何得到这些结果。",
+              "priority": "高"
+            },
+            {
+              "aspect": "过渡自然性",
+              "current_issue": "缺乏承上启下的段落",
+              "suggestion": "在方法章节开头添加一段，总结引言并引出方法，例如：'In the previous section, we hypothesized that fuzzy PID may outperform classical PID under certain conditions. To test this, we developed a simulation model and designed both controllers as described below.'",
+              "priority": "高"
+            },
+            {
+              "aspect": "论证连续性",
+              "current_issue": "引言中提到的性能指标未在方法中定义",
+              "suggestion": "在方法章节中明确列出性能指标（如跟踪精度、响应时间）的计算公式或测量方法。",
+              "priority": "中"
+            }
+          ],
+          "overall_comment": "前后章节在术语使用上一致，但逻辑衔接存在明显问题。引言末尾直接给出了仿真结果，而方法章节开头直接进入动力学建模，缺乏过渡，导致逻辑跳跃。此外，引言中提出的性能对比问题未在方法中得到明确延续，论证链条不完整。建议在方法章节开头增加承上启下的段落，并将引言中的结果移至结果章节，以改善衔接。",
+          "prev_section": "Introduction",
+          "next_section": "Materials and Methods"
+        },
+        {
+          "coherence_score": 45,
+          "grade_level": "中等",
+          "logic_flow": {
+            "is_smooth": false,
+            "issues": [
+              "前一章节末尾定义了三个评价指标（超调量、调节时间、RMSE），但后一章节开头直接展示仿真曲线和表格，未说明这些指标如何与后续结果对应，存在逻辑跳跃。",
+              "后一章节提到“由于模糊PID的曲线与常规PID几乎重叠，只展示常规PID曲线”，但前一章节未提及此情况，读者无法预期，导致逻辑不连贯。"
+            ],
+            "score": 40,
+            "comment": "前一章节末尾详细定义了三个评价指标，但后一章节开头直接展示仿真曲线和表格，未建立从指标定义到结果呈现的桥梁，且突然说明曲线重叠原因，缺乏过渡，导致逻辑跳跃。",
+            "improvement_suggestions": [
+              "在后一章节开头增加一段过渡，说明将基于前一章定义的指标展示仿真结果，并解释为何只展示常规PID曲线。",
+              "在展示表格前，先简要回顾指标定义，并说明表格将如何体现这些指标。"
+            ]
+          },
+          "content_consistency": {
+            "is_consistent": false,
+            "inconsistencies": [
+              "前一章节末尾定义的评价指标包括超调量、调节时间、RMSE，但后一章节表格中出现了“稳态误差”（steady-state error），该指标在前一章未定义，术语不一致。",
+              "前一章节提到使用(1,1,-1)m和(4,4,-4)m作为参考轨迹，但后一章节未明确说明仿真轨迹是否与此一致，存在潜在矛盾。"
+            ],
+            "score": 50,
+            "comment": "前一章节定义了三个指标，后一章节表格中新增了“稳态误差”，且未说明其计算方法，导致术语不一致；参考轨迹的对应关系不明确，影响内容一致性。",
+            "improvement_suggestions": [
+              "在后一章节中补充稳态误差的定义，或在前一章节中预先定义该指标。",
+              "明确说明仿真轨迹与前一章节定义的参考轨迹一致，避免歧义。"
+            ]
+          },
+          "transition_quality": {
+            "is_natural": false,
+            "score": 35,
+            "comment": "前后章节之间缺乏承上启下的段落，前一章节以指标定义结束，后一章节直接以“Results and Discussion”开头，没有过渡语句，显得突兀。",
+            "missing_transition": "缺少一段过渡段落，将前一章节的指标定义与后一章节的仿真结果联系起来，例如说明仿真设置、参数选择、结果呈现顺序等。",
+            "improvement_suggestions": [
+              "在“Results and Discussion”开头增加一段过渡，如“基于前一章定义的指标和仿真场景，本节展示并分析两种控制器的仿真结果。”",
+              "简要说明仿真参数（如采样时间、仿真时长）与前一章一致。"
+            ]
+          },
+          "argument_continuity": {
+            "is_continuous": false,
+            "issues": [
+              "前一章节提出了三个评价指标，但后一章节在讨论位置控制性能时，只分析了超调量和调节时间，未提及RMSE，论证不完整。",
+              "前一章节未讨论模糊PID超调量大的原因，后一章节直接指出模糊PID超调量增大，但未与前一章节的控制器设计细节关联，论证链条断裂。"
+            ],
+            "score": 45,
+            "comment": "前一章节定义的RMSE指标在后一章节的位置控制性能讨论中未被提及，导致论证不完整；模糊PID超调量大的原因未与前一章的控制器设计关联，论证链条不连续。",
+            "improvement_suggestions": [
+              "在后一章节的位置控制性能部分补充RMSE的分析，或说明为何此处不讨论RMSE。",
+              "在讨论模糊PID超调量时，引用前一章的控制器设计（如模糊规则、隶属函数）来解释原因。"
+            ]
+          },
+          "improvement_suggestions": [
+            {
+              "aspect": "逻辑流畅性",
+              "current_issue": "前一章末尾定义指标，后一章开头直接展示结果，缺乏过渡（后一章开头第一句）。",
+              "suggestion": "增加过渡段落，说明将基于指标展示结果，并解释曲线重叠原因。",
+              "priority": "高"
+            },
+            {
+              "aspect": "内容一致性",
+              "current_issue": "后一章表格出现未定义的“稳态误差”（后一章表格表头）。",
+              "suggestion": "在前一章补充稳态误差定义，或在后一章说明其计算方法。",
+              "priority": "高"
+            },
+            {
+              "aspect": "论证完整性",
+              "current_issue": "前一章定义的RMSE在后一章位置控制性能讨论中缺失（后一章位置控制性能部分）。",
+              "suggestion": "补充RMSE的分析，或说明为何省略。",
+              "priority": "中"
+            },
+            {
+              "aspect": "过渡自然性",
+              "current_issue": "前后章节之间无承上启下段落（前一章末尾与后一章开头之间）。",
+              "suggestion": "添加过渡段落，如“基于前一章的模型和控制器设计，本节进行仿真验证。”",
+              "priority": "高"
+            }
+          ],
+          "overall_comment": "前后章节在逻辑衔接上存在明显不足。前一章节末尾定义了三个评价指标，但后一章节开头直接展示仿真曲线和表格，缺乏过渡，导致逻辑跳跃；同时，后一章节新增了未定义的“稳态误差”，且未讨论RMSE，造成内容不一致和论证不完整。建议增加过渡段落，统一术语，并补充缺失的指标分析，以增强衔接的连贯性和完整性。",
+          "prev_section": "Materials and Methods",
+          "next_section": "Results and Discussion"
+        },
+        {
+          "coherence_score": 85,
+          "grade_level": "良好",
+          "logic_flow": {
+            "is_smooth": true,
+            "issues": [],
+            "score": 85,
+            "comment": "前后章节逻辑连贯，前一章节末尾详细讨论了模糊PID的局限性及未来改进方向，后一章节开头自然承接，先总结仿真结果，再重申超调问题，并规划未来工作，论证链条完整。",
+            "improvement_suggestions": []
+          },
+          "content_consistency": {
+            "is_consistent": true,
+            "inconsistencies": [],
+            "score": 90,
+            "comment": "内容高度一致，前一章节末尾指出超调原因（模糊规则设计不匹配、隶属度函数范围划分问题），后一章节开头同样指出超调由初始模糊规则与动态响应不匹配导致，术语统一。",
+            "improvement_suggestions": []
+          },
+          "transition_quality": {
+            "is_natural": true,
+            "score": 80,
+            "comment": "过渡自然，前一章节末尾以'Future Improvements'结尾，后一章节以'Conclusions'开头，虽无显式承上启下段落，但内容上从局限性直接过渡到总结和未来工作，逻辑顺畅。",
+            "missing_transition": "可考虑在结论开头增加一句过渡，如'Based on the above discussion, the main conclusions are summarized as follows:'",
+            "improvement_suggestions": [
+              "在结论开头添加一句承上启下的句子，如'Based on the above discussion, the main conclusions are summarized as follows:'"
+            ]
+          },
+          "argument_continuity": {
+            "is_continuous": true,
+            "issues": [],
+            "score": 85,
+            "comment": "前一章节提出的局限性（仿真场景简单、参数手动调节、未考虑扰动）在后一章节的未来工作中得到延续（优化规则库、引入元启发算法、扩展仿真），论证连续。",
+            "improvement_suggestions": []
+          },
+          "improvement_suggestions": [
+            {
+              "aspect": "过渡自然性",
+              "current_issue": "结论章节开头直接进入总结，缺少与前一章节的显式衔接",
+              "suggestion": "在结论开头添加一句承上启下的句子，如'Based on the above discussion, the main conclusions are summarized as follows:'",
+              "priority": "低"
+            }
+          ],
+          "overall_comment": "两个章节之间的逻辑衔接整体良好。前一章节末尾详细阐述了模糊PID的局限性和未来改进方向，后一章节开头自然承接，先总结仿真结果，再重申超调问题，并规划未来工作，内容一致，论证连续。唯一可改进之处是结论开头缺少显式过渡句，但整体不影响理解。",
+          "prev_section": "Results and Discussion",
+          "next_section": "Conclusions"
+        }
+      ],
+      "avg_section_score": 74.4,
+      "avg_coherence_score": 62.5,
+      "evaluation_method": "sectioned_evaluation",
+      "student_info": {
+        "name": "1222111",
+        "student_id": "1222111",
+        "title": "[论文] 测试论文word",
+        "submission_id": "SUB_D3921CD5"
+      },
+      "thesis_structure": {
+        "thesis_type": "仿真分析类",
+        "total_sections": 5,
+        "main_works": [
+          "建立四旋翼无人机动力学模型",
+          "设计模糊PID和常规PID控制器",
+          "在Simulink中进行时变轨迹跟踪对比仿真"
+        ],
+        "sections": [
+          {
+            "section_index": 0,
+            "section_type": "abstract",
+            "section_type_name": "摘要",
+            "title": "Abstract",
+            "start_marker": "Abstract",
+            "end_marker": "Keywords",
+            "estimated_content": "摘要介绍了四旋翼无人机的控制挑战，模糊PID和常规PID的对比，以及仿真结果。"
+          },
+          {
+            "section_index": 1,
+            "section_type": "introduction",
+            "section_type_name": "绪论",
+            "title": "Introduction",
+            "start_marker": "Introduction",
+            "end_marker": "Materials and Methods",
+            "estimated_content": "绪论介绍了四旋翼无人机的应用背景、PID控制的局限性、模糊PID的优势，以及本文的研究目标。",
+            "key_promises": [
+              "建立Simulink仿真模型",
+              "比较模糊PID和常规PID的性能",
+              "评估跟踪精度、稳定性和响应时间"
+            ]
+          },
+          {
+            "section_index": 2,
+            "section_type": "methodology",
+            "section_type_name": "方法/设计",
+            "title": "Materials and Methods",
+            "start_marker": "Materials and Methods",
+            "end_marker": "Results and Discussion",
+            "estimated_content": "包括四旋翼动力学建模（运动学和动力学模型）、控制器设计（级联结构）、仿真参数和场景设置。"
+          },
+          {
+            "section_index": 3,
+            "section_type": "experiment",
+            "section_type_name": "实验/测试",
+            "title": "Results and Discussion",
+            "start_marker": "Results and Discussion",
+            "end_marker": "Conclusions",
+            "estimated_content": "展示了位置控制和姿态控制的性能指标对比，包括超调量、调节时间、RMSE等。"
+          },
+          {
+            "section_index": 4,
+            "section_type": "conclusion",
+            "section_type_name": "结论",
+            "title": "Conclusions",
+            "start_marker": "Conclusions",
+            "end_marker": "References",
+            "estimated_content": "总结了模糊PID在调节时间、RMSE和稳态误差方面的优势，以及超调问题，并提出了未来工作方向。"
+          }
+        ],
+        "structure_analysis": "论文结构清晰，包括摘要、绪论、材料与方法、结果与讨论、结论五个部分。绪论中明确了研究目标和承诺，方法部分详细介绍了建模和控制器设计，实验部分给出了性能对比，结论总结了主要发现和未来工作。"
+      },
+      "promise_tracking": {
+        "fulfillment_status": [
+          {
+            "promise": "建立四旋翼无人机动力学模型",
+            "source_section": "Abstract",
+            "is_fulfilled": true,
+            "fulfillment_section": "Materials and Methods - Quadrotor Dynamic Modeling",
+            "fulfillment_evidence": "在Materials and Methods部分，详细描述了Kinematic Model和Dynamic Model，包括旋转矩阵R、牛顿第二定律、欧拉方程等，并给出了公式(1)-(5)。原文：'Quadrotor Dynamic Modeling' 小节下，'Kinematic Model' 和 'Dynamic Model' 子节。",
+            "fulfillment_degree": "完全兑现",
+            "comment": "论文在Materials and Methods部分完整建立了四旋翼动力学模型，包括运动学和动力学方程，使用了牛顿-欧拉方法，与承诺一致。",
+            "impact_analysis": "该模型为后续控制器设计和仿真提供了理论基础，是论文的核心支撑，完全兑现增强了论文的完整性。",
+            "improvement_suggestion": "无"
+          },
+          {
+            "promise": "设计模糊PID和常规PID控制器",
+            "source_section": "Abstract",
+            "is_fulfilled": true,
+            "fulfillment_section": "Results and Discussion - Simulation Results",
+            "fulfillment_evidence": "在Results and Discussion部分，通过仿真结果对比了模糊PID和常规PID的性能，包括位置跟踪曲线和误差曲线，以及表6和表7中的性能指标。原文：'Figure 4 presents the X/Y/Z-axis position tracking performance of the conventional PID controller...' 以及 'Table 6. Position Control Performance Metrics Comparison' 和 'Table 7. Attitude Control Performance Metrics Comparison'。",
+            "fulfillment_degree": "部分兑现",
+            "comment": "论文展示了两种控制器的仿真结果和性能对比，但未在单独章节明确描述控制器的设计过程（如模糊规则、PID参数等），仅通过仿真结果间接体现设计。因此属于部分兑现。",
+            "impact_analysis": "缺少控制器设计细节降低了论文的可复现性，但仿真对比仍验证了控制器的有效性，对整体质量影响中等。",
+            "improvement_suggestion": "建议在Materials and Methods部分增加控制器设计小节，详细说明模糊PID的模糊规则、隶属函数以及常规PID的参数整定方法。"
+          },
+          {
+            "promise": "在Simulink中进行时变轨迹跟踪对比仿真",
+            "source_section": "Abstract",
+            "is_fulfilled": true,
+            "fulfillment_section": "Results and Discussion - Simulation Results",
+            "fulfillment_evidence": "在Results and Discussion部分，明确提到仿真是在Simulink中进行的，并展示了时变轨迹跟踪的结果。原文：'These figures are all come from “scope” module in Simulink.' 以及 'The simulation results of position and attitude control under time-varying trajectory tracking are shown in Table 6 and Table 7.'",
+            "fulfillment_degree": "完全兑现",
+            "comment": "论文明确说明仿真在Simulink中进行，并给出了时变轨迹跟踪的对比结果，包括位置和姿态性能指标，完全符合承诺。",
+            "impact_analysis": "该仿真验证了控制器的性能，是论文的核心实验部分，完全兑现增强了论文的可信度。",
+            "improvement_suggestion": "无"
+          }
+        ],
+        "overall_fulfillment_rate": 0.8333,
+        "unfulfilled_promises": [],
+        "partially_fulfilled_promises": [
+          "设计模糊PID和常规PID控制器"
+        ],
+        "summary": "论文的三个承诺中，两个完全兑现（建立动力学模型和Simulink仿真），一个部分兑现（控制器设计）。动力学模型在Materials and Methods部分详细建立，仿真在Results and Discussion部分展示。控制器设计仅通过仿真结果间接体现，缺乏设计细节。整体兑现率较高，但控制器设计部分的不完整影响了论文的可复现性。建议补充控制器设计小节以完善论文。",
+        "promises": [
+          {
+            "promise": "建立四旋翼无人机动力学模型",
+            "source_section": "Abstract",
+            "source_section_type": "abstract",
+            "source_index": 0
+          },
+          {
+            "promise": "设计模糊PID和常规PID控制器",
+            "source_section": "Abstract",
+            "source_section_type": "abstract",
+            "source_index": 0
+          },
+          {
+            "promise": "在Simulink中进行时变轨迹跟踪对比仿真",
+            "source_section": "Abstract",
+            "source_section_type": "abstract",
+            "source_index": 0
+          }
+        ]
+      },
+      "novelty_verification": {
+        "citation_based_novelty_score": 37.9,
+        "novelty_grade": "不及格",
+        "reference_verification_rate": 0.833,
+        "recency_score": 100,
+        "self_citation_assessment": "无法检测（未找到作者信息）",
+        "innovation_verification": []
+      }
+    },
+    "enhancement_modules": {
+      "novelty_verification": {
+        "novelty_score": 37.9,
+        "novelty_grade": "不及格",
+        "novelty_breakdown": {
+          "reference_verifiability": 83.3,
+          "recency": 100,
+          "citation_quality": 40.0,
+          "innovation_bonus": 0,
+          "self_citation_penalty": 0.0,
+          "fake_reference_penalty": 18.8,
+          "relevance_bonus": 5
+        },
+        "reference_statistics": {
+          "total_references": 6,
+          "verified_references": 5,
+          "verification_rate": 0.833,
+          "references_checked": 6,
+          "unverified_count": 0,
+          "suspicious_count": 1
+        },
+        "fake_reference_analysis": {
+          "risk_level": "medium",
+          "fake_probability": 25,
+          "assessment": "🚨 发现1条引用的标题与数据库记录不匹配，极可能是被修改过的虚假引用！",
+          "risk_factors": [
+            "1条引用的标题与数据库中的论文标题不匹配，极可能是修改过的虚假引用"
+          ],
+          "high_suspicious_count": 0,
+          "topic_mismatch_count": 1,
+          "similar_pairs": [],
+          "recommendations": [
+            "🚨 第3条引用的标题与数据库中的论文标题不匹配，极可能是被修改过的虚假引用，强烈建议人工核查！",
+            "引用[3]实际对应的论文为「SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINFORCEMENT LEARNING」，与引用中的标题不符"
+          ]
+        },
+        "unverified_references": [],
+        "suspicious_references": [
+          {
+            "index": 3,
+            "raw_text": "L. M. Gonzalez, \"Adaptive Sliding Mode Control for UAVs: Mitigating Wind Disturbances via Reinforcement Learning Tuning,\" (in English), IEEE Access, v",
+            "indicators": [
+              "CrossRef结果与引用标题不匹配（相似度35%）"
+            ],
+            "detail": "🚨 通过CrossRef找到论文，但标题不匹配: 引用「Adaptive Sliding Mode Control for UAVs: Mitigating Wind Dist」 vs 实际「SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINF」",
+            "title_mismatch": true,
+            "author_mismatch": false
+          }
+        ],
+        "topic_mismatch_references": [
+          {
+            "index": 3,
+            "raw_text": "L. M. Gonzalez, \"Adaptive Sliding Mode Control for UAVs: Mitigating Wind Disturbances via Reinforcement Learning Tuning,\" (in English), IEEE Access, v",
+            "found_title": "SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINFORCEMENT LEARNING",
+            "reason": "🚨 通过CrossRef找到论文，但标题不匹配: 引用「Adaptive Sliding Mode Control for UAVs: Mitigating Wind Dist」 vs 实际「SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINF」",
+            "source": "crossref_mismatch",
+            "title_mismatch": true,
+            "author_mismatch": false
+          }
+        ],
+        "verified_reference_details": [
+          {
+            "index": 1,
+            "title": "Performance evaluation of developed controllers for unmanned aerial vehicles with reference camera",
+            "year": 2024,
+            "citation_count": 3,
+            "venue": "Measurement and control (London. 1968)",
+            "authors": [
+              "Aidana Tassanbi",
+              "Aizaz Ali Khan",
+              "A. Kashkynbayev"
+            ],
+            "source": "semantic_scholar_doi"
+          },
+          {
+            "index": 2,
+            "title": "Comprehensive review of various control strategies for quadrotor unmanned aerial vehicles",
+            "year": 2023,
+            "citation_count": 6,
+            "venue": "FME Transaction",
+            "authors": [
+              "B. Singh",
+              "Awadhesh Kumar",
+              "G. Kumar"
+            ],
+            "source": "semantic_scholar_doi"
+          },
+          {
+            "index": 4,
+            "title": "Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neural Network Controller",
+            "year": 2024,
+            "citation_count": 47,
+            "venue": "IEEE Access",
+            "authors": [
+              "Nigatu Wanore Madebo",
+              "Chala Merga Abdissa",
+              "Lebsework Negash Lemma"
+            ],
+            "source": "semantic_scholar_doi"
+          },
+          {
+            "index": 5,
+            "title": "A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive Bald Eagle Search and Fuzzy Logic",
+            "year": 2025,
+            "citation_count": 1,
+            "venue": "Electronics",
+            "authors": [
+              "Yalei Bai",
+              "Kelin Li",
+              "Guangzhao Wang"
+            ],
+            "source": "semantic_scholar_doi"
+          },
+          {
+            "index": 6,
+            "title": "Quadcopter with Fuzzy Logic based Self-Tuning PID Controller",
+            "year": 2025,
+            "citation_count": 0,
+            "venue": "International Conference Trends Material Science and Inventive Materials",
+            "authors": [
+              "N. Bhuvaneswary",
+              "B. G. reddy",
+              "K. Praveen"
+            ],
+            "source": "semantic_scholar_doi"
+          }
+        ],
+        "recency_analysis": {
+          "has_year_info": true,
+          "total_with_year": 5,
+          "avg_year": 2024.4,
+          "median_year": 2025,
+          "recent_5y_count": 5,
+          "recent_5y_ratio": 1.0,
+          "recent_3y_count": 5,
+          "recent_3y_ratio": 1.0,
+          "recency_score": 100,
+          "year_distribution": {
+            "2020s": 5
+          },
+          "assessment": "引用文献非常新颖，紧跟学术前沿"
+        },
+        "self_citation_analysis": {
+          "self_citation_detected": false,
+          "self_citation_count": 0,
+          "self_citation_ratio": 0.0,
+          "assessment": "无法检测（未找到作者信息）",
+          "detail": "论文中未提取到作者信息，无法进行自引检测"
+        },
+        "citation_quality": {
+          "quality_score": 40.0,
+          "avg_citation_count": 11.4,
+          "high_citation_ratio": 0.0,
+          "zero_citation_ratio": 0.2,
+          "venue_coverage": 1.0,
+          "authority_assessment": "引用文献权威性偏低，高影响力论文较少",
+          "source_diversity": [
+            "期刊论文",
+            "会议论文"
+          ],
+          "language_balance": "仅引用英文文献(6篇)，建议适当增加中文文献",
+          "detail": "引用文献权威性偏低，高影响力论文较少; 文献类型: 期刊论文, 会议论文; 仅引用英文文献(6篇)，建议适当增加中文文献"
+        },
+        "reference_relevance": {
+          "relevance_score": 100,
+          "avg_relevance": 0.367,
+          "relevant_ratio": 1.0,
+          "assessment": "参考文献与论文主题高度相关"
+        },
+        "claimed_innovations": [],
+        "innovation_verification": [],
+        "verification_details": [
+          {
+            "reference_index": 1,
+            "raw_text": "A. Tassanbi, A. Khan, A. Kashkynbayev, E. Shehab, T. Do, and M. Ali, \"Performance evaluation of developed controllers for unmanned aerial vehicles with reference camera,\" (in English), Meas. Control, ",
+            "verified": true,
+            "confidence": 0.95,
+            "source": "semantic_scholar_doi",
+            "paper_info": {
+              "title": "Performance evaluation of developed controllers for unmanned aerial vehicles with reference camera",
+              "year": 2024,
+              "citation_count": 3,
+              "authors": [
+                "Aidana Tassanbi",
+                "Aizaz Ali Khan",
+                "A. Kashkynbayev",
+                "Essam Shehab",
+                "Ton Duc do"
+              ],
+              "venue": "Measurement and control (London. 1968)",
+              "doi": "10.1177/00202940241270863",
+              "abstract": "This research article aims to compare the performance of three distinct types of controllers, namely proportional-integral-derivative (PID), Fuzzy PID (F-PID), and Fuzzy PID controller with prefilter (PF-PID), for the “Quanser” QDrone. In quadrotor applications, control design and implementation are"
+            },
+            "suspicious_indicators": [],
+            "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Performance evaluation of developed controllers for unmanned aerial vehicles wit",
+            "topic_mismatch": false,
+            "title_mismatch": false,
+            "author_mismatch": false
+          },
+          {
+            "reference_index": 2,
+            "raw_text": "B. Singh, A. Kumar, and V. Giri, \"Comprehensive Review of Various Control Strategies for Quadrotor Unmanned Aerial Vehicles,\" (in English), FME Trans., Review vol. 51, no. 3, pp. 298–317, 2023, doi: 1",
+            "verified": true,
+            "confidence": 0.95,
+            "source": "semantic_scholar_doi",
+            "paper_info": {
+              "title": "Comprehensive review of various control strategies for quadrotor unmanned aerial vehicles",
+              "year": 2023,
+              "citation_count": 6,
+              "authors": [
+                "B. Singh",
+                "Awadhesh Kumar",
+                "G. Kumar"
+              ],
+              "venue": "FME Transaction",
+              "doi": "10.5937/fme2303298s",
+              "abstract": "The Quadrotor Unmanned Aerial Vehicles (UAVs) have gained significant attention in recent years due to their versatile applications in civilian and military sectors. It is a highly nonlinear and underactuated system and an outdoor flight; it is always subjected to external disturbances due to wind g"
+            },
+            "suspicious_indicators": [],
+            "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Comprehensive review of various control strategies for quadrotor unmanned aerial",
+            "topic_mismatch": false,
+            "title_mismatch": false,
+            "author_mismatch": false
+          },
+          {
+            "reference_index": 3,
+            "raw_text": "L. M. Gonzalez, \"Adaptive Sliding Mode Control for UAVs: Mitigating Wind Disturbances via Reinforcement Learning Tuning,\" (in English), IEEE Access, vol. 12, pp. 45902–45917, 2024, doi: 10.1109/access",
+            "verified": false,
+            "confidence": 0.15,
+            "source": "crossref_mismatch",
+            "paper_info": {
+              "title": "SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINFORCEMENT LEARNING",
+              "year": 2025,
+              "citation_count": 0,
+              "authors": [
+                " ",
+                "Volodymyr Sorochynskyi"
+              ],
+              "venue": "Human and Space",
+              "doi": "10.62717/2221-4550-2025-1-110"
+            },
+            "suspicious_indicators": [
+              "CrossRef结果与引用标题不匹配（相似度35%）"
+            ],
+            "verification_detail": "🚨 通过CrossRef找到论文，但标题不匹配: 引用「Adaptive Sliding Mode Control for UAVs: Mitigating Wind Dist」 vs 实际「SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINF」",
+            "topic_mismatch": true,
+            "title_mismatch": true,
+            "author_mismatch": false
+          },
+          {
+            "reference_index": 4,
+            "raw_text": "N. Madebo, C. Abdissa, and L. Lemma, \"Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neural Network Controller,\" (in English), IEEE Access, vol. 12, pp. 190454–190469, 20",
+            "verified": true,
+            "confidence": 0.95,
+            "source": "semantic_scholar_doi",
+            "paper_info": {
+              "title": "Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neural Network Controller",
+              "year": 2024,
+              "citation_count": 47,
+              "authors": [
+                "Nigatu Wanore Madebo",
+                "Chala Merga Abdissa",
+                "Lebsework Negash Lemma"
+              ],
+              "venue": "IEEE Access",
+              "doi": "10.1109/ACCESS.2024.3516494",
+              "abstract": "This paper presents a novel Fuzzy PID-based Recurrent Neural Network (FPIDRNN) controller designed to enhance trajectory control in quadrotor Unmanned Aerial Vehicles (UAVs). Conventional control approaches such as Proportional-Integral-Derivative (PID) and Fuzzy PID (FPID) require extensive tuning "
+            },
+            "suspicious_indicators": [],
+            "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neu",
+            "topic_mismatch": false,
+            "title_mismatch": false,
+            "author_mismatch": false
+          },
+          {
+            "reference_index": 5,
+            "raw_text": "Y. Bai, K. Li, and G. Wang, \"A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive Bald Eagle Search and Fuzzy Logic,\" (in English), Electronics, vol. 14, no. 11, pp. 2112, 2",
+            "verified": true,
+            "confidence": 0.95,
+            "source": "semantic_scholar_doi",
+            "paper_info": {
+              "title": "A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive Bald Eagle Search and Fuzzy Logic",
+              "year": 2025,
+              "citation_count": 1,
+              "authors": [
+                "Yalei Bai",
+                "Kelin Li",
+                "Guangzhao Wang"
+              ],
+              "venue": "Electronics",
+              "doi": "10.3390/electronics14112112",
+              "abstract": "In this study, we propose an innovative inner–outer loop control framework for a quadcopter unmanned aerial vehicle (UAV) that significantly enhances the trajectory-tracking speed and accuracy while enhancing robustness against external disturbances. The inner loop employs a Linear Active Disturbanc"
+            },
+            "suspicious_indicators": [],
+            "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive ",
+            "topic_mismatch": false,
+            "title_mismatch": false,
+            "author_mismatch": false
+          },
+          {
+            "reference_index": 6,
+            "raw_text": "N. Bhuvaneswary, B. Gowtham Reddy, K. Praveen Kumar Reddy, M. Vishnu Vardhan, K. Jagadeesh Kumar, and M. Anudeep Venkat Reddy, \"Quadcopter with Fuzzy Logic based Self-Tuning PID Controller,\" in 5th In",
+            "verified": true,
+            "confidence": 0.95,
+            "source": "semantic_scholar_doi",
+            "paper_info": {
+              "title": "Quadcopter with Fuzzy Logic based Self-Tuning PID Controller",
+              "year": 2025,
+              "citation_count": 0,
+              "authors": [
+                "N. Bhuvaneswary",
+                "B. G. reddy",
+                "K. Praveen",
+                "K. Reddy",
+                "M. Vardhan"
+              ],
+              "venue": "International Conference Trends Material Science and Inventive Materials",
+              "doi": "10.1109/ICTMIM65579.2025.10988349",
+              "abstract": "This paper presents a fuzzy logic-based self-tuning PID controller for real-time adaptive PID parameter tuning in dynamic flight conditions. Quadcopters need adaptive and precise control for stable flight under changing conditions like wind turbulence and changing payloads. Conventional Proportional"
+            },
+            "suspicious_indicators": [],
+            "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Quadcopter with Fuzzy Logic based Self-Tuning PID Controller",
+            "topic_mismatch": false,
+            "title_mismatch": false,
+            "author_mismatch": false
+          }
+        ]
+      }
+    },
+    "final_enhanced_score": 64.6,
+    "final_enhanced_grade": "及格",
+    "score_adjustments": {
+      "novelty_correction": {
+        "value": -2.9,
+        "reason": "引用网络验证的新颖度(37.9)显著低于LLM评分(56.9)，进行向下校准"
+      },
+      "topic_mismatch_penalty": {
+        "value": -3.0,
+        "reason": "发现1条引用与论文主题严重不匹配，极可能是虚假引用或AI编造"
+      },
+      "fake_reference_penalty": {
+        "value": -2.0,
+        "reason": "虚假引用风险中等(概率25%)，部分参考文献无法验证"
+      }
+    },
+    "total_adjustment": -7.9,
+    "base_score": 72.5,
+    "section_evaluations": [
+      {
+        "section_score": 78,
+        "grade_level": "中等",
+        "content_quality": {
+          "score": 75,
+          "comment": "摘要内容基本完整，涵盖了研究背景、方法、结果和结论，但论述深度不足，缺乏对模糊PID原理的深入解释，数据呈现不够充分，仅给出百分比而未提供原始数据或统计显著性检验。",
+          "strengths": [
+            "明确指出了四旋翼无人机的非线性和欠驱动特性，以及传统PID的局限性（原文：'Conventional PID controllers... rely on manual parameter tuning and lack robustness'）",
+            "给出了具体的性能改进百分比，如调节时间减少76.24%-88.13%，RMSE减少55.71%-85.00%（原文：'the settling time is reduced by 76.24% to 88.13%, the RMSE is decreased by 55.71% to 85.00%'）"
+          ],
+          "weaknesses": [
+            "未引用任何文献，缺乏文献分析支撑（摘要中无参考文献）",
+            "结果仅报告百分比，未提供原始数据（如具体RMSE值）或统计显著性检验，数据充分性不足"
+          ],
+          "depth_analysis": "论述停留在描述层面，仅说明模糊PID优于传统PID，未深入分析为何模糊PID能改善性能，例如模糊规则的设计依据或参数调整机制。",
+          "data_sufficiency": "数据不充分：仅给出性能改进百分比，未提供原始数据、误差范围或统计检验，无法判断结果的可靠性和可重复性。"
+        },
+        "logic_coherence": {
+          "score": 80,
+          "comment": "摘要内部逻辑清晰，从问题背景到方法、结果、结论的过渡自然，但缺少与后续章节的明确衔接。",
+          "internal_logic": "论证链条完整：问题（传统PID不足）→ 解决方案（模糊PID）→ 方法（建模与仿真）→ 结果（性能对比）→ 结论（模糊PID更优）。",
+          "cross_chapter_logic": "摘要未明确提及后续章节结构，但内容与论文主要工作（动力学模型、控制器设计、仿真）一致，衔接基本合理。",
+          "issues": [
+            "未在摘要末尾说明论文的组织结构，如章节安排，导致与正文的衔接不够紧密。"
+          ]
+        },
+        "innovation_contribution": {
+          "score": 70,
+          "comment": "研究属于应用创新，将模糊PID应用于四旋翼轨迹跟踪，但方法本身不新颖，且未与现有模糊PID研究进行对比，贡献有限。",
+          "novelty_type": "应用创新",
+          "concrete_contribution": "通过仿真验证了模糊PID在四旋翼轨迹跟踪中的性能优势，并给出了具体的量化改进数据。",
+          "comparison_with_existing": "摘要未提及任何现有工作，未与已有模糊PID控制研究进行对比，无法体现研究的独特贡献。"
+        },
+        "writing_quality": {
+          "score": 85,
+          "comment": "语言基本准确，但存在少量语法问题，格式规范。",
+          "language_issues": [
+            "第一句'Quadrotor UAVs are widely used but face control challenges'中'but'连接略显突兀，建议改为'Quadrotor UAVs are widely used; however, they face control challenges'",
+            "最后一句'With overshoot properly considered'表达不够清晰，建议改为'When overshoot is properly considered'"
+          ],
+          "format_issues": [
+            "关键词中'quadrotor UAV'和'PID control'等首字母应小写，除非是专有名词"
+          ]
+        },
+        "key_points": [
+          "四旋翼无人机控制面临非线性和欠驱动挑战，传统PID参数整定困难",
+          "采用模糊PID自适应调整增益，在Simulink中对比仿真",
+          "模糊PID在调节时间、RMSE和稳态误差上优于传统PID，但存在超调问题"
+        ],
+        "summary": "摘要介绍了四旋翼无人机控制问题，提出模糊PID解决方案，通过仿真验证其性能优势，但存在超调，需进一步优化。",
+        "promises_made": [
+          "建立四旋翼无人机动力学模型",
+          "设计模糊PID和常规PID控制器",
+          "在Simulink中进行时变轨迹跟踪对比仿真"
+        ],
+        "promises_fulfilled": [],
+        "improvement_suggestions": [
+          {
+            "aspect": "文献分析",
+            "current_issue": "摘要中未引用任何文献，缺乏对现有研究的分析（全文无参考文献）",
+            "suggestion": "在背景部分引用1-2篇关键文献，说明模糊PID在无人机控制中的研究现状",
+            "priority": "高"
+          },
+          {
+            "aspect": "数据充分性",
+            "current_issue": "仅给出性能改进百分比，未提供原始数据或统计检验（如RMSE具体值）",
+            "suggestion": "补充原始数据（如传统PID的RMSE=0.5，模糊PID的RMSE=0.1），并说明仿真条件",
+            "priority": "高"
+          },
+          {
+            "aspect": "创新性阐述",
+            "current_issue": "未与现有模糊PID研究对比，无法体现创新点",
+            "suggestion": "在摘要中简要说明本研究与现有工作的不同，如针对时变轨迹或特定性能指标",
+            "priority": "中"
+          },
+          {
+            "aspect": "语言表达",
+            "current_issue": "存在少量语法问题，如'But there are larger overshoots appear'（语法错误）",
+            "suggestion": "修改为'However, larger overshoots appear on some axes'",
+            "priority": "低"
+          }
+        ],
+        "evidence": "摘要内容基本完整，但缺乏文献引用和数据支撑。例如，'Conventional PID controllers... rely on manual parameter tuning'未引用文献；性能改进百分比（如76.24%-88.13%）未提供原始数据。逻辑清晰，但创新性不足，未与现有工作对比。语言基本规范，但存在少量语法问题。",
+        "detailed_score_reason": "内容质量（75分）：论述深度不足，仅描述现象未深入分析原因；数据不充分，缺乏原始数据和统计检验；未引用文献，不符合学术规范。逻辑连贯性（80分）：内部逻辑完整，但缺少与正文的衔接。创新与贡献（70分）：属于应用创新，但未与现有研究对比，贡献有限。表达规范性（85分）：语言基本准确，格式规范，但存在少量语法和格式问题。综合加权：75*0.4 + 80*0.3 + 70*0.2 + 85*0.1 = 30+24+14+8.5=76.5，四舍五入为78分，等级中等。",
+        "section_type": "abstract",
+        "section_title": "Abstract"
+      },
+      {
+        "section_score": 72,
+        "grade_level": "中等",
+        "content_quality": {
+          "score": 70,
+          "comment": "内容质量中等。章节简要介绍了四旋翼无人机应用、PID控制局限性和模糊PID的引入，但文献综述不够全面，仅引用两篇文献，且缺乏对现有研究的系统分析。论述深度不足，未详细说明模糊PID的具体设计方法或与经典PID的对比机制。",
+          "strengths": [
+            "明确指出了经典PID在动态环境下的局限性，引用Tassanbi et al. [1]的实验结果作为证据。",
+            "提出了模糊PID作为改进方案，并引用Singh et al. [2]的研究支持其有效性。"
+          ],
+          "weaknesses": [
+            "文献综述不全面，仅引用两篇文献，未涵盖四旋翼控制领域的其他重要研究，如滑模控制、自适应控制等替代方案。",
+            "论述停留在描述层面，未深入分析模糊PID与经典PID的性能差异原因，例如未讨论隶属函数、规则库设计等关键因素。"
+          ],
+          "depth_analysis": "论述深度不足。章节主要描述了背景和已有研究，但缺乏对问题本质的深入分析。例如，提到模糊PID能在线调整参数，但未解释其如何改善响应速度或跟踪精度。",
+          "data_sufficiency": "数据不充分。未提供任何仿真或实验数据来支撑模糊PID优于经典PID的论断，仅引用他人研究，缺乏自身数据支持。"
+        },
+        "logic_coherence": {
+          "score": 75,
+          "comment": "逻辑连贯性较好。章节内部从应用背景到问题提出，再到解决方案和本文工作，逻辑链条基本完整。但与摘要的衔接不够紧密，摘要提到存在超调问题，但引言未深入讨论。",
+          "internal_logic": "内部逻辑基本清晰：先介绍四旋翼应用和PID控制，指出其局限性，然后引入模糊PID作为改进，最后说明本文研究内容。但缺少对模糊PID工作原理的简要解释，导致从问题到解决方案的过渡略显突兀。",
+          "cross_chapter_logic": "与摘要的衔接一般。摘要提到模糊PID存在超调问题，但引言未提及此不足，也未说明本文如何针对超调进行优化，导致前后不一致。",
+          "issues": [
+            "引言未提及摘要中提到的超调问题，导致与摘要逻辑脱节。",
+            "从PID局限性到模糊PID的引入缺乏过渡，未解释为何选择模糊逻辑而非其他方法。"
+          ]
+        },
+        "innovation_contribution": {
+          "score": 65,
+          "comment": "创新性一般。本文主要工作是仿真对比模糊PID和经典PID，属于应用验证，缺乏方法或理论上的创新。贡献在于通过仿真验证了模糊PID在特定条件下的优势，但未提出新的控制策略或改进。",
+          "novelty_type": "应用创新",
+          "concrete_contribution": "建立了四旋翼无人机Simulink仿真模型，并对比了模糊PID和经典PID在时变轨迹跟踪中的性能，验证了模糊PID在响应速度和跟踪精度上的优势。",
+          "comparison_with_existing": "与现有工作对比不足。仅引用两篇文献，未系统比较本文结果与已有研究的异同，例如未讨论与文献[2]中模糊PID性能的差异。"
+        },
+        "writing_quality": {
+          "score": 78,
+          "comment": "表达规范性较好。语言基本准确，但存在少量语法问题。格式上缺少图表，且引用格式不规范。",
+          "language_issues": [
+            "“controller’s parameters”应为“controllers' parameters”或“the controller's parameters”。",
+            "“I developed”在学术论文中通常使用“we developed”或被动语态。"
+          ],
+          "format_issues": [
+            "未使用图表展示仿真结果或控制结构，影响直观性。",
+            "参考文献格式不统一，如[1]和[2]未列出具体作者、年份等信息。"
+          ]
+        },
+        "key_points": [
+          "四旋翼无人机应用广泛，对控制系统要求高。",
+          "经典PID控制存在局限性，模糊PID可在线调整参数。",
+          "本文通过Simulink仿真对比两种控制器性能。"
+        ],
+        "summary": "引言介绍了四旋翼无人机控制问题，指出经典PID的不足，引入模糊PID作为改进，并说明本文将通过仿真对比两者性能。文献综述薄弱，仅引用两篇文献，且未深入分析问题。",
+        "promises_made": [
+          "建立四旋翼无人机动力学模型",
+          "设计模糊PID和常规PID控制器",
+          "在Simulink中进行时变轨迹跟踪对比仿真"
+        ],
+        "promises_fulfilled": [],
+        "improvement_suggestions": [
+          {
+            "aspect": "文献综述",
+            "current_issue": "仅引用两篇文献，未全面覆盖四旋翼控制领域的研究进展。",
+            "suggestion": "增加对滑模控制、自适应控制、LQR等方法的综述，并引用更多相关文献（至少10篇），以体现对研究现状的全面了解。",
+            "priority": "高"
+          },
+          {
+            "aspect": "论述深度",
+            "current_issue": "未深入分析模糊PID的工作原理及其优势来源。",
+            "suggestion": "增加一段简要说明模糊PID如何调整PID参数，例如基于误差和误差变化率调整Kp、Ki、Kd，并解释为何能改善响应速度。",
+            "priority": "高"
+          },
+          {
+            "aspect": "逻辑连贯性",
+            "current_issue": "引言未提及摘要中提到的超调问题，导致前后不一致。",
+            "suggestion": "在引言末尾或讨论部分明确说明模糊PID存在超调问题，并指出本文将进一步分析或优化。",
+            "priority": "中"
+          },
+          {
+            "aspect": "表达规范性",
+            "current_issue": "语言存在语法错误，引用格式不规范。",
+            "suggestion": "修正语法错误，统一参考文献格式（如IEEE或APA格式），并添加图表展示控制结构或仿真结果。",
+            "priority": "中"
+          }
+        ],
+        "evidence": "章节内容质量中等，文献综述仅引用两篇文献，缺乏全面性；论述深度不足，未深入分析模糊PID机制；逻辑基本连贯，但与摘要衔接有脱节；创新性一般，属于应用验证；表达基本规范，但存在语法和格式问题。综合评分72分，等级为中等。",
+        "detailed_score_reason": "内容质量（权重40%）：得分70。优点：明确指出了PID局限性和模糊PID的引入。缺点：文献综述不全面（仅2篇），论述深度不足（未分析模糊PID原理），数据不充分（无自身数据）。扣分点：文献数量少、缺乏深入分析。逻辑连贯性（权重30%）：得分75。优点：内部逻辑基本完整。缺点：与摘要衔接不佳（未提超调），从PID到模糊PID过渡突兀。扣分点：跨章节逻辑不一致。创新与贡献（权重20%）：得分65。优点：进行了仿真对比。缺点：无方法创新，与现有工作对比不足。扣分点：创新性弱。表达规范性（权重10%）：得分78。优点：语言基本准确。缺点：语法错误、引用格式不规范、无图表。扣分点：格式问题。综合得分=70*0.4+75*0.3+65*0.2+78*0.1=28+22.5+13+7.8=71.3，四舍五入为72分，等级中等。",
+        "section_type": "introduction",
+        "section_title": "Introduction"
+      },
+      {
+        "section_score": 68,
+        "grade_level": "及格",
+        "content_quality": {
+          "score": 65,
+          "comment": "内容质量总体一般。动力学建模部分较为详细，但控制器设计部分描述简略，缺乏关键细节（如模糊规则表、隶属函数等），且文献引用薄弱，仅引用两篇文献，未充分体现对现有工作的了解。",
+          "strengths": [
+            "动力学建模部分推导了运动学和动力学方程，如公式(1)-(5)，并引用了文献[2][3]作为依据。",
+            "控制器设计部分明确了采用级联控制架构，并给出了Simulink模块图（图1、图2）。"
+          ],
+          "weaknesses": [
+            "模糊PID控制器设计缺乏关键细节：未给出模糊规则表、隶属函数形状、论域范围等，仅提到“7个模糊子集”，无法复现。",
+            "文献引用严重不足：仅引用2篇文献（[2][3]），且未深入分析其方法优劣，不符合学术规范。",
+            "仿真参数表（Table 5）未在正文中列出具体数值，仅提及“PID Control Gains”，缺乏可验证性。"
+          ],
+          "depth_analysis": "论述深度不足。动力学建模部分有公式推导，但控制器设计部分停留在描述性层面，缺乏对模糊推理机制、参数整定方法的深入分析。",
+          "data_sufficiency": "数据不充分。未提供模糊规则表、隶属函数参数、PID增益具体数值，仿真结果部分缺失，无法支撑结论。"
+        },
+        "logic_coherence": {
+          "score": 70,
+          "comment": "逻辑连贯性中等。章节内部结构基本清晰，但控制器设计部分与动力学建模的衔接不够紧密，且仿真场景描述与性能指标定义之间存在脱节。",
+          "internal_logic": "内部逻辑基本完整：从动力学建模到控制器设计，再到仿真场景和评价指标，顺序合理。但控制器设计部分未明确说明如何从动力学模型导出控制律，存在跳跃。",
+          "cross_chapter_logic": "与引言衔接较好，引言提出模糊PID改进，本章具体设计。但引言文献综述薄弱，本章未弥补。",
+          "issues": [
+            "控制器设计部分未说明如何利用动力学模型（公式3、5）设计控制律，例如未给出控制输入与状态误差的关系式。",
+            "仿真场景中Z轴定义为向下为正，但未在动力学模型中明确说明，可能引起混淆。"
+          ]
+        },
+        "innovation_contribution": {
+          "score": 55,
+          "comment": "创新性较低。模糊PID控制器是成熟技术，本文仅将其应用于四旋翼轨迹跟踪，且未与现有模糊PID方法进行对比，贡献有限。",
+          "novelty_type": "应用创新",
+          "concrete_contribution": "将模糊PID控制器应用于四旋翼轨迹跟踪，并设计了Simulink模块。",
+          "comparison_with_existing": "未与现有模糊PID控制方法（如文献[2][3]之外的工作）进行对比，也未说明本文方法的独特优势。"
+        },
+        "writing_quality": {
+          "score": 70,
+          "comment": "表达规范性一般。语言基本通顺，但存在语法错误和格式问题。",
+          "language_issues": [
+            "“I propose a fuzzy PID controller”中“I”应改为“we”以符合学术规范。",
+            "“Tri”后内容截断，不完整。"
+          ],
+          "format_issues": [
+            "公式(1)未显示具体内容，仅写“（1）”。",
+            "图1、图2标题不规范，应改为“Figure 1. Altitude control module using conventional PID.”。",
+            "Table 5未在正文中列出具体数值。"
+          ]
+        },
+        "key_points": [
+          "建立了四旋翼的运动学和动力学模型，包括旋转矩阵和运动方程。",
+          "设计了常规PID和模糊PID控制器，采用级联控制架构。",
+          "定义了仿真场景和性能评价指标（超调量、调节时间、RMSE）。"
+        ],
+        "summary": "本章建立了四旋翼动力学模型，设计了常规PID和模糊PID控制器，并定义了仿真场景和评价指标，但控制器设计细节不足，文献引用薄弱。",
+        "promises_made": [],
+        "promises_fulfilled": [
+          "建立了四旋翼动力学模型（公式1-5）。",
+          "设计了常规PID和模糊PID控制器（图1、图2）。",
+          "定义了仿真场景和性能评价指标（公式6、7）。"
+        ],
+        "improvement_suggestions": [
+          {
+            "aspect": "控制器设计细节",
+            "current_issue": "模糊PID控制器未给出模糊规则表、隶属函数、论域等关键参数（见“Fuzzy PID Controller”段落）。",
+            "suggestion": "补充模糊规则表（如7x7规则矩阵）、隶属函数形状（如三角形、高斯型）及论域范围，并说明参数整定方法。",
+            "priority": "高"
+          },
+          {
+            "aspect": "文献引用",
+            "current_issue": "仅引用2篇文献，且未深入分析（见“Dynamic Model”和“Kinematic Model”段落）。",
+            "suggestion": "增加文献数量，至少引用10篇以上相关文献，并对比分析现有方法的优缺点，说明本文方法的改进之处。",
+            "priority": "高"
+          },
+          {
+            "aspect": "仿真参数具体化",
+            "current_issue": "Table 5未列出具体PID增益数值（见“Simulation Scenarios”前）。",
+            "suggestion": "在正文中列出PID增益的具体数值，并说明整定过程（如Ziegler-Nichols或试凑法）。",
+            "priority": "中"
+          },
+          {
+            "aspect": "语言与格式规范",
+            "current_issue": "存在“I”人称、公式缺失、图表标题不规范等问题。",
+            "suggestion": "将“I”改为“we”，补全公式(1)内容，统一图表标题格式（如“Figure 1. Altitude control module using conventional PID.”）。",
+            "priority": "中"
+          }
+        ],
+        "evidence": "动力学建模部分推导了公式(1)-(5)，但控制器设计缺乏模糊规则表等关键细节；文献仅引用2篇，不符合学术规范；仿真参数未具体列出。整体内容质量一般，逻辑基本连贯，创新性不足，表达有格式问题。",
+        "detailed_score_reason": "内容质量（65分）：动力学建模较详细，但控制器设计缺失关键细节，文献引用严重不足，数据不充分。逻辑连贯性（70分）：结构基本合理，但控制器与模型衔接不紧密。创新与贡献（55分）：应用创新但无对比，贡献有限。表达规范性（70分）：语言基本通顺，但存在人称、公式缺失、图表标题不规范等问题。综合加权得分：65*0.4 + 70*0.3 + 55*0.2 + 70*0.1 = 26 + 21 + 11 + 7 = 65，但考虑到文献引用和细节缺失严重，下调至68分，等级为及格。",
+        "section_type": "methodology",
+        "section_title": "Materials and Methods"
+      },
+      {
+        "section_score": 72,
+        "grade_level": "中等",
+        "content_quality": {
+          "score": 70,
+          "comment": "内容质量总体中等。实验数据较充分，但论述深度不足，缺乏对结果机理的深入分析，且文献引用薄弱。",
+          "strengths": [
+            "提供了详细的性能指标数据，如“X-axis overshoot rises to 13.96% with a negative improvement rate of 4553.33%”，数据具体。",
+            "对模糊PID的局限性进行了自我批评，如“the simulation scenario is relatively simple, only verifying the time-varying trajectory tracking without considering practical factors”。"
+          ],
+          "weaknesses": [
+            "文献引用仅一处（Bhuvaneswary et al. [6]），且未在参考文献中列出具体信息，不符合学术规范。",
+            "讨论部分对性能差异的原因分析较浅，如“the fuzzy rule base was designed based on general experience”缺乏文献支持。"
+          ],
+          "depth_analysis": "论述停留在描述层面，如仅列出数据对比，未深入分析模糊PID为何在超调量上表现更差，缺乏理论解释。",
+          "data_sufficiency": "数据较充分，提供了位置和姿态的多项指标，但缺少统计误差分析（如置信区间）。"
+        },
+        "logic_coherence": {
+          "score": 75,
+          "comment": "逻辑连贯性良好。章节内部结构清晰，但与前一章节的衔接不足，未引用前一章节的控制器设计细节。",
+          "internal_logic": "内部逻辑清晰：先展示仿真曲线，再分析性能指标，最后讨论原因和局限。",
+          "cross_chapter_logic": "与前一章节的衔接较弱：前一章节提到“控制器设计细节不足”，但本章未补充说明，直接使用结果。",
+          "issues": [
+            "问题1：未引用前一章节的控制器参数或设计细节，导致读者无法理解结果来源。",
+            "问题2：讨论部分提到“fuzzy rules and initial parameters were tuned manually”，但前一章节未说明调参过程。"
+          ]
+        },
+        "innovation_contribution": {
+          "score": 65,
+          "comment": "创新性一般。模糊PID在四旋翼控制中的应用已有较多研究，本文仅进行了常规对比，缺乏新意。",
+          "novelty_type": "应用创新（但创新程度低）",
+          "concrete_contribution": "提供了模糊PID与常规PID在时变轨迹跟踪下的性能对比数据，但未提出新的控制策略或改进方法。",
+          "comparison_with_existing": "未与现有文献结果进行定量对比，仅引用一篇文献（Bhuvaneswary et al. [6]）支持模糊PID的优越性。"
+        },
+        "writing_quality": {
+          "score": 75,
+          "comment": "表达基本规范，但存在语法错误和图表引用问题。",
+          "language_issues": [
+            "“These figures are all come from”语法错误，应为“These figures all come from”。",
+            "“the curves reflect the deviation”表述不够精确，应为“the curves show the deviation”。"
+          ],
+          "format_issues": [
+            "图表标题未按规范置于图下方，且缺少图注。",
+            "表格6和表格7未在正文中具体描述，仅提及编号。"
+          ]
+        },
+        "key_points": [
+          "模糊PID在调节时间和RMSE上优于常规PID，但超调量更大。",
+          "模糊PID在姿态控制稳态值和波动范围上表现更好。",
+          "讨论了模糊PID的局限性，包括仿真场景简单和参数手动调优。"
+        ],
+        "summary": "本章通过仿真对比了模糊PID和常规PID在四旋翼时变轨迹跟踪中的性能，结果显示模糊PID在动态响应和跟踪精度上优势明显，但超调量较大，并分析了原因和局限性。",
+        "promises_made": [],
+        "promises_fulfilled": [
+          "完成了时变轨迹跟踪对比仿真",
+          "分析了性能差异原因"
+        ],
+        "improvement_suggestions": [
+          {
+            "aspect": "文献引用",
+            "current_issue": "仅引用一篇文献，且未在参考文献中列出详细信息。",
+            "suggestion": "增加相关文献引用，如模糊PID在四旋翼中的应用研究，并规范引用格式。",
+            "priority": "高"
+          },
+          {
+            "aspect": "论述深度",
+            "current_issue": "对超调量增大的原因分析仅基于经验，缺乏理论支撑。",
+            "suggestion": "结合模糊控制理论，分析隶属度函数和规则库对超调的影响，并引用相关文献。",
+            "priority": "高"
+          },
+          {
+            "aspect": "图表规范",
+            "current_issue": "图表标题位置不规范，缺少图注。",
+            "suggestion": "将图表标题置于图下方，并添加图注说明曲线含义。",
+            "priority": "中"
+          }
+        ],
+        "evidence": "本章提供了详细的性能指标数据，如“Fuzzy PID achieves a significant reduction in settling time across all position axes”，但文献引用仅一处，且讨论部分对性能差异的原因分析较浅，如“the fuzzy rule base was designed based on general experience”。整体上，数据充分但论述深度不足，创新性一般。",
+        "detailed_score_reason": "内容质量（70分）：数据充分但论述浅，文献引用薄弱，扣分。逻辑连贯性（75分）：内部逻辑清晰，但与前一章节衔接不足，扣分。创新与贡献（65分）：应用创新程度低，未与现有工作充分对比，扣分。表达规范性（75分）：存在语法错误和格式问题，扣分。综合加权得分：70*0.4+75*0.3+65*0.2+75*0.1=72分，等级中等。与学术标准相比，缺乏深入分析和文献支撑，图表规范性有待提高。",
+        "section_type": "experiment",
+        "section_title": "Results and Discussion"
+      },
+      {
+        "section_score": 82,
+        "grade_level": "良好",
+        "content_quality": {
+          "score": 33,
+          "comment": "内容质量总体良好，结论部分清晰总结了主要工作与结果，但缺乏与现有文献的对比分析，且对超调问题的原因分析不够深入。",
+          "strengths": [
+            "明确总结了模糊PID相比常规PID的性能提升，如调节时间减少76.24%-88.13%，位置RMSE降低55.71%-85.00%，稳态姿态误差改善14.70%-71.50%。",
+            "指出了模糊PID存在超调问题，并初步归因于初始模糊规则设计与动态响应不匹配。"
+          ],
+          "weaknesses": [
+            "未与现有文献中的类似研究进行对比，无法体现本工作的相对优势或局限性。",
+            "对超调原因的分析仅停留在推测层面，缺乏数据或理论支撑。"
+          ],
+          "depth_analysis": "论述深度一般，主要停留在描述仿真结果和简单归因，缺乏对控制机理的深入探讨。",
+          "data_sufficiency": "数据充分性较好，提供了具体的性能指标数值，但未给出统计误差或置信区间。"
+        },
+        "logic_coherence": {
+          "score": 25,
+          "comment": "逻辑连贯性良好，章节内部从结果总结到原因分析再到未来工作，层次清晰；与前一章节衔接自然。",
+          "internal_logic": "内部逻辑完整：先总结模型和控制器设计，再对比性能，分析原因，最后提出未来方向。",
+          "cross_chapter_logic": "与前一章节（仿真结果）衔接紧密，直接引用仿真数据并解释现象。",
+          "issues": [
+            "未来工作部分提到优化模糊规则库和增益调整策略，但未说明这些改进与当前超调问题的具体关联。"
+          ]
+        },
+        "innovation_contribution": {
+          "score": 14,
+          "comment": "创新性一般，主要贡献在于将模糊PID应用于四旋翼时变轨迹跟踪并验证其优势，但方法本身并非全新。",
+          "novelty_type": "应用创新",
+          "concrete_contribution": "提供了模糊PID在四旋翼时变轨迹跟踪中的定量性能对比数据，证实了其相对于常规PID的优越性。",
+          "comparison_with_existing": "未与现有文献中的类似控制方法（如自适应控制、鲁棒控制）进行对比，贡献的独特性不明确。"
+        },
+        "writing_quality": {
+          "score": 10,
+          "comment": "表达规范，语言准确，格式合规。",
+          "language_issues": [],
+          "format_issues": []
+        },
+        "key_points": [
+          "基于牛顿-欧拉法的四旋翼动力学模型能描述非线性和耦合特性。",
+          "模糊PID在时变轨迹跟踪中性能优于常规PID，但存在超调。",
+          "未来工作将优化模糊规则库并采用元启发式优化方法。"
+        ],
+        "summary": "结论章节总结了四旋翼动力学模型、模糊PID与常规PID的仿真对比结果，指出模糊PID在响应速度和跟踪精度上的优势及超调问题，并规划了未来改进方向。",
+        "promises_made": [],
+        "promises_fulfilled": [
+          "建立了四旋翼动力学模型",
+          "设计了模糊PID和常规PID控制器",
+          "进行了时变轨迹跟踪对比仿真"
+        ],
+        "improvement_suggestions": [
+          {
+            "aspect": "内容深度",
+            "current_issue": "对超调原因的分析仅推测为规则设计不匹配，缺乏理论或数据支持。",
+            "suggestion": "增加对超调产生的理论分析，例如从模糊规则表、增益变化曲线等角度解释，或引用相关文献佐证。",
+            "priority": "高"
+          },
+          {
+            "aspect": "创新性",
+            "current_issue": "未与现有文献中的类似控制方法进行对比。",
+            "suggestion": "在结论中简要对比本工作与文献中其他先进控制方法（如自适应控制、滑模控制）的性能差异，突出本工作的贡献。",
+            "priority": "中"
+          },
+          {
+            "aspect": "逻辑连贯性",
+            "current_issue": "未来工作部分未明确说明优化模糊规则库与减少超调之间的具体关系。",
+            "suggestion": "补充说明优化规则库如何预期减少超调，例如通过调整隶属度函数或规则权重来抑制过调。",
+            "priority": "低"
+          }
+        ],
+        "evidence": "结论章节明确给出了模糊PID相比常规PID的性能提升数据（调节时间减少76.24%-88.13%等），并指出了超调问题及其可能原因。但缺乏与现有文献的对比，且对超调原因的分析不够深入。整体上，章节结构清晰，内容完整，符合结论章节的基本要求。",
+        "detailed_score_reason": "内容质量（33/40）：优点在于提供了具体的性能数据并指出了问题，但缺乏文献对比和深入分析，扣7分。逻辑连贯性（25/30）：内部逻辑和跨章节衔接良好，但未来工作与当前问题的关联不够明确，扣5分。创新与贡献（14/20）：属于应用创新，提供了有价值的对比数据，但未与现有工作对比，扣6分。表达规范性（10/10）：语言准确，格式规范，无扣分。总分82，等级良好。与学术标准相比，结论部分应更强调与现有工作的对比和贡献的独特性，同时深入分析问题原因，以提升学术价值。",
+        "section_type": "conclusion",
+        "section_title": "Conclusions"
+      }
+    ],
+    "coherence_checks": [
+      {
+        "coherence_score": 65,
+        "grade_level": "中等",
+        "logic_flow": {
+          "is_smooth": false,
+          "issues": [
+            "摘要末尾提到'But there are larger overshoots appear on some axes'，而引言开头直接介绍四旋翼应用和PID不足，未承接超调问题，存在逻辑跳跃。",
+            "摘要强调模糊PID性能优势（如减少调节时间76.24%），引言却称'its superiority is not always guaranteed'，语气转变突兀，缺乏过渡。"
+          ],
+          "score": 60,
+          "comment": "摘要结尾指出模糊PID存在超调问题，但引言开头未承接此问题，而是重新介绍背景，导致逻辑不连贯。此外，摘要强调模糊PID优势，引言却弱化其优越性，前后语气不一致。",
+          "improvement_suggestions": [
+            "在引言开头简要提及摘要中的超调发现，并以此引出研究动机。",
+            "统一对模糊PID性能的评价语气，避免前后矛盾。"
+          ]
+        },
+        "content_consistency": {
+          "is_consistent": false,
+          "inconsistencies": [
+            "摘要说'fuzzy PID performs better than conventional PID'并给出具体数据，引言却说'its superiority is not always guaranteed'，两者矛盾。",
+            "摘要提到'larger overshoots appear on some axes'，引言说'does not perform better in all aspects, such as overshoots'，虽一致但语气不同。"
+          ],
+          "score": 70,
+          "comment": "摘要和引言在模糊PID性能评价上存在矛盾：摘要明确声称模糊PID更好，引言却表示优越性不总是保证。术语使用一致，但结论不一致。",
+          "improvement_suggestions": [
+            "统一对模糊PID性能的表述，例如在引言中明确说明'尽管模糊PID在多数指标上优于PID，但在某些轴上存在较大超调'。"
+          ]
+        },
+        "transition_quality": {
+          "is_natural": false,
+          "score": 50,
+          "comment": "摘要结尾与引言开头之间缺乏承上启下的过渡段落。摘要以超调问题结束，引言却从四旋翼应用背景重新开始，读者难以感知两者关联。",
+          "missing_transition": "缺少一个过渡句或段落，将摘要中的超调问题与引言中的研究动机联系起来。",
+          "improvement_suggestions": [
+            "在引言开头添加一句过渡，如'尽管上述结果表明模糊PID在多数指标上优于PID，但其超调问题仍需进一步研究'。"
+          ]
+        },
+        "argument_continuity": {
+          "is_continuous": false,
+          "issues": [
+            "摘要提出模糊PID存在超调问题，但引言未延续此问题，而是重新介绍背景和文献，论证链条中断。",
+            "摘要中仿真结果的具体数据（如76.24%）在引言中未提及，导致前一章节的发现未在后一章节得到延续。"
+          ],
+          "score": 55,
+          "comment": "摘要末尾提出的超调问题在引言中未被延续讨论，引言转而介绍背景和文献，论证不连续。摘要中的具体仿真数据也未在引言中引用。",
+          "improvement_suggestions": [
+            "在引言中明确提及摘要中的超调发现，并以此作为研究动机的一部分。",
+            "引用摘要中的具体数据来支持引言中的论述。"
+          ]
+        },
+        "improvement_suggestions": [
+          {
+            "aspect": "逻辑连贯性",
+            "current_issue": "摘要结尾与引言开头之间缺乏逻辑衔接，超调问题未得到承接（摘要末尾 vs 引言开头）。",
+            "suggestion": "在引言开头添加过渡句，直接引用摘要中的超调发现，并说明本文将进一步分析。",
+            "priority": "高"
+          },
+          {
+            "aspect": "内容一致性",
+            "current_issue": "摘要和引言对模糊PID性能的评价矛盾（摘要：'performs better' vs 引言：'superiority not always guaranteed'）。",
+            "suggestion": "统一表述，例如在引言中明确说明'尽管模糊PID在多数指标上优于PID，但在某些轴上存在较大超调'。",
+            "priority": "高"
+          },
+          {
+            "aspect": "过渡自然性",
+            "current_issue": "缺少承上启下的段落（摘要结尾与引言开头之间）。",
+            "suggestion": "在引言开头增加一段过渡，总结摘要发现并引出研究问题。",
+            "priority": "中"
+          },
+          {
+            "aspect": "论证完整性",
+            "current_issue": "摘要中的具体数据未在引言中延续（如76.24%）。",
+            "suggestion": "在引言中引用摘要中的关键数据，以增强论证的连续性。",
+            "priority": "中"
+          }
+        ],
+        "overall_comment": "摘要与引言之间的逻辑衔接存在明显问题。摘要结尾指出模糊PID存在超调，但引言开头未承接此问题，而是重新介绍背景，导致逻辑跳跃。此外，摘要强调模糊PID性能优势，引言却弱化其优越性，内容矛盾。过渡缺失，论证不连续。建议在引言开头添加过渡句，统一对模糊PID的评价，并引用摘要中的具体数据以增强连贯性。",
+        "prev_section": "Abstract",
+        "next_section": "Introduction"
+      },
+      {
+        "coherence_score": 55,
+        "grade_level": "中等",
+        "logic_flow": {
+          "is_smooth": false,
+          "issues": [
+            "引言末尾提到仿真结果，但方法章节开头直接进入动力学建模，没有说明仿真结果如何得出，存在逻辑跳跃。",
+            "引言中已给出部分结论（如模糊PID在某些情况下更快），但方法章节未提及这些结论的由来，读者期待看到如何得到这些结果，但方法章节未承接。"
+          ],
+          "score": 50,
+          "comment": "引言末尾直接给出了仿真结果（如模糊PID响应更快），但方法章节开头并未解释这些结果是如何得出的，而是直接开始建模，导致逻辑跳跃。读者期待看到方法如何支撑结果，但过渡缺失。",
+          "improvement_suggestions": [
+            "在方法章节开头增加一段承上启下的文字，说明本章将介绍仿真模型和控制器设计，以验证引言中提到的性能差异。",
+            "将引言末尾的仿真结果移至结果章节，避免在引言中提前给出结论。"
+          ]
+        },
+        "content_consistency": {
+          "is_consistent": true,
+          "inconsistencies": [],
+          "score": 90,
+          "comment": "前后章节在术语使用上一致，如均使用'quadrotor'、'PID'、'fuzzy PID'等，没有发现矛盾之处。",
+          "improvement_suggestions": []
+        },
+        "transition_quality": {
+          "is_natural": false,
+          "score": 40,
+          "comment": "章节之间缺乏过渡段落。引言末尾直接给出仿真结果，而方法章节开头直接开始建模，没有承上启下的句子，过渡生硬。",
+          "missing_transition": "缺少一段文字，说明本章将介绍如何通过仿真模型和控制器设计来验证引言中提到的性能差异。",
+          "improvement_suggestions": [
+            "在方法章节开头添加过渡句，如：'To verify the performance differences observed in the introduction, this section presents the dynamic model and controller design used in the simulation.'"
+          ]
+        },
+        "argument_continuity": {
+          "is_continuous": false,
+          "issues": [
+            "引言中提出了模糊PID优于PID的假设，但方法章节未明确说明如何通过仿真验证这一假设，论证链条不完整。",
+            "引言中提到了性能指标（跟踪精度、稳定性、响应时间），但方法章节未明确这些指标如何计算或测量。"
+          ],
+          "score": 45,
+          "comment": "引言提出了模糊PID与PID性能对比的问题，但方法章节未明确说明如何设计仿真来回答这个问题，例如未定义具体的性能指标计算方法，导致论证不连续。",
+          "improvement_suggestions": [
+            "在方法章节中明确列出性能指标的定义和计算方法。",
+            "在方法章节开头重申研究目标，并说明本章内容如何服务于该目标。"
+          ]
+        },
+        "improvement_suggestions": [
+          {
+            "aspect": "逻辑连贯性",
+            "current_issue": "引言末尾给出仿真结果，方法章节未承接（引言末尾：'The simulation results indicate...'；方法开头：'Materials and Methods'直接建模）",
+            "suggestion": "将引言中的仿真结果移至结果章节，或方法章节开头增加过渡句说明本章将介绍如何得到这些结果。",
+            "priority": "高"
+          },
+          {
+            "aspect": "过渡自然性",
+            "current_issue": "缺乏承上启下的段落",
+            "suggestion": "在方法章节开头添加一段，总结引言并引出方法，例如：'In the previous section, we hypothesized that fuzzy PID may outperform classical PID under certain conditions. To test this, we developed a simulation model and designed both controllers as described below.'",
+            "priority": "高"
+          },
+          {
+            "aspect": "论证连续性",
+            "current_issue": "引言中提到的性能指标未在方法中定义",
+            "suggestion": "在方法章节中明确列出性能指标（如跟踪精度、响应时间）的计算公式或测量方法。",
+            "priority": "中"
+          }
+        ],
+        "overall_comment": "前后章节在术语使用上一致，但逻辑衔接存在明显问题。引言末尾直接给出了仿真结果，而方法章节开头直接进入动力学建模，缺乏过渡，导致逻辑跳跃。此外，引言中提出的性能对比问题未在方法中得到明确延续，论证链条不完整。建议在方法章节开头增加承上启下的段落，并将引言中的结果移至结果章节，以改善衔接。",
+        "prev_section": "Introduction",
+        "next_section": "Materials and Methods"
+      },
+      {
+        "coherence_score": 45,
+        "grade_level": "中等",
+        "logic_flow": {
+          "is_smooth": false,
+          "issues": [
+            "前一章节末尾定义了三个评价指标（超调量、调节时间、RMSE），但后一章节开头直接展示仿真曲线和表格，未说明这些指标如何与后续结果对应，存在逻辑跳跃。",
+            "后一章节提到“由于模糊PID的曲线与常规PID几乎重叠，只展示常规PID曲线”，但前一章节未提及此情况，读者无法预期，导致逻辑不连贯。"
+          ],
+          "score": 40,
+          "comment": "前一章节末尾详细定义了三个评价指标，但后一章节开头直接展示仿真曲线和表格，未建立从指标定义到结果呈现的桥梁，且突然说明曲线重叠原因，缺乏过渡，导致逻辑跳跃。",
+          "improvement_suggestions": [
+            "在后一章节开头增加一段过渡，说明将基于前一章定义的指标展示仿真结果，并解释为何只展示常规PID曲线。",
+            "在展示表格前，先简要回顾指标定义，并说明表格将如何体现这些指标。"
+          ]
+        },
+        "content_consistency": {
+          "is_consistent": false,
+          "inconsistencies": [
+            "前一章节末尾定义的评价指标包括超调量、调节时间、RMSE，但后一章节表格中出现了“稳态误差”（steady-state error），该指标在前一章未定义，术语不一致。",
+            "前一章节提到使用(1,1,-1)m和(4,4,-4)m作为参考轨迹，但后一章节未明确说明仿真轨迹是否与此一致，存在潜在矛盾。"
+          ],
+          "score": 50,
+          "comment": "前一章节定义了三个指标，后一章节表格中新增了“稳态误差”，且未说明其计算方法，导致术语不一致；参考轨迹的对应关系不明确，影响内容一致性。",
+          "improvement_suggestions": [
+            "在后一章节中补充稳态误差的定义，或在前一章节中预先定义该指标。",
+            "明确说明仿真轨迹与前一章节定义的参考轨迹一致，避免歧义。"
+          ]
+        },
+        "transition_quality": {
+          "is_natural": false,
+          "score": 35,
+          "comment": "前后章节之间缺乏承上启下的段落，前一章节以指标定义结束，后一章节直接以“Results and Discussion”开头，没有过渡语句，显得突兀。",
+          "missing_transition": "缺少一段过渡段落，将前一章节的指标定义与后一章节的仿真结果联系起来，例如说明仿真设置、参数选择、结果呈现顺序等。",
+          "improvement_suggestions": [
+            "在“Results and Discussion”开头增加一段过渡，如“基于前一章定义的指标和仿真场景，本节展示并分析两种控制器的仿真结果。”",
+            "简要说明仿真参数（如采样时间、仿真时长）与前一章一致。"
+          ]
+        },
+        "argument_continuity": {
+          "is_continuous": false,
+          "issues": [
+            "前一章节提出了三个评价指标，但后一章节在讨论位置控制性能时，只分析了超调量和调节时间，未提及RMSE，论证不完整。",
+            "前一章节未讨论模糊PID超调量大的原因，后一章节直接指出模糊PID超调量增大，但未与前一章节的控制器设计细节关联，论证链条断裂。"
+          ],
+          "score": 45,
+          "comment": "前一章节定义的RMSE指标在后一章节的位置控制性能讨论中未被提及，导致论证不完整；模糊PID超调量大的原因未与前一章的控制器设计关联，论证链条不连续。",
+          "improvement_suggestions": [
+            "在后一章节的位置控制性能部分补充RMSE的分析，或说明为何此处不讨论RMSE。",
+            "在讨论模糊PID超调量时，引用前一章的控制器设计（如模糊规则、隶属函数）来解释原因。"
+          ]
+        },
+        "improvement_suggestions": [
+          {
+            "aspect": "逻辑流畅性",
+            "current_issue": "前一章末尾定义指标，后一章开头直接展示结果，缺乏过渡（后一章开头第一句）。",
+            "suggestion": "增加过渡段落，说明将基于指标展示结果，并解释曲线重叠原因。",
+            "priority": "高"
+          },
+          {
+            "aspect": "内容一致性",
+            "current_issue": "后一章表格出现未定义的“稳态误差”（后一章表格表头）。",
+            "suggestion": "在前一章补充稳态误差定义，或在后一章说明其计算方法。",
+            "priority": "高"
+          },
+          {
+            "aspect": "论证完整性",
+            "current_issue": "前一章定义的RMSE在后一章位置控制性能讨论中缺失（后一章位置控制性能部分）。",
+            "suggestion": "补充RMSE的分析，或说明为何省略。",
+            "priority": "中"
+          },
+          {
+            "aspect": "过渡自然性",
+            "current_issue": "前后章节之间无承上启下段落（前一章末尾与后一章开头之间）。",
+            "suggestion": "添加过渡段落，如“基于前一章的模型和控制器设计，本节进行仿真验证。”",
+            "priority": "高"
+          }
+        ],
+        "overall_comment": "前后章节在逻辑衔接上存在明显不足。前一章节末尾定义了三个评价指标，但后一章节开头直接展示仿真曲线和表格，缺乏过渡，导致逻辑跳跃；同时，后一章节新增了未定义的“稳态误差”，且未讨论RMSE，造成内容不一致和论证不完整。建议增加过渡段落，统一术语，并补充缺失的指标分析，以增强衔接的连贯性和完整性。",
+        "prev_section": "Materials and Methods",
+        "next_section": "Results and Discussion"
+      },
+      {
+        "coherence_score": 85,
+        "grade_level": "良好",
+        "logic_flow": {
+          "is_smooth": true,
+          "issues": [],
+          "score": 85,
+          "comment": "前后章节逻辑连贯，前一章节末尾详细讨论了模糊PID的局限性及未来改进方向，后一章节开头自然承接，先总结仿真结果，再重申超调问题，并规划未来工作，论证链条完整。",
+          "improvement_suggestions": []
+        },
+        "content_consistency": {
+          "is_consistent": true,
+          "inconsistencies": [],
+          "score": 90,
+          "comment": "内容高度一致，前一章节末尾指出超调原因（模糊规则设计不匹配、隶属度函数范围划分问题），后一章节开头同样指出超调由初始模糊规则与动态响应不匹配导致，术语统一。",
+          "improvement_suggestions": []
+        },
+        "transition_quality": {
+          "is_natural": true,
+          "score": 80,
+          "comment": "过渡自然，前一章节末尾以'Future Improvements'结尾，后一章节以'Conclusions'开头，虽无显式承上启下段落，但内容上从局限性直接过渡到总结和未来工作，逻辑顺畅。",
+          "missing_transition": "可考虑在结论开头增加一句过渡，如'Based on the above discussion, the main conclusions are summarized as follows:'",
+          "improvement_suggestions": [
+            "在结论开头添加一句承上启下的句子，如'Based on the above discussion, the main conclusions are summarized as follows:'"
+          ]
+        },
+        "argument_continuity": {
+          "is_continuous": true,
+          "issues": [],
+          "score": 85,
+          "comment": "前一章节提出的局限性（仿真场景简单、参数手动调节、未考虑扰动）在后一章节的未来工作中得到延续（优化规则库、引入元启发算法、扩展仿真），论证连续。",
+          "improvement_suggestions": []
+        },
+        "improvement_suggestions": [
+          {
+            "aspect": "过渡自然性",
+            "current_issue": "结论章节开头直接进入总结，缺少与前一章节的显式衔接",
+            "suggestion": "在结论开头添加一句承上启下的句子，如'Based on the above discussion, the main conclusions are summarized as follows:'",
+            "priority": "低"
+          }
+        ],
+        "overall_comment": "两个章节之间的逻辑衔接整体良好。前一章节末尾详细阐述了模糊PID的局限性和未来改进方向，后一章节开头自然承接，先总结仿真结果，再重申超调问题，并规划未来工作，内容一致，论证连续。唯一可改进之处是结论开头缺少显式过渡句，但整体不影响理解。",
+        "prev_section": "Results and Discussion",
+        "next_section": "Conclusions"
+      }
+    ],
+    "promise_tracking": {
+      "fulfillment_status": [
+        {
+          "promise": "建立四旋翼无人机动力学模型",
+          "source_section": "Abstract",
+          "is_fulfilled": true,
+          "fulfillment_section": "Materials and Methods - Quadrotor Dynamic Modeling",
+          "fulfillment_evidence": "在Materials and Methods部分，详细描述了Kinematic Model和Dynamic Model，包括旋转矩阵R、牛顿第二定律、欧拉方程等，并给出了公式(1)-(5)。原文：'Quadrotor Dynamic Modeling' 小节下，'Kinematic Model' 和 'Dynamic Model' 子节。",
+          "fulfillment_degree": "完全兑现",
+          "comment": "论文在Materials and Methods部分完整建立了四旋翼动力学模型，包括运动学和动力学方程，使用了牛顿-欧拉方法，与承诺一致。",
+          "impact_analysis": "该模型为后续控制器设计和仿真提供了理论基础，是论文的核心支撑，完全兑现增强了论文的完整性。",
+          "improvement_suggestion": "无"
+        },
+        {
+          "promise": "设计模糊PID和常规PID控制器",
+          "source_section": "Abstract",
+          "is_fulfilled": true,
+          "fulfillment_section": "Results and Discussion - Simulation Results",
+          "fulfillment_evidence": "在Results and Discussion部分，通过仿真结果对比了模糊PID和常规PID的性能，包括位置跟踪曲线和误差曲线，以及表6和表7中的性能指标。原文：'Figure 4 presents the X/Y/Z-axis position tracking performance of the conventional PID controller...' 以及 'Table 6. Position Control Performance Metrics Comparison' 和 'Table 7. Attitude Control Performance Metrics Comparison'。",
+          "fulfillment_degree": "部分兑现",
+          "comment": "论文展示了两种控制器的仿真结果和性能对比，但未在单独章节明确描述控制器的设计过程（如模糊规则、PID参数等），仅通过仿真结果间接体现设计。因此属于部分兑现。",
+          "impact_analysis": "缺少控制器设计细节降低了论文的可复现性，但仿真对比仍验证了控制器的有效性，对整体质量影响中等。",
+          "improvement_suggestion": "建议在Materials and Methods部分增加控制器设计小节，详细说明模糊PID的模糊规则、隶属函数以及常规PID的参数整定方法。"
+        },
+        {
+          "promise": "在Simulink中进行时变轨迹跟踪对比仿真",
+          "source_section": "Abstract",
+          "is_fulfilled": true,
+          "fulfillment_section": "Results and Discussion - Simulation Results",
+          "fulfillment_evidence": "在Results and Discussion部分，明确提到仿真是在Simulink中进行的，并展示了时变轨迹跟踪的结果。原文：'These figures are all come from “scope” module in Simulink.' 以及 'The simulation results of position and attitude control under time-varying trajectory tracking are shown in Table 6 and Table 7.'",
+          "fulfillment_degree": "完全兑现",
+          "comment": "论文明确说明仿真在Simulink中进行，并给出了时变轨迹跟踪的对比结果，包括位置和姿态性能指标，完全符合承诺。",
+          "impact_analysis": "该仿真验证了控制器的性能，是论文的核心实验部分，完全兑现增强了论文的可信度。",
+          "improvement_suggestion": "无"
+        }
+      ],
+      "overall_fulfillment_rate": 0.8333,
+      "unfulfilled_promises": [],
+      "partially_fulfilled_promises": [
+        "设计模糊PID和常规PID控制器"
+      ],
+      "summary": "论文的三个承诺中，两个完全兑现（建立动力学模型和Simulink仿真），一个部分兑现（控制器设计）。动力学模型在Materials and Methods部分详细建立，仿真在Results and Discussion部分展示。控制器设计仅通过仿真结果间接体现，缺乏设计细节。整体兑现率较高，但控制器设计部分的不完整影响了论文的可复现性。建议补充控制器设计小节以完善论文。",
+      "promises": [
+        {
+          "promise": "建立四旋翼无人机动力学模型",
+          "source_section": "Abstract",
+          "source_section_type": "abstract",
+          "source_index": 0
+        },
+        {
+          "promise": "设计模糊PID和常规PID控制器",
+          "source_section": "Abstract",
+          "source_section_type": "abstract",
+          "source_index": 0
+        },
+        {
+          "promise": "在Simulink中进行时变轨迹跟踪对比仿真",
+          "source_section": "Abstract",
+          "source_section_type": "abstract",
+          "source_index": 0
+        }
+      ]
+    },
+    "quantitative_table": {
+      "innovation": {
+        "weight": 0.25,
+        "score": 65,
+        "weighted_score": 16.25,
+        "core_evidence": "模糊PID控制已是成熟技术，论文未提出实质性改进，属于集成创新"
+      },
+      "research_depth": {
+        "weight": 0.25,
+        "score": 70,
+        "weighted_score": 17.5,
+        "core_evidence": "文献综述覆盖主要相关工作，但引用仅5篇，缺乏深入分析和批判性讨论"
+      },
+      "structure": {
+        "weight": 0.25,
+        "score": 80,
+        "weighted_score": 20,
+        "core_evidence": "章节安排符合学术规范，逻辑清晰，但讨论部分篇幅不足"
+      },
+      "method_experiment": {
+        "weight": 0.25,
+        "score": 75,
+        "weighted_score": 18.75,
+        "core_evidence": "方法适合研究问题，但描述不够详细，实验设计单一，缺乏统计检验"
+      },
+      "total_score": 72.5
+    },
+    "detailed_analysis": {
+      "innovation_analysis": {
+        "step1": {
+          "question": "论文提出了什么新东西？",
+          "answer": "论文将模糊逻辑与PID控制结合，用于四旋翼无人机的时变轨迹跟踪控制，并通过Simulink仿真对比了模糊PID与常规PID的性能。",
+          "evidence": "论文提出'fuzzy PID controller for adaptive trajectory tracking control'，并在摘要中说明'采用模糊PID自适应调整增益，在Simulink中对比仿真'。"
+        },
+        "step2": {
+          "question": "这个'新'是真正的创新还是简单的组合？",
+          "answer": "属于集成创新，模糊PID控制已是成熟技术，论文未提出新的控制算法或模型，仅将现有方法应用于四旋翼轨迹跟踪并进行对比。",
+          "innovation_type": "集成创新",
+          "evidence": "论文在引言中引用Bai et al. [5]的模糊PID设计，未提出新的模糊规则或改进方法。"
+        },
+        "step3": {
+          "question": "创新是否有价值？解决了什么实际问题？",
+          "answer": "有一定实用价值，通过对比验证了模糊PID在动态响应和跟踪精度上的优势，但未解决模糊PID本身的大超调问题，价值有限。",
+          "practical_value": "为四旋翼控制器的选择提供了仿真依据，但缺乏实际飞行验证。",
+          "academic_value": "理论贡献较低，未提出新方法或新见解。",
+          "evidence": "结果部分显示模糊PID在调节时间和RMSE上优于常规PID，但超调量更大，论文未深入分析原因。"
+        },
+        "step4": {
+          "question": "与现有工作相比，改进有多大？",
+          "answer": "改进不大，论文仅进行了仿真对比，未在算法或应用场景上有显著改进，与现有模糊PID研究相比缺乏新意。",
+          "comparison": "与Bai et al. [5]等文献相比，论文未提出新的模糊规则或优化方法。",
+          "improvement_degree": "改进程度低，仅为应用层面的对比验证。",
+          "evidence": "论文在结论中承认'模糊PID存在超调问题'，但未提出解决方案。"
+        },
+        "final_score": 65,
+        "score_reason": "论文将模糊逻辑与PID控制结合，属于集成创新，但模糊PID控制已是成熟技术，论文未提出实质性改进。创新点在于对比分析，但缺乏原创性贡献。"
+      },
+      "research_depth_analysis": {
+        "step1": {
+          "question": "文献综述是否覆盖了主要相关工作？",
+          "answer": "覆盖了模糊PID和四旋翼建模的基本文献，但数量不足（仅5篇），且缺少近5年最新研究。",
+          "coverage": "覆盖范围有限，未涵盖近年来的先进控制方法如自适应控制、鲁棒控制等。",
+          "evidence": "引言中引用了Tassanbi et al. [1]、Singh et al. [2]、Madebo et al. [3][4]、Bai et al. [5]，共5篇文献。"
+        },
+        "step2": {
+          "question": "是否真正理解并分析了文献，而非简单罗列？",
+          "answer": "仅简单陈述了文献结论，未深入分析不同方法的优缺点或局限性，属于简单罗列。",
+          "analysis_type": "简单罗列",
+          "evidence": "引言中仅说'经典PID控制存在局限性，模糊PID可在线调整参数'，未对每篇文献的方法进行详细分析。"
+        },
+        "step3": {
+          "question": "现状分析是否有深度，能否归纳出关键问题？",
+          "answer": "现状分析较浅，指出了传统PID参数固定、适应性差的问题，但未提炼出领域核心挑战，如非线性、耦合、不确定性等。",
+          "problem_induction": "问题归纳能力一般，仅指出PID参数整定困难。",
+          "evidence": "引言中'经典PID控制存在局限性'，但未深入讨论四旋翼控制的特殊挑战。"
+        },
+        "step4": {
+          "question": "引用的文献是否新颖、权威？",
+          "answer": "文献较陈旧，最新文献为2019年，且来源期刊权威性一般。",
+          "literature_quality": "文献质量中等，缺乏顶级期刊或会议论文。",
+          "evidence": "引用文献包括2018、2019年的会议论文和期刊，但无近3年文献。"
+        },
+        "final_score": 70,
+        "score_reason": "文献综述覆盖了主要相关工作，但引用文献较少（仅5篇），且缺乏对文献的深入分析和批判性讨论。问题归纳较为表面。"
+      },
+      "structure_analysis": {
+        "step1": {
+          "question": "章节安排是否符合学术规范？",
+          "answer": "章节安排符合学术规范，包含摘要、引言、材料与方法、结果与讨论、结论等标准章节。",
+          "structure_completeness": "结构完整，但讨论部分篇幅不足。",
+          "evidence": "论文包含5个章节，结构完整。"
+        },
+        "step2": {
+          "question": "各章节之间是否有逻辑关联？",
+          "answer": "各章节逻辑连贯，从建模到控制器设计再到仿真验证，衔接自然。",
+          "logic_chain": "逻辑链条清晰，但引言与方法之间、方法与结果之间存在逻辑跳跃。",
+          "evidence": "衔接检测显示引言末尾提到仿真结果，但方法章节直接进入建模，存在跳跃。"
+        },
+        "step3": {
+          "question": "论证是否连贯，有无跳跃或矛盾？",
+          "answer": "论证基本连贯，但存在一些跳跃，如摘要强调模糊PID优势，引言却称'its superiority is not always guaranteed'，语气转变突兀。",
+          "argument_coherence": "部分地方论证不连贯，如摘要与引言语气不一致。",
+          "evidence": "衔接检测指出摘要末尾提到超调问题，引言未承接。"
+        },
+        "step4": {
+          "question": "语言表达是否规范、清晰？",
+          "answer": "语言表达基本规范，但部分句子冗长，图表质量一般（如模糊规则表未清晰展示）。",
+          "expression_quality": "表达质量中等，可读性一般。",
+          "evidence": "论文中部分句子较长，如'These figures are all come from “scope” module in Simulink.' 表述不够简洁。"
+        },
+        "final_score": 80,
+        "score_reason": "章节安排符合学术规范，从摘要、引言、方法、结果到讨论，逻辑清晰。但部分章节内容比例失衡，如方法部分详细，讨论部分较简略。"
+      },
+      "method_experiment_analysis": {
+        "step1": {
+          "question": "研究方法是否适合研究问题？",
+          "answer": "Simulink仿真适合四旋翼控制对比研究，方法选择合理。",
+          "method_suitability": "方法适用性良好。",
+          "evidence": "论文在方法部分建立了动力学模型，并设计了控制器，仿真验证了控制效果。"
+        },
+        "step2": {
+          "question": "方法描述是否详细、可复现？",
+          "answer": "方法描述不够详细，模糊PID的隶属函数、模糊规则等描述较详细，但未提供完整的Simulink模型参数，可复现性中等。",
+          "reproducibility": "可复现性一般，缺少关键参数如PID初始值、模糊规则表的具体数值。",
+          "evidence": "方法部分给出了模糊规则表，但未提供隶属函数的具体参数。"
+        },
+        "step3": {
+          "question": "实验设计是否科学、完整？",
+          "answer": "实验设计科学，但场景单一（仅一种轨迹变化），缺乏抗干扰测试或鲁棒性分析，对比不充分。",
+          "experiment_design": "实验设计基本科学，但完整性不足。",
+          "evidence": "结果部分仅展示了一种时变轨迹的仿真结果，未进行多场景验证。"
+        },
+        "step4": {
+          "question": "数据分析是否严谨、有说服力？",
+          "answer": "数据分析较严谨，使用了RMSE、超调量、调节时间等指标，但未进行多次重复实验或统计显著性检验，说服力有限。",
+          "data_analysis": "数据分析基本严谨，但缺乏统计检验。",
+          "evidence": "结果部分给出了性能指标表格，但未说明是否进行了多次仿真取平均值。"
+        },
+        "final_score": 75,
+        "score_reason": "研究方法适合研究问题，但方法描述不够详细，实验设计科学但对比不充分，数据分析较严谨但缺乏统计显著性检验。"
+      }
+    },
+    "overall_comment": "该论文以四旋翼无人机为研究对象，建立了动力学模型，设计了模糊PID和常规PID控制器，并在Simulink中进行了时变轨迹跟踪对比仿真。论文结构完整，逻辑基本清晰，但存在以下主要问题：创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进；文献综述深度不够，仅引用5篇文献且缺乏批判性分析；实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验；方法描述不够详细，可复现性中等。总体而言，论文达到了毕业设计的基本要求，但距离优秀论文还有较大差距。建议在创新性、文献综述和实验设计方面进行改进。",
+    "strengths": [
+      "建立了完整的四旋翼动力学模型，包括运动学和动力学方程，为控制器设计提供了理论基础（证据：Materials and Methods部分详细描述了Kinematic Model和Dynamic Model）。",
+      "在Simulink中进行了时变轨迹跟踪仿真，对比了模糊PID和常规PID的性能，使用了RMSE、超调量、调节时间等指标（证据：Results and Discussion部分展示了仿真曲线和性能指标表格）。",
+      "结论部分总结了工作并提出了未来优化方向，如优化模糊规则库和采用元启发式优化方法（证据：Conclusions部分提到'未来工作将优化模糊规则库并采用元启发式优化方法'）。"
+    ],
+    "weaknesses": [
+      "创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进（证据：创新度评估65分，属于集成创新）。",
+      "文献综述深度不够，引用仅5篇且缺乏批判性分析（证据：研究深度评估70分，文献综述为简单罗列）。",
+      "实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验（证据：方法实验评估75分，实验场景单一）。"
+    ],
+    "improvement_suggestions": [
+      {
+        "aspect": "创新性",
+        "current_issue": "模糊PID控制已是成熟技术，论文未提出实质性改进",
+        "suggestion": "建议在模糊PID基础上引入自适应机制或优化算法，如粒子群优化模糊规则，以提升创新性。",
+        "priority": "高"
+      },
+      {
+        "aspect": "文献综述",
+        "current_issue": "引用文献仅5篇，且缺乏深入分析",
+        "suggestion": "增加文献数量至15篇以上，并对不同方法进行对比分析，指出各自优缺点。",
+        "priority": "高"
+      },
+      {
+        "aspect": "实验设计",
+        "current_issue": "实验场景单一，缺乏抗干扰测试和统计检验",
+        "suggestion": "增加多种轨迹（如圆形、螺旋线）和抗干扰测试，并进行多次仿真取平均值和统计检验。",
+        "priority": "高"
+      },
+      {
+        "aspect": "方法描述",
+        "current_issue": "控制器设计描述不够详细，可复现性中等",
+        "suggestion": "补充模糊PID的隶属函数参数、模糊规则表的具体数值以及常规PID的整定方法。",
+        "priority": "中"
+      },
+      {
+        "aspect": "讨论深度",
+        "current_issue": "讨论部分未深入分析结果原因",
+        "suggestion": "增加对模糊PID超调原因的讨论，如模糊规则设计不当或积分饱和等。",
+        "priority": "中"
+      },
+      {
+        "aspect": "语言表达",
+        "current_issue": "部分句子冗长，图表质量一般",
+        "suggestion": "简化句子结构，提高图表清晰度，如使用更清晰的模糊规则表。",
+        "priority": "低"
+      }
+    ],
+    "thesis_structure": {
+      "thesis_type": "仿真分析类",
+      "total_sections": 5,
+      "main_works": [
+        "建立四旋翼无人机动力学模型",
+        "设计模糊PID和常规PID控制器",
+        "在Simulink中进行时变轨迹跟踪对比仿真"
+      ],
+      "sections": [
+        {
+          "section_index": 0,
+          "section_type": "abstract",
+          "section_type_name": "摘要",
+          "title": "Abstract",
+          "start_marker": "Abstract",
+          "end_marker": "Keywords",
+          "estimated_content": "摘要介绍了四旋翼无人机的控制挑战，模糊PID和常规PID的对比，以及仿真结果。"
+        },
+        {
+          "section_index": 1,
+          "section_type": "introduction",
+          "section_type_name": "绪论",
+          "title": "Introduction",
+          "start_marker": "Introduction",
+          "end_marker": "Materials and Methods",
+          "estimated_content": "绪论介绍了四旋翼无人机的应用背景、PID控制的局限性、模糊PID的优势，以及本文的研究目标。",
+          "key_promises": [
+            "建立Simulink仿真模型",
+            "比较模糊PID和常规PID的性能",
+            "评估跟踪精度、稳定性和响应时间"
+          ]
+        },
+        {
+          "section_index": 2,
+          "section_type": "methodology",
+          "section_type_name": "方法/设计",
+          "title": "Materials and Methods",
+          "start_marker": "Materials and Methods",
+          "end_marker": "Results and Discussion",
+          "estimated_content": "包括四旋翼动力学建模（运动学和动力学模型）、控制器设计（级联结构）、仿真参数和场景设置。"
+        },
+        {
+          "section_index": 3,
+          "section_type": "experiment",
+          "section_type_name": "实验/测试",
+          "title": "Results and Discussion",
+          "start_marker": "Results and Discussion",
+          "end_marker": "Conclusions",
+          "estimated_content": "展示了位置控制和姿态控制的性能指标对比，包括超调量、调节时间、RMSE等。"
+        },
+        {
+          "section_index": 4,
+          "section_type": "conclusion",
+          "section_type_name": "结论",
+          "title": "Conclusions",
+          "start_marker": "Conclusions",
+          "end_marker": "References",
+          "estimated_content": "总结了模糊PID在调节时间、RMSE和稳态误差方面的优势，以及超调问题，并提出了未来工作方向。"
+        }
+      ],
+      "structure_analysis": "论文结构清晰，包括摘要、绪论、材料与方法、结果与讨论、结论五个部分。绪论中明确了研究目标和承诺，方法部分详细介绍了建模和控制器设计，实验部分给出了性能对比，结论总结了主要发现和未来工作。"
+    },
+    "avg_section_score": 74.4,
+    "avg_coherence_score": 62.5,
+    "coherence_analysis": {
+      "overall_coherence_score": 62.5,
+      "major_issues": [
+        "摘要末尾提到超调问题，引言未承接，存在逻辑跳跃。",
+        "引言末尾提到仿真结果，方法章节直接进入建模，未说明如何得到结果。",
+        "方法章节末尾定义评价指标，结果章节开头直接展示曲线，未说明对应关系。"
+      ]
+    },
+    "promise_fulfillment_analysis": {
+      "fulfillment_rate": 0.8333,
+      "unfulfilled_promises": [],
+      "partially_fulfilled": [
+        "设计模糊PID和常规PID控制器"
+      ],
+      "comment": "论文的三个承诺中，两个完全兑现（建立动力学模型和Simulink仿真），一个部分兑现（控制器设计仅通过仿真结果间接体现，缺乏设计细节）。整体兑现率较高，但控制器设计部分的不完整影响了论文的可复现性。"
+    },
+    "detailed_evaluation": {
+      "abstract_evaluation": "摘要完整地概括了研究背景、方法、结果和结论，但存在逻辑跳跃：末尾提到超调问题，而引言未承接。语言精炼度一般，如'But there are larger overshoots appear on some axes'表述不够简洁。",
+      "introduction_evaluation": "绪论部分阐述了四旋翼应用和PID控制的局限性，但文献综述仅引用5篇，且未深入分析各方法的优缺点。研究目标明确，但创新点表述模糊，仅说'采用模糊PID自适应调整增益'。",
+      "methodology_evaluation": "方法部分建立了四旋翼动力学模型，包括运动学和动力学方程，但控制器设计描述不够详细，未提供模糊PID的隶属函数具体参数和常规PID的整定方法。技术路线可行，但可复现性中等。",
+      "implementation_evaluation": "实现部分主要通过Simulink仿真完成，但未提供完整的Simulink模型参数或框图，技术细节不够充分。与设计的一致性较好，但缺少对实现过程的详细描述。",
+      "experiment_evaluation": "实验部分设计了时变轨迹跟踪仿真，对比了两种控制器，使用了RMSE、超调量、调节时间等指标。但实验场景单一，缺乏抗干扰测试和统计检验，结果分析深度不足，未解释模糊PID超调大的原因。",
+      "conclusion_evaluation": "结论部分准确总结了工作，指出模糊PID在调节时间和RMSE上优于常规PID但存在超调，并提出了未来优化方向。与正文一致，但展望部分较为笼统。"
+    },
+    "section_level_details": [
+      {
+        "section_title": "Abstract",
+        "content_assessment": "摘要内容完整，涵盖了研究背景、方法、结果和结论，但存在逻辑跳跃，且语言表达不够精炼。",
+        "key_findings": [
+          "模糊PID在调节时间和RMSE上优于常规PID",
+          "模糊PID存在超调问题"
+        ],
+        "specific_issues": [
+          "末尾提到超调问题，但引言未承接，导致逻辑跳跃",
+          "语言表述不够简洁，如'But there are larger overshoots appear on some axes'"
+        ],
+        "improvement_advice": "建议在引言中明确提及超调问题，并保持语言简洁。"
+      },
+      {
+        "section_title": "Introduction",
+        "content_assessment": "绪论部分阐述了研究背景和问题，但文献综述深度不足，仅引用5篇文献，且未进行批判性分析。",
+        "key_findings": [
+          "四旋翼应用广泛，对控制系统要求高",
+          "经典PID控制存在局限性，模糊PID可在线调整参数"
+        ],
+        "specific_issues": [
+          "文献综述仅5篇，且未深入分析各方法的优缺点",
+          "引言末尾提到仿真结果，但方法章节未承接"
+        ],
+        "improvement_advice": "建议增加文献数量，并对不同方法进行对比分析，同时确保与后续章节逻辑连贯。"
+      },
+      {
+        "section_title": "Materials and Methods",
+        "content_assessment": "方法部分建立了动力学模型，但控制器设计描述不够详细，缺少关键参数，可复现性中等。",
+        "key_findings": [
+          "建立了四旋翼运动学和动力学模型",
+          "设计了模糊PID和常规PID控制器"
+        ],
+        "specific_issues": [
+          "未提供模糊PID隶属函数的具体参数",
+          "未提供常规PID的整定方法"
+        ],
+        "improvement_advice": "建议补充控制器设计细节，包括模糊规则表的具体数值和PID参数整定过程。"
+      },
+      {
+        "section_title": "Results and Discussion",
+        "content_assessment": "结果部分展示了仿真曲线和性能指标，但讨论深度不足，未解释模糊PID超调大的原因，且实验场景单一。",
+        "key_findings": [
+          "模糊PID在调节时间和RMSE上优于常规PID",
+          "模糊PID超调量更大"
+        ],
+        "specific_issues": [
+          "未进行多次重复实验或统计检验",
+          "缺乏抗干扰测试或鲁棒性分析"
+        ],
+        "improvement_advice": "建议增加多场景仿真和统计检验，深入分析结果背后的原因。"
+      },
+      {
+        "section_title": "Conclusions",
+        "content_assessment": "结论部分准确总结了工作，并提出了未来方向，但展望较为笼统。",
+        "key_findings": [
+          "模糊PID在时变轨迹跟踪中性能优于常规PID",
+          "未来将优化模糊规则库并采用元启发式优化方法"
+        ],
+        "specific_issues": [
+          "展望部分缺乏具体实施步骤"
+        ],
+        "improvement_advice": "建议细化未来工作，如具体说明如何优化模糊规则库。"
+      }
+    ],
+    "dimension_scores": [
+      {
+        "indicator_id": "2.3",
+        "indicator_name": "文献分析",
+        "score": 70,
+        "grade_level": "中等",
+        "score_reason": "文献综述覆盖主要相关工作，但引用仅5篇，缺乏深入分析和批判性讨论。",
+        "evidence": "引言中引用了5篇文献，未对每篇文献的方法优缺点进行详细分析。"
+      },
+      {
+        "indicator_id": "3.1",
+        "indicator_name": "设计方法",
+        "score": 75,
+        "grade_level": "中等",
+        "score_reason": "设计流程基本完整，但方法描述不够详细，影响因素分析有限。",
+        "evidence": "方法部分建立了动力学模型和控制器设计，但未提供完整的Simulink模型参数。"
+      },
+      {
+        "indicator_id": "3.2",
+        "indicator_name": "针对需求设计",
+        "score": 75,
+        "grade_level": "中等",
+        "score_reason": "需求分析基本准确，设计方案可行，但设计成果完整性一般。",
+        "evidence": "论文针对四旋翼轨迹跟踪需求设计了控制器，但缺乏实际飞行验证。"
+      },
+      {
+        "indicator_id": "3.3",
+        "indicator_name": "创新与权衡",
+        "score": 56.9,
+        "grade_level": "及格",
+        "score_reason": "创新性较弱，仅为集成创新，未从多角度权衡制约因素。",
+        "evidence": "论文未讨论社会、健康、安全等影响，仅关注性能对比。",
+        "original_score": 65,
+        "novelty_adjustment": -8.1,
+        "adjustment_reason": "基于引用网络验证的新颖度评分(37.9)进行了校准"
+      },
+      {
+        "indicator_id": "10.1",
+        "indicator_name": "专业沟通",
+        "score": 80,
+        "grade_level": "良好",
+        "score_reason": "表达较清晰，文稿图表基本规范，但部分图表质量一般。",
+        "evidence": "论文使用了仿真曲线和表格，但模糊规则表未清晰展示。"
+      },
+      {
+        "indicator_id": "10.2",
+        "indicator_name": "国际化视野",
+        "score": 70,
+        "grade_level": "中等",
+        "score_reason": "引用国际文献，但数量少且较陈旧，跨文化交流能力一般。",
+        "evidence": "引用了5篇国际文献，但最新为2019年。"
+      }
+    ],
+    "conclusion": {
+      "overall_comment": "该论文以四旋翼无人机为研究对象，建立了动力学模型，设计了模糊PID和常规PID控制器，并在Simulink中进行了时变轨迹跟踪对比仿真。论文结构完整，逻辑基本清晰，但存在以下主要问题：创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进；文献综述深度不够，仅引用5篇文献且缺乏批判性分析；实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验；方法描述不够详细，可复现性中等。总体而言，论文达到了毕业设计的基本要求，但距离优秀论文还有较大差距。建议在创新性、文献综述和实验设计方面进行改进。",
+      "strengths": [
+        "建立了完整的四旋翼动力学模型，包括运动学和动力学方程，为控制器设计提供了理论基础（证据：Materials and Methods部分详细描述了Kinematic Model和Dynamic Model）。",
+        "在Simulink中进行了时变轨迹跟踪仿真，对比了模糊PID和常规PID的性能，使用了RMSE、超调量、调节时间等指标（证据：Results and Discussion部分展示了仿真曲线和性能指标表格）。",
+        "结论部分总结了工作并提出了未来优化方向，如优化模糊规则库和采用元启发式优化方法（证据：Conclusions部分提到'未来工作将优化模糊规则库并采用元启发式优化方法'）。"
+      ],
+      "weaknesses": [
+        "创新性不足，模糊PID控制已是成熟技术，论文未提出实质性改进（证据：创新度评估65分，属于集成创新）。",
+        "文献综述深度不够，引用仅5篇且缺乏批判性分析（证据：研究深度评估70分，文献综述为简单罗列）。",
+        "实验设计单一，仅一种轨迹变化，缺乏抗干扰测试和统计检验（证据：方法实验评估75分，实验场景单一）。"
+      ],
+      "improvement_suggestions": [
+        {
+          "aspect": "创新性",
+          "current_issue": "模糊PID控制已是成熟技术，论文未提出实质性改进",
+          "suggestion": "建议在模糊PID基础上引入自适应机制或优化算法，如粒子群优化模糊规则，以提升创新性。",
+          "priority": "高"
+        },
+        {
+          "aspect": "文献综述",
+          "current_issue": "引用文献仅5篇，且缺乏深入分析",
+          "suggestion": "增加文献数量至15篇以上，并对不同方法进行对比分析，指出各自优缺点。",
+          "priority": "高"
+        },
+        {
+          "aspect": "实验设计",
+          "current_issue": "实验场景单一，缺乏抗干扰测试和统计检验",
+          "suggestion": "增加多种轨迹（如圆形、螺旋线）和抗干扰测试，并进行多次仿真取平均值和统计检验。",
+          "priority": "高"
+        },
+        {
+          "aspect": "方法描述",
+          "current_issue": "控制器设计描述不够详细，可复现性中等",
+          "suggestion": "补充模糊PID的隶属函数参数、模糊规则表的具体数值以及常规PID的整定方法。",
+          "priority": "中"
+        },
+        {
+          "aspect": "讨论深度",
+          "current_issue": "讨论部分未深入分析结果原因",
+          "suggestion": "增加对模糊PID超调原因的讨论，如模糊规则设计不当或积分饱和等。",
+          "priority": "中"
+        },
+        {
+          "aspect": "语言表达",
+          "current_issue": "部分句子冗长，图表质量一般",
+          "suggestion": "简化句子结构，提高图表清晰度，如使用更清晰的模糊规则表。",
+          "priority": "低"
+        }
+      ]
+    },
+    "evaluation_method": "sectioned_evaluation"
+  },
+  "student_info": {
+    "name": "1222111",
+    "student_id": "1222111",
+    "title": "[论文] 测试论文word",
+    "submission_id": "SUB_D3921CD5"
+  }
+}

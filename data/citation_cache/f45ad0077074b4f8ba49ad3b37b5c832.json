@@ -1,0 +1,25 @@
+{
+  "reference_index": 2,
+  "raw_text": "B. Singh, A. Kumar, and V. Giri, \"Comprehensive Review of Various Control Strategies for Quadrotor Unmanned Aerial Vehicles,\" (in English), FME Trans., Review vol. 51, no. 3, pp. 298–317, 2023, doi: 1",
+  "verified": true,
+  "confidence": 0.95,
+  "source": "semantic_scholar_doi",
+  "paper_info": {
+    "title": "Comprehensive review of various control strategies for quadrotor unmanned aerial vehicles",
+    "year": 2023,
+    "citation_count": 6,
+    "authors": [
+      "B. Singh",
+      "Awadhesh Kumar",
+      "G. Kumar"
+    ],
+    "venue": "FME Transaction",
+    "doi": "10.5937/fme2303298s",
+    "abstract": "The Quadrotor Unmanned Aerial Vehicles (UAVs) have gained significant attention in recent years due to their versatile applications in civilian and military sectors. It is a highly nonlinear and underactuated system and an outdoor flight; it is always subjected to external disturbances due to wind g"
+  },
+  "suspicious_indicators": [],
+  "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Comprehensive review of various control strategies for quadrotor unmanned aerial",
+  "topic_mismatch": false,
+  "title_mismatch": false,
+  "author_mismatch": false
+}

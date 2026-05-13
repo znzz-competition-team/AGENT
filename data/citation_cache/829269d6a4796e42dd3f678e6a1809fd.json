@@ -1,0 +1,25 @@
+{
+  "reference_index": 3,
+  "raw_text": "L. M. Gonzalez, \"Adaptive Sliding Mode Control for UAVs: Mitigating Wind Disturbances via Reinforcement Learning Tuning,\" (in English), IEEE Access, vol. 12, pp. 45902–45917, 2024, doi: 10.1109/access",
+  "verified": false,
+  "confidence": 0.15,
+  "source": "crossref_mismatch",
+  "paper_info": {
+    "title": "SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINFORCEMENT LEARNING",
+    "year": 2025,
+    "citation_count": 0,
+    "authors": [
+      " ",
+      "Volodymyr Sorochynskyi"
+    ],
+    "venue": "Human and Space",
+    "doi": "10.62717/2221-4550-2025-1-110"
+  },
+  "suspicious_indicators": [
+    "CrossRef结果与引用标题不匹配（相似度35%）"
+  ],
+  "verification_detail": "🚨 通过CrossRef找到论文，但标题不匹配: 引用「Adaptive Sliding Mode Control for UAVs: Mitigating Wind Dist」 vs 实际「SPACECRAFT ON-OFF RELATIVE CONTROL IN SLIDING MODE VIA REINF」",
+  "topic_mismatch": true,
+  "title_mismatch": true,
+  "author_mismatch": false
+}

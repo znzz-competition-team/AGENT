@@ -249,6 +249,14 @@ def _generate_summary_text(result, method, student_info):
         novelty = result.get('novelty_verification', {})
         if novelty:
             lines.append(f"新颖度评分: {novelty.get('novelty_score', 'N/A')}分")
+    elif method == 'deep':
+        diagnosis = result.get('diagnosis', {})
+        overall = diagnosis.get('overall_score', 0)
+        grade = diagnosis.get('grade_level', '')
+        roadmap = result.get('modification_roadmap', {})
+        lines.append(f"当前评分: {overall}分 ({grade})")
+        lines.append(f"可提升空间: +{roadmap.get('total_improvable_points', 0)}分")
+        lines.append(f"潜在评分: {roadmap.get('potential_score', 0)}分")
     else:
         overall = result.get('overall_score', 0)
         grade = result.get('grade_level', '')
@@ -278,6 +286,1565 @@ def _generate_summary_text(result, method, student_info):
     return '\n'.join(lines)
 
 
+def _display_enhanced_result(result, student_info):
+    base_eval = result.get('base_evaluation', {})
+    base_error = base_eval.get('error', '')
+    if base_error:
+        if 'Insufficient Balance' in base_error or '402' in base_error:
+            st.error("💳 **API余额不足！** 请前往 DeepSeek 开放平台充值后再试。")
+        elif 'API' in base_error and 'key' in base_error.lower():
+            st.error("🔑 **API密钥无效！** 请检查API Key配置是否正确。")
+        elif 'rate' in base_error.lower() or '429' in base_error:
+            st.error("⏳ **API调用频率超限！** 请稍后再试。")
+        else:
+            st.error(f"⚠️ 基础评估出现问题: {base_error}")
+        with st.expander("查看基础评估原始结果"):
+            st.json(base_eval)
+
+    final_score = result.get('final_enhanced_score', 0)
+    final_grade = result.get('final_enhanced_grade', '')
+    base_score = result.get('base_score', 0)
+    total_adjustment = result.get('total_adjustment', 0)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("基础评分", f"{base_score}分")
+    with col2:
+        st.metric("校准调整", f"{'+' if total_adjustment >= 0 else ''}{total_adjustment}分")
+    with col3:
+        st.metric("最终增强评分", f"{final_score}分")
+    with col4:
+        st.metric("等级", final_grade)
+
+    score_adjustments = result.get('score_adjustments', {})
+    if score_adjustments:
+        with st.expander("📊 评分校准详情"):
+            for adj_key, adj_info in score_adjustments.items():
+                adj_value = adj_info.get('value', 0)
+                adj_reason = adj_info.get('reason', '')
+                emoji = "🔴" if adj_value < 0 else "🟢" if adj_value > 0 else "⚪"
+                st.markdown(f"{emoji} **{adj_key}**: {'+' if adj_value >= 0 else ''}{adj_value}分")
+                st.markdown(f"   _{adj_reason}_")
+
+    enhancement_modules = result.get('enhancement_modules', {})
+
+    novelty_data = enhancement_modules.get('novelty_verification', {})
+    if novelty_data and novelty_data.get('novelty_score') is not None:
+        with st.expander("📚 引用网络新颖度验证结果"):
+            novelty_score = novelty_data.get('novelty_score', 0)
+            novelty_grade = novelty_data.get('novelty_grade', '')
+            col_n1, col_n2 = st.columns(2)
+            with col_n1:
+                st.metric("新颖度评分", f"{novelty_score}分")
+            with col_n2:
+                st.metric("新颖度等级", novelty_grade)
+
+            breakdown = novelty_data.get('novelty_breakdown', {})
+            if breakdown:
+                st.markdown("#### 评分构成")
+                bd_items = {
+                    "reference_verifiability": "引用可验证性",
+                    "recency": "引用时效性",
+                    "citation_quality": "引用质量",
+                    "innovation_bonus": "创新加分",
+                    "self_citation_penalty": "自引惩罚",
+                    "fake_reference_penalty": "虚假引用惩罚",
+                    "relevance_bonus": "相关性加分",
+                }
+                for k, v in breakdown.items():
+                    label = bd_items.get(k, k)
+                    if v > 0 and 'penalty' not in k:
+                        st.markdown(f"- 🟢 **{label}**: +{v}")
+                    elif v < 0:
+                        st.markdown(f"- 🔴 **{label}**: {v}")
+                    else:
+                        st.markdown(f"- ⚪ **{label}**: {v}")
+
+            fake_analysis = novelty_data.get('fake_reference_analysis', {})
+            if fake_analysis:
+                st.markdown("---")
+                st.markdown("#### 🚨 虚假引用检测")
+                risk_level = fake_analysis.get('risk_level', 'unknown')
+                fake_prob = fake_analysis.get('fake_probability', 0)
+                assessment = fake_analysis.get('assessment', '')
+                risk_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢", "minimal": "✅", "unknown": "⚪"}
+                st.markdown(f"{risk_emoji.get(risk_level, '⚪')} **风险等级**: {risk_level.upper()} | **虚假概率**: {fake_prob}%")
+                st.markdown(f"_{assessment}_")
+                risk_factors = fake_analysis.get('risk_factors', [])
+                if risk_factors:
+                    st.markdown("**风险因素:**")
+                    for rf in risk_factors:
+                        st.markdown(f"  - ⚠️ {rf}")
+                similar_pairs = fake_analysis.get('similar_pairs', [])
+                if similar_pairs:
+                    st.markdown("**高度相似引用对:**")
+                    for p1, p2, sim in similar_pairs:
+                        st.markdown(f"  - 引用[{p1}] 与 引用[{p2}] 相似度 {sim}")
+                recommendations = fake_analysis.get('recommendations', [])
+                if recommendations:
+                    st.markdown("**建议:**")
+                    for rec in recommendations:
+                        st.markdown(f"  - 💡 {rec}")
+
+            topic_mismatch_refs = novelty_data.get('topic_mismatch_references', [])
+            if topic_mismatch_refs:
+                st.markdown("---")
+                title_mismatch_count = sum(1 for r in topic_mismatch_refs if r.get('title_mismatch'))
+                author_mismatch_count = sum(1 for r in topic_mismatch_refs if r.get('author_mismatch'))
+                header = "🚨 疑似虚假/错误引用"
+                if title_mismatch_count > 0:
+                    header = f"🚨 发现{title_mismatch_count}条标题不匹配引用（极可能是修改过的虚假引用）"
+                if author_mismatch_count > 0:
+                    header += f"，{author_mismatch_count}条作者不匹配"
+                st.markdown(f"#### {header}")
+                st.error(f"发现 {len(topic_mismatch_refs)} 条可疑引用！")
+                for tmr in topic_mismatch_refs:
+                    idx = tmr.get('index', '?')
+                    raw = tmr.get('raw_text', '')
+                    found_title = tmr.get('found_title', '')
+                    reason = tmr.get('reason', '')
+                    is_title_mismatch = tmr.get('title_mismatch', False)
+                    is_author_mismatch = tmr.get('author_mismatch', False)
+                    tags = []
+                    if is_title_mismatch:
+                        tags.append("🏷️标题不匹配")
+                    if is_author_mismatch:
+                        tags.append("👤作者不匹配")
+                    tag_str = ' | '.join(tags) if tags else "⚠️主题不匹配"
+                    with st.expander(f"**引用[{idx}]** {tag_str}", expanded=True):
+                        st.markdown(f"**原文引用**: {raw[:200]}...")
+                        if found_title:
+                            st.markdown(f"🔍 **数据库中实际对应的论文**: 「{found_title}」")
+                        if reason:
+                            st.markdown(f"_{reason}_")
+
+            suspicious_refs = novelty_data.get('suspicious_references', [])
+            if suspicious_refs:
+                st.markdown("---")
+                st.markdown("#### ⚠️ 可疑引用详情")
+                for sr in suspicious_refs:
+                    idx = sr.get('index', '?')
+                    raw = sr.get('raw_text', '')
+                    indicators = sr.get('indicators', [])
+                    detail = sr.get('detail', '')
+                    st.error(f"**引用[{idx}]**: {raw[:100]}...")
+                    for ind in indicators:
+                        st.markdown(f"  - 🔸 {ind}")
+                    if detail:
+                        st.markdown(f"  _{detail}_")
+
+            unverified_refs = novelty_data.get('unverified_references', [])
+            if unverified_refs:
+                with st.expander(f"📋 未验证引用列表 ({len(unverified_refs)}条)"):
+                    for ur in unverified_refs:
+                        idx = ur.get('index', '?')
+                        raw = ur.get('raw_text', '')
+                        reason = ur.get('reason', '')
+                        indicators = ur.get('suspicious_indicators', [])
+                        icon = "🔸" if indicators else "🔹"
+                        st.markdown(f"{icon} **[{idx}]** {raw[:120]}...")
+                        if reason:
+                            st.markdown(f"  _原因: {reason}_")
+
+            verified_details = novelty_data.get('verified_reference_details', [])
+            if verified_details:
+                with st.expander(f"✅ 已验证引用详情 ({len(verified_details)}条)"):
+                    for vd in verified_details:
+                        idx = vd.get('index', '?')
+                        title = vd.get('title', 'N/A')
+                        year = vd.get('year', 'N/A')
+                        cite_count = vd.get('citation_count', 0)
+                        venue = vd.get('venue', '')
+                        authors = vd.get('authors', [])
+                        source = vd.get('source', '')
+                        st.markdown(f"**[{idx}]** {title}")
+                        st.markdown(f"  年份: {year} | 被引: {cite_count} | 来源: {source}")
+                        if venue:
+                            st.markdown(f"  期刊/会议: {venue}")
+                        if authors:
+                            st.markdown(f"  作者: {', '.join(authors[:3])}")
+
+            ref_stats = novelty_data.get('reference_statistics', {})
+            if ref_stats:
+                st.markdown("---")
+                st.markdown("#### 📊 参考文献统计")
+                col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+                with col_s1:
+                    st.metric("总引用数", ref_stats.get('total_references', 0))
+                with col_s2:
+                    st.metric("已验证", ref_stats.get('verified_references', 0))
+                with col_s3:
+                    st.metric("验证率", f"{ref_stats.get('verification_rate', 0):.1%}")
+                with col_s4:
+                    st.metric("可疑引用", ref_stats.get('suspicious_count', 0))
+
+            recency = novelty_data.get('recency_analysis', {})
+            if recency and recency.get('has_year_info'):
+                st.markdown("#### 📅 引用时效性")
+                col_r1, col_r2, col_r3 = st.columns(3)
+                with col_r1:
+                    st.metric("平均年份", recency.get('avg_year', 'N/A'))
+                with col_r2:
+                    st.metric("近5年比例", f"{recency.get('recent_5y_ratio', 0):.1%}")
+                with col_r3:
+                    st.metric("近3年比例", f"{recency.get('recent_3y_ratio', 0):.1%}")
+                recency_assessment = recency.get('assessment', '')
+                if recency_assessment:
+                    st.info(f"_{recency_assessment}_")
+
+            citation_quality = novelty_data.get('citation_quality', {})
+            if citation_quality:
+                st.markdown("#### 📖 引用质量评价")
+                quality_detail = citation_quality.get('detail', '')
+                if quality_detail:
+                    st.info(quality_detail)
+                col_q1, col_q2, col_q3 = st.columns(3)
+                with col_q1:
+                    st.metric("质量评分", f"{citation_quality.get('quality_score', 0)}分")
+                with col_q2:
+                    st.metric("平均被引", f"{citation_quality.get('avg_citation_count', 0):.1f}次")
+                with col_q3:
+                    st.metric("高被引比例", f"{citation_quality.get('high_citation_ratio', 0):.1%}")
+                lang_balance = citation_quality.get('language_balance', '')
+                if lang_balance:
+                    st.markdown(f"**语言分布**: {lang_balance}")
+
+            ref_relevance = novelty_data.get('reference_relevance', {})
+            if ref_relevance:
+                st.markdown("#### 🎯 引用相关性")
+                st.metric("相关性评分", f"{ref_relevance.get('relevance_score', 0)}分")
+                rel_assessment = ref_relevance.get('assessment', '')
+                if rel_assessment:
+                    st.info(f"_{rel_assessment}_")
+
+            self_cite = novelty_data.get('self_citation_analysis', {})
+            if self_cite:
+                st.markdown("#### 🔄 自引检测")
+                thesis_authors = self_cite.get('thesis_authors', [])
+                if thesis_authors:
+                    st.markdown(f"**检测到的作者**: {', '.join(thesis_authors)}")
+                st.markdown(f"- 自引数量: {self_cite.get('self_citation_count', 0)}")
+                st.markdown(f"- 自引比例: {self_cite.get('self_citation_ratio', 0):.1%}")
+                assessment = self_cite.get('assessment', '')
+                if '过高' in assessment:
+                    st.error(f"⚠️ {assessment}")
+                elif '偏高' in assessment:
+                    st.warning(f"⚡ {assessment}")
+                else:
+                    st.info(f"✅ {assessment}")
+
+            innovation_verify = novelty_data.get('innovation_verification', [])
+            if innovation_verify:
+                st.markdown("---")
+                st.markdown("#### 💡 创新点验证")
+                for iv in innovation_verify:
+                    status = iv.get('verification_status', '')
+                    innovation_text = iv.get('claimed_innovation', '')[:100]
+                    n_related = iv.get('n_related_works', 0)
+                    if status == 'likely_novel':
+                        st.success(f"🟢 **可能创新**: {innovation_text}... (找到{n_related}篇相关工作)")
+                    elif status == 'possibly_incremental':
+                        st.warning(f"🟡 **可能增量式改进**: {innovation_text}... (找到{n_related}篇相关工作)")
+                    else:
+                        st.info(f"🔵 **未找到先前工作**: {innovation_text}...")
+                    related = iv.get('related_prior_works', [])
+                    for rp in related[:2]:
+                        st.markdown(f"  - 相关工作: {rp.get('title', 'N/A')} ({rp.get('year', 'N/A')}, 被引{rp.get('citation_count', 0)}次)")
+
+    multi_judge_data = enhancement_modules.get('multi_judge', {})
+    if multi_judge_data and multi_judge_data.get('overall_consensus_score') is not None:
+        with st.expander("🤖 多模型共识评审结果"):
+            consensus_score = multi_judge_data.get('overall_consensus_score', 0)
+            n_judges = multi_judge_data.get('n_judges', 1)
+            col_j1, col_j2 = st.columns(2)
+            with col_j1:
+                st.metric("共识评分", f"{consensus_score}分")
+            with col_j2:
+                st.metric("评审模型数", f"{n_judges}")
+
+    textgrad_data = enhancement_modules.get('textgrad_optimization', {})
+    if textgrad_data and not textgrad_data.get('error'):
+        with st.expander("🔧 TextGrad提示词优化结果"):
+            best_consistency = textgrad_data.get('best_consistency', 0)
+            n_iters = textgrad_data.get('n_iterations', 0)
+            st.metric("最佳一致性指标", f"{best_consistency:.4f}")
+            st.metric("优化迭代次数", n_iters)
+
+    if base_eval:
+        _display_section_evaluations(base_eval)
+
+    promise_tracking = result.get('promise_tracking', base_eval.get('promise_tracking', {}))
+    if promise_tracking and promise_tracking.get('fulfillment_status'):
+        with st.expander("📋 承诺-兑现追踪表", expanded=True):
+            fulfillment_rate = promise_tracking.get('overall_fulfillment_rate', 1.0)
+            st.metric("承诺兑现率", f"{fulfillment_rate:.1%}")
+            for status in promise_tracking.get('fulfillment_status', []):
+                promise = status.get('promise', '')
+                fulfillment_degree = status.get('fulfillment_degree', '未兑现')
+                if fulfillment_degree == "完全兑现":
+                    status_emoji = "✅"
+                elif fulfillment_degree == "部分兑现":
+                    status_emoji = "🟡"
+                else:
+                    status_emoji = "❌"
+                with st.expander(f"{status_emoji} **{promise[:50]}{'...' if len(promise) > 50 else ''}** ({fulfillment_degree})", expanded=fulfillment_degree != "完全兑现"):
+                    st.markdown(f"**来源章节:** {status.get('source_section', '')}")
+                    st.markdown(f"**兑现程度:** {fulfillment_degree}")
+                    if status.get('fulfillment_section'):
+                        st.markdown(f"**兑现章节:** {status['fulfillment_section']}")
+                    if status.get('fulfillment_evidence'):
+                        st.markdown(f"**兑现证据:**\n> {status['fulfillment_evidence']}")
+                    if status.get('comment'):
+                        st.markdown(f"**评价:** {status['comment']}")
+                    if status.get('impact_analysis'):
+                        st.markdown(f"**影响分析:** {status['impact_analysis']}")
+                    if status.get('improvement_suggestion') and fulfillment_degree != "完全兑现":
+                        st.markdown(f"**💡 改进建议:** {status['improvement_suggestion']}")
+            unfulfilled = promise_tracking.get('unfulfilled_promises', [])
+            partially_fulfilled = promise_tracking.get('partially_fulfilled_promises', [])
+            if unfulfilled or partially_fulfilled:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if unfulfilled:
+                        st.markdown("**❌ 未兑现的承诺:**")
+                        for uf in unfulfilled:
+                            st.markdown(f"- {uf}")
+                with col2:
+                    if partially_fulfilled:
+                        st.markdown("**🟡 部分兑现的承诺:**")
+                        for pf in partially_fulfilled:
+                            st.markdown(f"- {pf}")
+            summary = promise_tracking.get('summary', '')
+            if summary:
+                st.markdown(f"**总结:** {summary}")
+
+    quantitative_table = result.get('quantitative_table', base_eval.get('quantitative_table', {}))
+    if quantitative_table:
+        with st.expander("📊 量化评估表", expanded=True):
+            st.markdown("| 评审维度 | 权重 | 得分 | 加权得分 | 核心评判依据 |")
+            st.markdown("| :--- | :--- | :--- | :--- | :--- |")
+            dim_names = {
+                'innovation': '创新度评估',
+                'research_depth': '研究深度评估',
+                'structure': '文章结构评估',
+                'method_experiment': '方法与实验评估'
+            }
+            for dim_key, dim_data in quantitative_table.items():
+                if dim_key == 'total_score':
+                    continue
+                dim_name = dim_names.get(dim_key, dim_key)
+                weight = dim_data.get('weight', '')
+                score = dim_data.get('score', 0)
+                weighted_score = dim_data.get('weighted_score', 0)
+                core_evidence = dim_data.get('core_evidence', '')
+                st.markdown(f"| **{dim_name}** | {weight} | {score}/100 | {weighted_score} | {core_evidence} |")
+            total_score = quantitative_table.get('total_score', 0)
+            st.markdown(f"| **总计得分** | **100%** | | **{total_score}** | **总体评价：{'优秀' if total_score >= 90 else '良好' if total_score >= 80 else '中等' if total_score >= 70 else '及格' if total_score >= 60 else '不及格'}** |")
+
+    detailed_analysis = result.get('detailed_analysis', base_eval.get('detailed_analysis', {}))
+    if detailed_analysis:
+        with st.expander("🔍 详细评审推导过程", expanded=True):
+            dim_titles = {
+                'innovation_analysis': '创新度评估',
+                'research_depth_analysis': '研究深度评估',
+                'structure_analysis': '文章结构评估',
+                'method_experiment_analysis': '方法与实验评估'
+            }
+            field_names = {
+                'innovation_type': '创新类型', 'practical_value': '实用价值', 'academic_value': '学术价值',
+                'comparison': '对比分析', 'improvement_degree': '改进程度', 'coverage': '覆盖范围',
+                'analysis_type': '综述方式', 'problem_induction': '问题归纳', 'literature_quality': '文献质量',
+                'structure_completeness': '结构完整性', 'logic_chain': '逻辑链条', 'argument_coherence': '论证连贯性',
+                'expression_quality': '表达质量', 'method_suitability': '方法适用性', 'reproducibility': '可复现性',
+                'experiment_design': '实验设计', 'data_analysis': '数据分析'
+            }
+            for dim_key, dim_title in dim_titles.items():
+                dim_data = detailed_analysis.get(dim_key, {})
+                if not dim_data:
+                    continue
+                st.markdown(f"#### {dim_title}")
+                for step_num in range(1, 5):
+                    step_key = f'step{step_num}'
+                    step_data = dim_data.get(step_key, {})
+                    if step_data:
+                        st.markdown(f"**第{step_num}步：{step_data.get('question', '')}**")
+                        st.markdown(f"- 分析：{step_data.get('answer', '')}")
+                        if step_data.get('evidence'):
+                            st.markdown(f"- 证据：> {step_data['evidence']}")
+                        for field, label in field_names.items():
+                            if field in step_data:
+                                st.markdown(f"- {label}：{step_data[field]}")
+                        st.markdown("")
+                final_score = dim_data.get('final_score', 0)
+                score_reason = dim_data.get('score_reason', '')
+                st.markdown(f"**综合评分：{final_score}分**")
+                st.markdown(f"**评分理由：** {score_reason}")
+                st.markdown("---")
+
+    overall_comment = result.get('overall_comment', base_eval.get('overall_comment', ''))
+    if overall_comment:
+        with st.expander("📝 总体评价", expanded=True):
+            st.markdown(overall_comment)
+
+    strengths = result.get('strengths', base_eval.get('strengths', []))
+    weaknesses = result.get('weaknesses', base_eval.get('weaknesses', []))
+    if strengths or weaknesses:
+        col_s, col_w = st.columns(2)
+        with col_s:
+            if strengths:
+                st.markdown("**💪 优势:**")
+                for s in strengths:
+                    st.markdown(f"✅ {s}")
+        with col_w:
+            if weaknesses:
+                st.markdown("**📌 待改进:**")
+                for w in weaknesses:
+                    st.markdown(f"⚠️ {w}")
+
+    improvement_suggestions = result.get('improvement_suggestions', base_eval.get('improvement_suggestions', []))
+    if improvement_suggestions:
+        with st.expander("💡 改进建议"):
+            for suggestion in improvement_suggestions:
+                if isinstance(suggestion, dict):
+                    aspect = suggestion.get('aspect', '')
+                    current_issue = suggestion.get('current_issue', '')
+                    suggestion_text = suggestion.get('suggestion', '')
+                    priority = suggestion.get('priority', '中')
+                    priority_emoji = {"高": "🔴", "中": "🟡", "低": "🟢"}.get(priority, "🟡")
+                    st.markdown(f"**{priority_emoji} {aspect}** (优先级: {priority})")
+                    st.markdown(f"- 当前问题: {current_issue}")
+                    st.markdown(f"- 改进建议: {suggestion_text}")
+                    st.markdown("")
+                else:
+                    st.markdown(f"- 💡 {suggestion}")
+
+    with st.expander("查看完整JSON结果"):
+        st.json(result)
+
+
+def _display_section_evaluations(base_eval):
+    base_overall = base_eval.get('overall_score', 0)
+    base_grade = base_eval.get('grade_level', '')
+    st.metric("基础评分", f"{base_overall}分 ({base_grade})")
+
+    thesis_structure = base_eval.get('thesis_structure', {})
+    if thesis_structure:
+        st.markdown(f"**论文类型**: {thesis_structure.get('thesis_type', '未知')}")
+        st.markdown(f"**章节总数**: {thesis_structure.get('total_sections', 0)}")
+        main_works = thesis_structure.get('main_works', [])
+        if main_works:
+            st.markdown("**主要工作:**")
+            for w in main_works:
+                st.markdown(f"- {w}")
+
+    section_evals = base_eval.get('section_evaluations', [])
+    if section_evals:
+        st.markdown("---")
+        st.markdown("### 📖 各章节详细评估")
+        for se in section_evals:
+            sec_title = se.get('section_title', '未知章节')
+            sec_score = se.get('section_score', 0)
+            sec_grade = se.get('grade_level', '')
+            sec_type = se.get('section_type', '')
+            type_name = {"abstract": "摘要", "introduction": "绪论", "literature_review": "文献综述", "methodology": "方法/设计", "implementation": "实现", "experiment": "实验/测试", "results": "结果分析", "conclusion": "结论", "references": "参考文献"}.get(sec_type, sec_type)
+
+            with st.expander(f"{'📌' if sec_score >= 80 else '⚠️' if sec_score < 70 else '📄'} {sec_title} - {sec_score}分 ({sec_grade})", expanded=sec_score < 70):
+                cq = se.get('content_quality', {})
+                if cq:
+                    st.markdown(f"**内容质量** ({cq.get('score', 'N/A')}分)")
+                    st.markdown(f"_{cq.get('comment', '')}_")
+                    strengths = cq.get('strengths', [])
+                    if strengths:
+                        st.markdown("**优点:**")
+                        for s in strengths:
+                            st.markdown(f"  - ✅ {s}")
+                    weaknesses = cq.get('weaknesses', [])
+                    if weaknesses:
+                        st.markdown("**不足:**")
+                        for w in weaknesses:
+                            st.markdown(f"  - ❌ {w}")
+                    if cq.get('depth_analysis'):
+                        st.markdown(f"**论述深度**: {cq['depth_analysis']}")
+                    if cq.get('data_sufficiency'):
+                        st.markdown(f"**数据充分性**: {cq['data_sufficiency']}")
+
+                lc = se.get('logic_coherence', {})
+                if lc:
+                    st.markdown(f"**逻辑连贯性** ({lc.get('score', 'N/A')}分)")
+                    st.markdown(f"_{lc.get('comment', '')}_")
+                    if lc.get('internal_logic'):
+                        st.markdown(f"**内部逻辑**: {lc['internal_logic']}")
+                    if lc.get('cross_chapter_logic'):
+                        st.markdown(f"**跨章节衔接**: {lc['cross_chapter_logic']}")
+                    issues = lc.get('issues', [])
+                    if issues:
+                        st.markdown("**逻辑问题:**")
+                        for iss in issues:
+                            st.markdown(f"  - ⚠️ {iss}")
+
+                ic = se.get('innovation_contribution', {})
+                if ic:
+                    st.markdown(f"**创新与贡献** ({ic.get('score', 'N/A')}分)")
+                    st.markdown(f"_{ic.get('comment', '')}_")
+                    st.markdown(f"**创新类型**: {ic.get('novelty_type', 'N/A')}")
+                    if ic.get('concrete_contribution'):
+                        st.markdown(f"**具体贡献**: {ic['concrete_contribution']}")
+                    if ic.get('comparison_with_existing'):
+                        st.markdown(f"**与现有工作对比**: {ic['comparison_with_existing']}")
+
+                wq = se.get('writing_quality', {})
+                if wq:
+                    st.markdown(f"**表达规范性** ({wq.get('score', 'N/A')}分)")
+                    st.markdown(f"_{wq.get('comment', '')}_")
+                    for li in wq.get('language_issues', []):
+                        st.markdown(f"  - 🔸 {li}")
+                    for fi in wq.get('format_issues', []):
+                        st.markdown(f"  - 🔸 {fi}")
+
+                key_points = se.get('key_points', [])
+                if key_points:
+                    st.markdown("**关键点:**")
+                    for kp in key_points:
+                        st.markdown(f"  - {kp}")
+
+                suggestions = se.get('improvement_suggestions', [])
+                if suggestions:
+                    st.markdown("**改进建议:**")
+                    for sug in suggestions:
+                        if isinstance(sug, dict):
+                            priority = sug.get('priority', '中')
+                            icon = "🔴" if priority == "高" else "🟡" if priority == "中" else "🟢"
+                            st.markdown(f"  {icon} **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}")
+                            if sug.get('current_issue'):
+                                st.markdown(f"     _当前问题: {sug['current_issue']}_")
+                        else:
+                            st.markdown(f"  - 💡 {sug}")
+
+                evidence = se.get('evidence', '')
+                if evidence:
+                    st.markdown(f"**评分依据**: {evidence}")
+                detailed_reason = se.get('detailed_score_reason', '')
+                if detailed_reason:
+                    with st.expander("查看详细评分推理"):
+                        st.markdown(detailed_reason)
+
+    section_level_details = base_eval.get('section_level_details', [])
+    if section_level_details:
+        st.markdown("---")
+        st.markdown("### 📝 章节级深度评价")
+        for sld in section_level_details:
+            sld_title = sld.get('section_title', '')
+            with st.expander(f"🔍 {sld_title}"):
+                assessment = sld.get('content_assessment', '')
+                if assessment:
+                    st.markdown(f"**内容评估**: {assessment}")
+                findings = sld.get('key_findings', [])
+                if findings:
+                    st.markdown("**主要发现:**")
+                    for f in findings:
+                        st.markdown(f"  - {f}")
+                issues = sld.get('specific_issues', [])
+                if issues:
+                    st.markdown("**具体问题:**")
+                    for iss in issues:
+                        st.markdown(f"  - ⚠️ {iss}")
+                advice = sld.get('improvement_advice', '')
+                if advice:
+                    st.markdown(f"**改进建议**: {advice}")
+
+    detailed_eval = base_eval.get('detailed_evaluation', {})
+    if detailed_eval:
+        st.markdown("---")
+        st.markdown("### 🎯 各部分深度评价")
+        eval_labels = {
+            "abstract_evaluation": "📄 摘要",
+            "introduction_evaluation": "📖 绪论",
+            "methodology_evaluation": "🔧 方法/设计",
+            "implementation_evaluation": "⚙️ 实现",
+            "experiment_evaluation": "🧪 实验",
+            "conclusion_evaluation": "📝 结论",
+        }
+        for key, label in eval_labels.items():
+            content = detailed_eval.get(key, '')
+            if content:
+                st.markdown(f"**{label}**: {content}")
+
+    quantitative_table = base_eval.get('quantitative_table', {})
+    if quantitative_table:
+        st.markdown("---")
+        st.markdown("### 📊 量化评估表")
+        dims = ['innovation', 'research_depth', 'structure', 'method_experiment']
+        dim_names = {'innovation': '创新度', 'research_depth': '研究深度', 'structure': '文章结构', 'method_experiment': '方法与实验'}
+        for dim in dims:
+            dim_data = quantitative_table.get(dim, {})
+            if dim_data:
+                name = dim_names.get(dim, dim)
+                score = dim_data.get('score', 'N/A')
+                weight = dim_data.get('weight', 'N/A')
+                weighted = dim_data.get('weighted_score', 'N/A')
+                evidence = dim_data.get('core_evidence', '')
+                st.markdown(f"**{name}** | 权重: {weight} | 得分: {score} | 加权: {weighted}")
+                if evidence:
+                    st.markdown(f"  _{evidence}_")
+
+    detailed_analysis = base_eval.get('detailed_analysis', {})
+    if detailed_analysis:
+        st.markdown("---")
+        st.markdown("### 🔍 详细评审推导过程")
+        analysis_labels = {
+            "innovation_analysis": "💡 创新度评估",
+            "research_depth_analysis": "📚 研究深度评估",
+            "structure_analysis": "🏗️ 文章结构评估",
+            "method_experiment_analysis": "🧪 方法与实验评估",
+        }
+        field_names = {
+            'innovation_type': '创新类型', 'practical_value': '实用价值', 'academic_value': '学术价值',
+            'comparison': '对比分析', 'improvement_degree': '改进程度', 'coverage': '覆盖范围',
+            'analysis_type': '综述方式', 'problem_induction': '问题归纳', 'literature_quality': '文献质量',
+            'structure_completeness': '结构完整性', 'logic_chain': '逻辑链条', 'argument_coherence': '论证连贯性',
+            'expression_quality': '表达质量', 'method_suitability': '方法适用性', 'reproducibility': '可复现性',
+            'experiment_design': '实验设计', 'data_analysis': '数据分析'
+        }
+        for akey, alabel in analysis_labels.items():
+            adata = detailed_analysis.get(akey, {})
+            if adata:
+                with st.expander(alabel):
+                    for step_key in ['step1', 'step2', 'step3', 'step4']:
+                        step = adata.get(step_key, {})
+                        if step:
+                            q = step.get('question', '')
+                            a = step.get('answer', '')
+                            ev = step.get('evidence', '')
+                            st.markdown(f"**{q}**")
+                            st.markdown(f"{a}")
+                            if ev:
+                                st.markdown(f"  _证据: {ev}_")
+                            for field, label in field_names.items():
+                                val = step.get(field)
+                                if val:
+                                    st.markdown(f"  **{label}**: {val}")
+                            st.markdown("")
+                    final_score = adata.get('final_score', '')
+                    score_reason = adata.get('score_reason', '')
+                    if final_score:
+                        st.markdown(f"**综合评分**: {final_score}分")
+                    if score_reason:
+                        st.markdown(f"**评分理由**: {score_reason}")
+
+    coherence_analysis = base_eval.get('coherence_analysis', {})
+    if coherence_analysis:
+        st.markdown("---")
+        st.markdown("### 🔗 连贯性分析")
+        coh_score = coherence_analysis.get('overall_coherence_score', 'N/A')
+        st.metric("整体连贯性", f"{coh_score}分")
+        major_issues = coherence_analysis.get('major_issues', [])
+        if major_issues:
+            st.markdown("**主要问题:**")
+            for mi in major_issues:
+                st.markdown(f"  - ⚠️ {mi}")
+
+    promise_analysis = base_eval.get('promise_fulfillment_analysis', {})
+    if promise_analysis:
+        st.markdown("---")
+        st.markdown("### 📋 承诺兑现分析")
+        fr = promise_analysis.get('fulfillment_rate', 'N/A')
+        st.metric("兑现率", f"{fr}" if isinstance(fr, str) else f"{fr:.1%}")
+        unfulfilled = promise_analysis.get('unfulfilled_promises', [])
+        if unfulfilled:
+            st.markdown("**未兑现承诺:**")
+            for uf in unfulfilled:
+                st.markdown(f"  - ❌ {uf}")
+        partial = promise_analysis.get('partially_fulfilled', [])
+        if partial:
+            st.markdown("**部分兑现:**")
+            for p in partial:
+                st.markdown(f"  - ⚡ {p}")
+        comment = promise_analysis.get('comment', '')
+        if comment:
+            st.info(comment)
+
+
+def _display_rule_engine_result(result, student_info):
+    original_score = result.get('original_score', 0)
+    fusion_score = result.get('overall_score', 0)
+    grade_level = result.get('grade_level', '')
+    fusion_coefficient = result.get('fusion_coefficient', 1.0)
+    project_type = result.get('project_type_name', result.get('project_type', '未知类型'))
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("原始评分", f"{original_score}分")
+    with col2:
+        st.metric("融合系数", f"{fusion_coefficient:.4f}")
+    with col3:
+        st.metric("最终评分", f"{fusion_score}分")
+    with col4:
+        st.metric("等级", grade_level)
+
+    with st.expander("📋 第一部分：原始大模型评分结果", expanded=True):
+        overall_comment = result.get('overall_comment', '')
+        if overall_comment:
+            st.markdown("**总体评价:**")
+            st.markdown(overall_comment)
+            st.markdown("")
+
+        dimension_scores = result.get('dimension_scores', [])
+        if dimension_scores:
+            st.markdown("**各指标评分详情:**")
+            for ds in dimension_scores:
+                indicator_id = ds.get('indicator_id', '未知指标')
+                indicator_name = ds.get('indicator_name', indicator_id)
+                score = ds.get('score', 0)
+                grade = ds.get('grade_level', '')
+                score_reason = ds.get('score_reason', ds.get('reasoning', ''))
+                evidence = ds.get('evidence', '')
+                suggestions = ds.get('improvement_suggestions', [])
+
+                with st.expander(f"**{indicator_name}** ({indicator_id}) - {score}分 ({grade})"):
+                    if score_reason:
+                        st.markdown(f"**评分理由:**")
+                        st.markdown(score_reason)
+                    if evidence:
+                        if isinstance(evidence, list):
+                            st.markdown(f"**论文证据:**")
+                            for e in evidence:
+                                st.markdown(f"> {e}")
+                        else:
+                            st.markdown(f"**论文证据:**")
+                            st.markdown(f"> {evidence}")
+                    if suggestions:
+                        st.markdown(f"**改进建议:**")
+                        for s in suggestions:
+                            if isinstance(s, dict):
+                                priority = s.get('priority', '中')
+                                icon = "🔴" if priority == "高" else "🟡" if priority == "中" else "🟢"
+                                st.markdown(f"  {icon} **{s.get('aspect', '')}**: {s.get('suggestion', '')}")
+                                if s.get('current_issue'):
+                                    st.markdown(f"     _当前问题: {s['current_issue']}_")
+                            else:
+                                st.markdown(f"  - 💡 {s}")
+
+        strengths = result.get('strengths', [])
+        weaknesses = result.get('weaknesses', [])
+        if strengths or weaknesses:
+            st.markdown("---")
+            col_s, col_w = st.columns(2)
+            with col_s:
+                if strengths:
+                    st.markdown("**💪 优势:**")
+                    for s in strengths:
+                        st.markdown(f"✅ {s}")
+            with col_w:
+                if weaknesses:
+                    st.markdown("**📌 待改进:**")
+                    for w in weaknesses:
+                        st.markdown(f"⚠️ {w}")
+
+    institutional_eval = result.get('institutional_evaluation', {})
+    if institutional_eval and institutional_eval.get('institutional_scores'):
+        with st.expander("🏛️ 第二部分：校方固有评价体系评分", expanded=True):
+            inst_scores = institutional_eval.get('institutional_scores', [])
+            overall_inst_score = institutional_eval.get('overall_institutional_score', 0)
+            overall_inst_grade = institutional_eval.get('overall_institutional_grade', '')
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("固有体系加权总分", f"{overall_inst_score}分")
+            with col2:
+                st.metric("总体等级", overall_inst_grade)
+
+            st.markdown("**各维度评分详情:**")
+            for inst_score in inst_scores:
+                dim_name = inst_score.get('dimension_name', '未知维度')
+                dim_score = inst_score.get('score', 0)
+                dim_grade = inst_score.get('grade_level', '')
+                dim_reason = inst_score.get('score_reason', '')
+                dim_evidence = inst_score.get('evidence', '')
+
+                with st.expander(f"**{dim_name}** - {dim_score}分 ({dim_grade})"):
+                    st.markdown(f"**评分等级:** {dim_grade}")
+                    st.markdown(f"**评分理由:**")
+                    st.markdown(dim_reason if dim_reason else "无")
+                    if dim_evidence:
+                        st.markdown(f"**论文证据:**")
+                        st.markdown(f"> {dim_evidence}")
+
+    fusion_details = result.get('fusion_details', {})
+    if fusion_details:
+        with st.expander("⚖️ 第三部分：融合计算详情"):
+            dim_coefs = fusion_details.get('dimension_coefficients', {})
+            if dim_coefs:
+                st.markdown("**各维度融合系数计算:**")
+                dim_name_map = {
+                    "innovation": "创新度",
+                    "research_depth": "研究分析深度",
+                    "structure": "文章结构",
+                    "method_experiment": "研究方法与实验"
+                }
+                coef_data = []
+                for dim_id, coef_info in dim_coefs.items():
+                    display_name = dim_name_map.get(dim_id, dim_id)
+                    coef = coef_info.get('coefficient', 1.0)
+                    score = coef_info.get('score', 0)
+                    grade = coef_info.get('grade_level', '')
+                    coef_data.append({
+                        "维度": display_name,
+                        "评分": f"{score}分",
+                        "等级": grade,
+                        "融合系数": f"{coef:.4f}"
+                    })
+                st.table(coef_data)
+                st.markdown(f"**计算公式:** 最终分数 = 原始分数 × 平均融合系数 = {original_score} × {fusion_coefficient:.4f} = {fusion_score:.1f}分")
+
+            adjustment = fusion_details.get('adjustment', 0)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("原始评分", f"{original_score}分")
+            with col2:
+                st.metric("分数调整", f"{'+' if adjustment >= 0 else ''}{adjustment}分")
+            with col3:
+                st.metric("最终评分", f"{fusion_score}分")
+
+    with st.expander("查看完整JSON结果"):
+        st.json(result)
+
+
+def _display_sectioned_result(result, student_info):
+    original_score = result.get('original_score', result.get('overall_score', 0))
+    fusion_score = result.get('overall_score', 0)
+    grade_level = result.get('grade_level', '')
+    fusion_coefficient = result.get('fusion_coefficient', 1.0)
+    avg_section_score = result.get('avg_section_score', 0)
+    avg_coherence_score = result.get('avg_coherence_score', 0)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("原始评分", f"{original_score}分")
+    with col2:
+        st.metric("融合系数", f"{fusion_coefficient:.4f}")
+    with col3:
+        st.metric("最终评分", f"{fusion_score}分")
+    with col4:
+        st.metric("等级", grade_level)
+
+    thesis_structure = result.get('thesis_structure', {})
+    if thesis_structure:
+        with st.expander("📖 论文结构识别结果"):
+            st.markdown(f"**论文类型:** {thesis_structure.get('thesis_type', '未知')}")
+            st.markdown(f"**章节总数:** {thesis_structure.get('total_sections', 0)}")
+            main_works = thesis_structure.get('main_works', [])
+            if main_works:
+                st.markdown("**主要工作:**")
+                for work in main_works:
+                    st.markdown(f"- {work}")
+            sections = thesis_structure.get('sections', [])
+            if sections:
+                st.markdown("**章节结构:**")
+                for sec in sections:
+                    st.markdown(f"- {sec.get('title', '')} ({sec.get('section_type_name', '')})")
+
+    section_evaluations = result.get('section_evaluations', [])
+    if section_evaluations:
+        with st.expander("📑 各章节评估详情", expanded=True):
+            st.info(f"章节平均分: {avg_section_score}分 | 衔接平均分: {avg_coherence_score}分")
+            for sec_eval in section_evaluations:
+                section_title = sec_eval.get('section_title', '未知章节')
+                section_score = sec_eval.get('section_score', 0)
+                section_grade = sec_eval.get('grade_level', '')
+
+                with st.expander(f"{'📌' if section_score >= 80 else '⚠️' if section_score < 70 else '📄'} **{section_title}** - {section_score}分 ({section_grade})", expanded=section_score < 70):
+                    content_quality = sec_eval.get('content_quality', {})
+                    if content_quality:
+                        st.markdown(f"**内容质量:** {content_quality.get('score', 'N/A')}分")
+                        st.markdown(f"_{content_quality.get('comment', '')}_")
+                        for s in content_quality.get('strengths', []):
+                            st.markdown(f"  - ✅ {s}")
+                        for w in content_quality.get('weaknesses', []):
+                            st.markdown(f"  - ❌ {w}")
+                        if content_quality.get('depth_analysis'):
+                            st.markdown(f"**论述深度**: {content_quality['depth_analysis']}")
+                        if content_quality.get('data_sufficiency'):
+                            st.markdown(f"**数据充分性**: {content_quality['data_sufficiency']}")
+
+                    logic_coherence = sec_eval.get('logic_coherence', {})
+                    if logic_coherence:
+                        st.markdown(f"**逻辑连贯性:** {logic_coherence.get('score', 'N/A')}分")
+                        st.markdown(f"_{logic_coherence.get('comment', '')}_")
+                        if logic_coherence.get('internal_logic'):
+                            st.markdown(f"**内部逻辑**: {logic_coherence['internal_logic']}")
+                        if logic_coherence.get('cross_chapter_logic'):
+                            st.markdown(f"**跨章节衔接**: {logic_coherence['cross_chapter_logic']}")
+                        for issue in logic_coherence.get('issues', []):
+                            st.markdown(f"  - ⚠️ {issue}")
+
+                    ic = sec_eval.get('innovation_contribution', {})
+                    if ic:
+                        st.markdown(f"**创新与贡献:** {ic.get('score', 'N/A')}分")
+                        st.markdown(f"_{ic.get('comment', '')}_")
+                        st.markdown(f"**创新类型**: {ic.get('novelty_type', 'N/A')}")
+                        if ic.get('concrete_contribution'):
+                            st.markdown(f"**具体贡献**: {ic['concrete_contribution']}")
+                        if ic.get('comparison_with_existing'):
+                            st.markdown(f"**与现有工作对比**: {ic['comparison_with_existing']}")
+
+                    wq = sec_eval.get('writing_quality', {})
+                    if wq:
+                        st.markdown(f"**表达规范性:** {wq.get('score', 'N/A')}分")
+                        st.markdown(f"_{wq.get('comment', '')}_")
+                        for li in wq.get('language_issues', []):
+                            st.markdown(f"  - 🔸 {li}")
+                        for fi in wq.get('format_issues', []):
+                            st.markdown(f"  - 🔸 {fi}")
+
+                    key_points = sec_eval.get('key_points', [])
+                    if key_points:
+                        st.markdown("**关键点:**")
+                        for kp in key_points[:5]:
+                            st.markdown(f"- {kp}")
+
+                    improvement_suggestions = sec_eval.get('improvement_suggestions', [])
+                    if improvement_suggestions:
+                        st.markdown("**改进建议:**")
+                        for s in improvement_suggestions:
+                            if isinstance(s, dict):
+                                priority = s.get('priority', '中')
+                                icon = "🔴" if priority == "高" else "🟡" if priority == "中" else "🟢"
+                                st.markdown(f"  {icon} **{s.get('aspect', '')}**: {s.get('suggestion', '')}")
+                                if s.get('current_issue'):
+                                    st.markdown(f"     _当前问题: {s['current_issue']}_")
+                            else:
+                                st.markdown(f"  - 💡 {s}")
+
+                    evidence = sec_eval.get('evidence', '')
+                    if evidence:
+                        st.markdown(f"**评分依据**: {evidence}")
+                    detailed_reason = sec_eval.get('detailed_score_reason', '')
+                    if detailed_reason:
+                        with st.expander("查看详细评分推理"):
+                            st.markdown(detailed_reason)
+
+    coherence_checks = result.get('coherence_checks', [])
+    if coherence_checks:
+        with st.expander("🔗 章节衔接检测结果（逻辑衔接）"):
+            st.info("此检测只关注章节之间的逻辑衔接，不包含承诺-兑现检测。承诺-兑现检测在下方单独展示。")
+            for coherence in coherence_checks:
+                prev_section = coherence.get('prev_section', '')
+                next_section = coherence.get('next_section', '')
+                coherence_score = coherence.get('coherence_score', 0)
+
+                with st.expander(f"{'✅' if coherence_score >= 80 else '⚠️' if coherence_score >= 60 else '❌'} **{prev_section}** → **{next_section}** ({coherence_score}分)", expanded=coherence_score < 70):
+                    logic_flow = coherence.get('logic_flow', {})
+                    if logic_flow:
+                        st.markdown(f"**逻辑连贯性:** {logic_flow.get('score', 0)}分")
+                        if logic_flow.get('comment'):
+                            st.markdown(f"_{logic_flow['comment']}_")
+                        for issue in logic_flow.get('issues', []):
+                            st.markdown(f"- {issue}")
+                        for sug in logic_flow.get('improvement_suggestions', []):
+                            st.markdown(f"- 💡 {sug}")
+
+                    content_consistency = coherence.get('content_consistency', {})
+                    if content_consistency:
+                        st.markdown(f"**内容一致性:** {content_consistency.get('score', 0)}分")
+                        if content_consistency.get('comment'):
+                            st.markdown(f"_{content_consistency['comment']}_")
+                        for inc in content_consistency.get('inconsistencies', []):
+                            st.markdown(f"- {inc}")
+
+                    transition_quality = coherence.get('transition_quality', {})
+                    if transition_quality:
+                        st.markdown(f"**过渡质量:** {transition_quality.get('score', 0)}分")
+                        if transition_quality.get('comment'):
+                            st.markdown(f"_{transition_quality['comment']}_")
+                        if transition_quality.get('missing_transition'):
+                            st.markdown(f"**缺失过渡:** {transition_quality['missing_transition']}")
+
+                    argument_continuity = coherence.get('argument_continuity', {})
+                    if argument_continuity:
+                        st.markdown(f"**论证连续性:** {argument_continuity.get('score', 0)}分")
+                        if argument_continuity.get('comment'):
+                            st.markdown(f"_{argument_continuity['comment']}_")
+                        for issue in argument_continuity.get('issues', []):
+                            st.markdown(f"- {issue}")
+
+                    coherence_suggestions = coherence.get('improvement_suggestions', [])
+                    if coherence_suggestions:
+                        st.markdown("**🎯 衔接改进建议:**")
+                        for sug in coherence_suggestions:
+                            if isinstance(sug, dict):
+                                st.markdown(f"  - **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}")
+                            else:
+                                st.markdown(f"  - 💡 {sug}")
+
+                    overall_comment = coherence.get('overall_comment', '')
+                    if overall_comment:
+                        st.markdown(f"**整体评价:** {overall_comment}")
+
+    promise_tracking = result.get('promise_tracking', {})
+    if promise_tracking and promise_tracking.get('fulfillment_status'):
+        with st.expander("📋 承诺-兑现追踪表", expanded=True):
+            fulfillment_rate = promise_tracking.get('overall_fulfillment_rate', 1.0)
+            st.metric("承诺兑现率", f"{fulfillment_rate:.1%}")
+            for status in promise_tracking.get('fulfillment_status', []):
+                promise = status.get('promise', '')
+                fulfillment_degree = status.get('fulfillment_degree', '未兑现')
+                if fulfillment_degree == "完全兑现":
+                    status_emoji = "✅"
+                elif fulfillment_degree == "部分兑现":
+                    status_emoji = "🟡"
+                else:
+                    status_emoji = "❌"
+                with st.expander(f"{status_emoji} **{promise[:50]}{'...' if len(promise) > 50 else ''}** ({fulfillment_degree})", expanded=fulfillment_degree != "完全兑现"):
+                    st.markdown(f"**来源章节:** {status.get('source_section', '')}")
+                    st.markdown(f"**兑现程度:** {fulfillment_degree}")
+                    if status.get('fulfillment_section'):
+                        st.markdown(f"**兑现章节:** {status['fulfillment_section']}")
+                    if status.get('fulfillment_evidence'):
+                        st.markdown(f"**兑现证据:**\n> {status['fulfillment_evidence']}")
+                    if status.get('comment'):
+                        st.markdown(f"**评价:** {status['comment']}")
+                    if status.get('impact_analysis'):
+                        st.markdown(f"**影响分析:** {status['impact_analysis']}")
+                    if status.get('improvement_suggestion') and fulfillment_degree != "完全兑现":
+                        st.markdown(f"**💡 改进建议:** {status['improvement_suggestion']}")
+            unfulfilled = promise_tracking.get('unfulfilled_promises', [])
+            partially_fulfilled = promise_tracking.get('partially_fulfilled_promises', [])
+            if unfulfilled or partially_fulfilled:
+                col1, col2 = st.columns(2)
+                with col1:
+                    if unfulfilled:
+                        st.markdown("**❌ 未兑现的承诺:**")
+                        for uf in unfulfilled:
+                            st.markdown(f"- {uf}")
+                with col2:
+                    if partially_fulfilled:
+                        st.markdown("**🟡 部分兑现的承诺:**")
+                        for pf in partially_fulfilled:
+                            st.markdown(f"- {pf}")
+            summary = promise_tracking.get('summary', '')
+            if summary:
+                st.markdown(f"**总结:** {summary}")
+
+    quantitative_table = result.get('quantitative_table', {})
+    if quantitative_table:
+        with st.expander("📊 量化评估表", expanded=True):
+            st.markdown("| 评审维度 | 权重 | 得分 | 加权得分 | 核心评判依据 |")
+            st.markdown("| :--- | :--- | :--- | :--- | :--- |")
+            dim_names = {
+                'innovation': '创新度评估',
+                'research_depth': '研究深度评估',
+                'structure': '文章结构评估',
+                'method_experiment': '方法与实验评估'
+            }
+            for dim_key, dim_data in quantitative_table.items():
+                if dim_key == 'total_score':
+                    continue
+                dim_name = dim_names.get(dim_key, dim_key)
+                weight = dim_data.get('weight', '')
+                score = dim_data.get('score', 0)
+                weighted_score = dim_data.get('weighted_score', 0)
+                core_evidence = dim_data.get('core_evidence', '')
+                st.markdown(f"| **{dim_name}** | {weight} | {score}/100 | {weighted_score} | {core_evidence} |")
+            total_score = quantitative_table.get('total_score', 0)
+            st.markdown(f"| **总计得分** | **100%** | | **{total_score}** | **总体评价：{'优秀' if total_score >= 90 else '良好' if total_score >= 80 else '中等' if total_score >= 70 else '及格' if total_score >= 60 else '不及格'}** |")
+
+    detailed_analysis = result.get('detailed_analysis', {})
+    if detailed_analysis:
+        with st.expander("🔍 详细评审推导过程", expanded=True):
+            dim_titles = {
+                'innovation_analysis': '创新度评估',
+                'research_depth_analysis': '研究深度评估',
+                'structure_analysis': '文章结构评估',
+                'method_experiment_analysis': '方法与实验评估'
+            }
+            field_names = {
+                'innovation_type': '创新类型', 'practical_value': '实用价值', 'academic_value': '学术价值',
+                'comparison': '对比分析', 'improvement_degree': '改进程度', 'coverage': '覆盖范围',
+                'analysis_type': '综述方式', 'problem_induction': '问题归纳', 'literature_quality': '文献质量',
+                'structure_completeness': '结构完整性', 'logic_chain': '逻辑链条', 'argument_coherence': '论证连贯性',
+                'expression_quality': '表达质量', 'method_suitability': '方法适用性', 'reproducibility': '可复现性',
+                'experiment_design': '实验设计', 'data_analysis': '数据分析'
+            }
+            for dim_key, dim_title in dim_titles.items():
+                dim_data = detailed_analysis.get(dim_key, {})
+                if not dim_data:
+                    continue
+                st.markdown(f"#### {dim_title}")
+                for step_num in range(1, 5):
+                    step_key = f'step{step_num}'
+                    step_data = dim_data.get(step_key, {})
+                    if step_data:
+                        st.markdown(f"**第{step_num}步：{step_data.get('question', '')}**")
+                        st.markdown(f"- 分析：{step_data.get('answer', '')}")
+                        if step_data.get('evidence'):
+                            st.markdown(f"- 证据：> {step_data['evidence']}")
+                        for field, label in field_names.items():
+                            if field in step_data:
+                                st.markdown(f"- {label}：{step_data[field]}")
+                        st.markdown("")
+                final_score = dim_data.get('final_score', 0)
+                score_reason = dim_data.get('score_reason', '')
+                st.markdown(f"**综合评分：{final_score}分**")
+                st.markdown(f"**评分理由：** {score_reason}")
+                st.markdown("---")
+
+    overall_comment = result.get('overall_comment', '')
+    if overall_comment:
+        with st.expander("📝 总体评价", expanded=True):
+            st.markdown(overall_comment)
+
+    strengths = result.get('strengths', [])
+    weaknesses = result.get('weaknesses', [])
+    if strengths or weaknesses:
+        col_s, col_w = st.columns(2)
+        with col_s:
+            if strengths:
+                st.markdown("**💪 优势:**")
+                for s in strengths:
+                    st.markdown(f"✅ {s}")
+        with col_w:
+            if weaknesses:
+                st.markdown("**📌 待改进:**")
+                for w in weaknesses:
+                    st.markdown(f"⚠️ {w}")
+
+    improvement_suggestions = result.get('improvement_suggestions', [])
+    if improvement_suggestions:
+        with st.expander("💡 改进建议"):
+            for suggestion in improvement_suggestions:
+                if isinstance(suggestion, dict):
+                    aspect = suggestion.get('aspect', '')
+                    current_issue = suggestion.get('current_issue', '')
+                    suggestion_text = suggestion.get('suggestion', '')
+                    priority = suggestion.get('priority', '中')
+                    priority_emoji = {"高": "🔴", "中": "🟡", "低": "🟢"}.get(priority, "🟡")
+                    st.markdown(f"**{priority_emoji} {aspect}** (优先级: {priority})")
+                    st.markdown(f"- 当前问题: {current_issue}")
+                    st.markdown(f"- 改进建议: {suggestion_text}")
+                    st.markdown("")
+                else:
+                    st.markdown(f"- 💡 {suggestion}")
+
+    with st.expander("查看完整JSON结果"):
+        st.json(result)
+
+
+def _display_llm_result(result, student_info):
+    overall_score = result.get('overall_score', 0)
+    grade_level = result.get('grade_level', '')
+    detected_type = result.get('project_type_name', '未知类型')
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("综合评分", f"{overall_score}分")
+    with col2:
+        st.metric("等级", grade_level)
+    with col3:
+        st.metric("项目类型", detected_type)
+
+    dimension_scores = result.get('dimension_scores', [])
+    if dimension_scores:
+        st.subheader("📈 各指标评分")
+        for ds in dimension_scores:
+            indicator_name = ds.get('indicator_name', ds.get('dimension', '未知指标'))
+            score = ds.get('score', 0)
+            grade = ds.get('grade_level', '')
+            reasoning = ds.get('reasoning', '')
+            with st.expander(f"**{indicator_name}**: {score}分 ({grade})"):
+                st.markdown(f"**评分理由：** {reasoning}")
+                evidence = ds.get('evidence', [])
+                if evidence:
+                    st.markdown("**证据：**")
+                    for e in evidence:
+                        st.markdown(f"- {e}")
+
+    strengths = result.get('strengths', [])
+    if strengths:
+        st.subheader("💪 优势")
+        for s in strengths:
+            st.markdown(f"✅ {s}")
+
+    weaknesses = result.get('weaknesses', [])
+    if weaknesses:
+        st.subheader("⚠️ 待改进")
+        for w in weaknesses:
+            st.markdown(f"🔸 {w}")
+
+    overall_eval = result.get('overall_evaluation', '')
+    if overall_eval:
+        st.subheader("📝 总体评价")
+        st.markdown(overall_eval)
+
+    with st.expander("查看完整JSON结果"):
+        st.json(result)
+
+
+def _display_deep_result(result, student_info):
+    diagnosis = result.get('diagnosis', {})
+    roadmap = result.get('modification_roadmap', {})
+    thesis_structure = result.get('thesis_structure', {})
+    section_evals = result.get('section_evaluations', [])
+    promise_tracking = result.get('promise_tracking', {})
+    fact_verification = result.get('fact_verification', {})
+    refine_meta = diagnosis.get('_refine_meta', {})
+
+    overall_score = diagnosis.get('overall_score', 0)
+    grade_level = diagnosis.get('grade_level', '')
+    current_roadmap_score = roadmap.get('current_score', overall_score)
+    potential_score = roadmap.get('potential_score', 0)
+    improvable = roadmap.get('total_improvable_points', 0)
+    elapsed = result.get('elapsed_seconds', 0)
+
+    st.subheader("📊 深度评估总览")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("当前评分", f"{overall_score}分")
+    with col2:
+        st.metric("等级", grade_level)
+    with col3:
+        st.metric("可提升空间", f"+{improvable}分")
+    with col4:
+        st.metric("潜在评分", f"{potential_score}分")
+    with col5:
+        st.metric("评估耗时", f"{elapsed:.0f}秒")
+
+    if refine_meta.get('refinement_applied'):
+        st.caption(f"🔁 Self-Refine迭代已应用 | 批评发现{refine_meta.get('issues_found_in_original', 0)}个遗漏问题")
+
+    if roadmap.get('roadmap_summary'):
+        with st.expander("🗺️ 修改路线图总览", expanded=True):
+            st.markdown(roadmap['roadmap_summary'])
+
+    roadmap_items = roadmap.get('items', [])
+    if roadmap_items:
+        with st.expander("📋 差异化修改路线图（按优先级排序）", expanded=True):
+            st.info(f"共{len(roadmap_items)}个修改项，按影响分数从高到低排序")
+            for item in roadmap_items:
+                rank = item.get('rank', 0)
+                issue = item.get('issue', '')
+                location = item.get('location', '')
+                severity = item.get('severity', '中等')
+                score_impact = item.get('score_impact', 0)
+                evidence = item.get('evidence', '')
+                suggestion = item.get('suggestion', '')
+                aspect = item.get('aspect', '')
+                difficulty = item.get('difficulty', '中等')
+                current_issue = item.get('current_issue', '')
+
+                severity_icon = {"严重": "🔴", "中等": "🟡", "轻微": "🟢"}.get(severity, "🟡")
+                diff_icon = {"容易": "🟢", "中等": "🟡", "困难": "🔴"}.get(difficulty, "🟡")
+
+                with st.expander(
+                    f"{severity_icon} #{rank} {issue} | 影响{score_impact}分 | {severity}",
+                    expanded=severity == "严重"
+                ):
+                    if location:
+                        st.markdown(f"**📍 位置**: {location}")
+                    if current_issue:
+                        st.markdown(f"**🔍 当前问题**: {current_issue}")
+                    if evidence:
+                        st.markdown(f"**📄 原文证据**: > {evidence}")
+                    if suggestion:
+                        st.markdown(f"**💡 修改方案**: {suggestion}")
+                    if aspect:
+                        st.markdown(f"**🏷️ 改进方面**: {aspect}")
+                    st.markdown(f"**{diff_icon} 修改难度**: {difficulty} | **📈 可提升**: {score_impact}分")
+
+    before_after = roadmap.get('before_after_examples', [])
+    if before_after:
+        with st.expander("✏️ 修改前后对比示例", expanded=True):
+            for ex in before_after:
+                rank = ex.get('issue_rank', 0)
+                issue_desc = ex.get('issue_description', '')
+                before = ex.get('before', '')
+                after = ex.get('after', '')
+                explanation = ex.get('change_explanation', '')
+
+                with st.expander(f"📝 问题#{rank}: {issue_desc}"):
+                    col_b, col_a = st.columns(2)
+                    with col_b:
+                        st.markdown("**❌ 修改前（原文）:**")
+                        st.text(before[:800] if len(before) > 800 else before)
+                    with col_a:
+                        st.markdown("**✅ 修改后:**")
+                        st.text(after[:800] if len(after) > 800 else after)
+                    if explanation:
+                        st.markdown(f"**📝 修改说明**: {explanation}")
+
+    if thesis_structure:
+        with st.expander("📖 论文结构识别结果"):
+            st.markdown(f"**论文类型:** {thesis_structure.get('thesis_type', '未知')}")
+            st.markdown(f"**章节总数:** {thesis_structure.get('total_sections', 0)}")
+            main_works = thesis_structure.get('main_works', [])
+            if main_works:
+                st.markdown("**主要工作:**")
+                for w in main_works:
+                    st.markdown(f"- {w}")
+            sections = thesis_structure.get('sections', [])
+            if sections:
+                st.markdown("**章节结构:**")
+                for sec in sections:
+                    st.markdown(f"- {sec.get('title', '')} ({sec.get('section_type_name', '')})")
+
+    if section_evals:
+        with st.expander("📑 各章节深度评估", expanded=True):
+            for se in section_evals:
+                sec_title = se.get('section_title', '未知章节')
+                sec_score = se.get('section_score', 0)
+                sec_grade = se.get('grade_level', '')
+
+                with st.expander(f"{'📌' if sec_score >= 80 else '⚠️' if sec_score < 70 else '📄'} **{sec_title}** - {sec_score}分 ({sec_grade})", expanded=sec_score < 70):
+                    cq = se.get('content_quality', {})
+                    if cq:
+                        st.markdown(f"**内容质量** ({cq.get('score', 'N/A')}分)")
+                        st.markdown(f"_{cq.get('comment', '')}_")
+                        for s in cq.get('strengths', []):
+                            st.markdown(f"  - ✅ {s}")
+                        for w in cq.get('weaknesses', []):
+                            st.markdown(f"  - ❌ {w}")
+                        if cq.get('depth_analysis'):
+                            st.markdown(f"**论述深度**: {cq['depth_analysis']}")
+                        if cq.get('data_sufficiency'):
+                            st.markdown(f"**数据充分性**: {cq['data_sufficiency']}")
+
+                    lc = se.get('logic_coherence', {})
+                    if lc:
+                        st.markdown(f"**逻辑连贯性** ({lc.get('score', 'N/A')}分)")
+                        st.markdown(f"_{lc.get('comment', '')}_")
+                        if lc.get('internal_logic'):
+                            st.markdown(f"**内部逻辑**: {lc['internal_logic']}")
+                        if lc.get('cross_chapter_logic'):
+                            st.markdown(f"**跨章节衔接**: {lc['cross_chapter_logic']}")
+                        for iss in lc.get('issues', []):
+                            st.markdown(f"  - ⚠️ {iss}")
+
+                    ic = se.get('innovation_contribution', {})
+                    if ic:
+                        st.markdown(f"**创新与贡献** ({ic.get('score', 'N/A')}分)")
+                        st.markdown(f"_{ic.get('comment', '')}_")
+                        st.markdown(f"**创新类型**: {ic.get('novelty_type', 'N/A')}")
+                        if ic.get('concrete_contribution'):
+                            st.markdown(f"**具体贡献**: {ic['concrete_contribution']}")
+                        if ic.get('comparison_with_existing'):
+                            st.markdown(f"**与现有工作对比**: {ic['comparison_with_existing']}")
+
+                    wq = se.get('writing_quality', {})
+                    if wq:
+                        st.markdown(f"**表达规范性** ({wq.get('score', 'N/A')}分)")
+                        st.markdown(f"_{wq.get('comment', '')}_")
+                        for li in wq.get('language_issues', []):
+                            st.markdown(f"  - 🔸 {li}")
+                        for fi in wq.get('format_issues', []):
+                            st.markdown(f"  - 🔸 {fi}")
+
+                    key_points = se.get('key_points', [])
+                    if key_points:
+                        st.markdown("**关键点:**")
+                        for kp in key_points[:5]:
+                            st.markdown(f"- {kp}")
+
+                    suggestions = se.get('improvement_suggestions', [])
+                    if suggestions:
+                        st.markdown("**改进建议:**")
+                        for sug in suggestions:
+                            if isinstance(sug, dict):
+                                priority = sug.get('priority', '中')
+                                icon = "🔴" if priority == "高" else "🟡" if priority == "中" else "🟢"
+                                st.markdown(f"  {icon} **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}")
+                                if sug.get('current_issue'):
+                                    st.markdown(f"     _当前问题: {sug['current_issue']}_")
+                                if sug.get('estimated_score_impact'):
+                                    st.markdown(f"     _可提升: {sug['estimated_score_impact']}分_")
+                            else:
+                                st.markdown(f"  - 💡 {sug}")
+
+                    evidence = se.get('evidence', '')
+                    if evidence:
+                        st.markdown(f"**评分依据**: {evidence}")
+                    detailed_reason = se.get('detailed_score_reason', '')
+                    if detailed_reason:
+                        with st.expander("查看详细评分推理"):
+                            st.markdown(detailed_reason)
+
+    if fact_verification and fact_verification.get('corrected_claims', 0) > 0:
+        with st.expander("🔍 事实核查结果（已自动修正不准确判断）", expanded=True):
+            total = fact_verification.get('total_claims', 0)
+            verified = fact_verification.get('verified_claims', 0)
+            corrected = fact_verification.get('corrected_claims', 0)
+            st.info(f"共核查{total}条判断，{verified}条准确，{corrected}条不准确已修正")
+            corrections = fact_verification.get('corrections', [])
+            for corr in corrections:
+                st.markdown(f"~~❌ {corr.get('original', '')}~~")
+                st.markdown(f"✅ **修正**: {corr.get('correction', '')}")
+                if corr.get('reason'):
+                    st.caption(f"理由: {corr['reason']}")
+                st.markdown("")
+
+    if not fact_verification or fact_verification.get('corrected_claims', 0) == 0:
+        st.success("✅ 事实核查通过：所有评估判断均与论文原文一致")
+
+    if promise_tracking and promise_tracking.get('fulfillment_status'):
+        with st.expander("📋 承诺-兑现追踪表"):
+            fulfillment_rate = promise_tracking.get('overall_fulfillment_rate', 1.0)
+            st.metric("承诺兑现率", f"{fulfillment_rate:.1%}")
+            for status in promise_tracking.get('fulfillment_status', []):
+                promise = status.get('promise', '')
+                fulfillment_degree = status.get('fulfillment_degree', '未兑现')
+                if fulfillment_degree == "完全兑现":
+                    status_emoji = "✅"
+                elif fulfillment_degree == "部分兑现":
+                    status_emoji = "🟡"
+                else:
+                    status_emoji = "❌"
+                with st.expander(f"{status_emoji} **{promise[:50]}{'...' if len(promise) > 50 else ''}** ({fulfillment_degree})", expanded=fulfillment_degree != "完全兑现"):
+                    st.markdown(f"**来源章节:** {status.get('source_section', '')}")
+                    st.markdown(f"**兑现程度:** {fulfillment_degree}")
+                    if status.get('fulfillment_section'):
+                        st.markdown(f"**兑现章节:** {status['fulfillment_section']}")
+                    if status.get('fulfillment_evidence'):
+                        st.markdown(f"**兑现证据:**\n> {status['fulfillment_evidence']}")
+                    if status.get('comment'):
+                        st.markdown(f"**评价:** {status['comment']}")
+                    if status.get('impact_analysis'):
+                        st.markdown(f"**影响分析:** {status['impact_analysis']}")
+                    if status.get('improvement_suggestion') and fulfillment_degree != "完全兑现":
+                        st.markdown(f"**💡 改进建议:** {status['improvement_suggestion']}")
+            summary = promise_tracking.get('summary', '')
+            if summary:
+                st.markdown(f"**总结:** {summary}")
+
+    quantified_issues = diagnosis.get('quantified_issues', [])
+    if quantified_issues:
+        with st.expander("🔍 量化问题清单", expanded=True):
+            sorted_issues = sorted(quantified_issues, key=lambda x: x.get('score_impact', 0), reverse=True)
+            for iss in sorted_issues:
+                severity = iss.get('severity', '中等')
+                severity_icon = {"严重": "🔴", "中等": "🟡", "轻微": "🟢"}.get(severity, "🟡")
+                st.markdown(f"{severity_icon} **{iss.get('issue', '')}** | 影响{iss.get('score_impact', 0)}分 | {severity}")
+                if iss.get('location'):
+                    st.markdown(f"  📍 位置: {iss['location']}")
+                if iss.get('evidence'):
+                    st.markdown(f"  📄 证据: > {iss['evidence']}")
+                st.markdown("")
+
+    detailed_analysis = diagnosis.get('detailed_analysis', {})
+    if detailed_analysis:
+        with st.expander("🔬 详细分析"):
+            analysis_items = {
+                "innovation_analysis": "💡 创新性分析",
+                "depth_analysis": "📚 研究深度分析",
+                "structure_analysis": "🏗️ 结构完整性分析",
+                "methodology_analysis": "🧪 方法论分析",
+            }
+            for key, label in analysis_items.items():
+                content = detailed_analysis.get(key, '')
+                if content:
+                    st.markdown(f"**{label}**:")
+                    st.markdown(content)
+                    st.markdown("")
+
+    overall_comment = diagnosis.get('overall_comment', '')
+    if overall_comment:
+        with st.expander("📝 总体评价", expanded=True):
+            st.markdown(overall_comment)
+
+    strengths = diagnosis.get('strengths', [])
+    weaknesses = diagnosis.get('weaknesses', [])
+    if strengths or weaknesses:
+        col_s, col_w = st.columns(2)
+        with col_s:
+            if strengths:
+                st.markdown("**💪 优势:**")
+                for s in strengths:
+                    st.markdown(f"✅ {s}")
+        with col_w:
+            if weaknesses:
+                st.markdown("**📌 待改进:**")
+                for w in weaknesses:
+                    st.markdown(f"⚠️ {w}")
+
+    with st.expander("查看完整JSON结果"):
+        st.json(result)
+
+
+_EVAL_HISTORY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'eval_history')
+
+
+def _ensure_history_dir():
+    os.makedirs(_EVAL_HISTORY_DIR, exist_ok=True)
+
+
+def _save_to_history(result, method, student_info):
+    _ensure_history_dir()
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    si = student_info or {}
+    student_id = si.get('student_id', 'unknown')
+    student_name = si.get('student_name', si.get('name', 'unknown'))
+    filename = f"eval_{method}_{student_id}_{timestamp}.json"
+    filepath = os.path.join(_EVAL_HISTORY_DIR, filename)
+
+    summary_info = {
+        "method": method,
+        "student_id": student_id,
+        "student_name": student_name,
+        "title": si.get('title', ''),
+        "timestamp": datetime.now().isoformat(),
+        "filename": filename,
+    }
+
+    if method == 'enhanced':
+        summary_info["final_score"] = result.get('final_enhanced_score', 0)
+        summary_info["grade"] = result.get('final_enhanced_grade', '')
+        summary_info["base_score"] = result.get('base_score', 0)
+    elif method == 'deep':
+        diagnosis = result.get('diagnosis', {})
+        summary_info["final_score"] = diagnosis.get('overall_score', 0)
+        summary_info["grade"] = diagnosis.get('grade_level', '')
+    else:
+        summary_info["final_score"] = result.get('overall_score', 0)
+        summary_info["grade"] = result.get('grade_level', '')
+
+    save_obj = {
+        "summary": summary_info,
+        "result": result,
+        "student_info": si,
+    }
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(save_obj, f, ensure_ascii=False, indent=2, default=str)
+
+    return filename
+
+
+def _list_history():
+    _ensure_history_dir()
+    files = [f for f in os.listdir(_EVAL_HISTORY_DIR) if f.endswith('.json')]
+    records = []
+    for fname in sorted(files, reverse=True):
+        fpath = os.path.join(_EVAL_HISTORY_DIR, fname)
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            summary = data.get('summary', {})
+            summary['_filepath'] = fpath
+            summary['_filename'] = fname
+            records.append(summary)
+        except Exception:
+            pass
+    return records
+
+
+def _load_history_record(filepath):
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _delete_history_record(filepath):
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+
 st.set_page_config(
     page_title="毕业设计评估",
     page_icon="🎓",
@@ -285,6 +1852,59 @@ st.set_page_config(
 )
 
 st.title("🎓 毕业设计评估")
+
+with st.sidebar:
+    st.markdown("### 📂 评估历史记录")
+    history_records = _list_history()
+    if not history_records:
+        st.info("暂无历史评估记录")
+    else:
+        st.caption(f"共 {len(history_records)} 条记录")
+        if st.button("🗑️ 清空所有历史", key="clear_all_history", use_container_width=True):
+            for rec in history_records:
+                fp = rec.get('_filepath', '')
+                if fp:
+                    _delete_history_record(fp)
+            st.session_state.pop('history_view', None)
+            st.success("已清空所有历史记录")
+            st.rerun()
+
+        st.markdown("---")
+        for i, rec in enumerate(history_records[:20]):
+            method_name = {"enhanced": "增强评估", "rule_engine": "确定性评分", "sectioned": "分段评估", "llm": "LLM评估", "deep": "深度评估"}.get(rec.get('method', ''), rec.get('method', ''))
+            score = rec.get('final_score', 0)
+            grade = rec.get('grade', '')
+            student_name = rec.get('student_name', 'N/A')
+            student_id = rec.get('student_id', '')
+            ts = rec.get('timestamp', '')
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(ts)
+                time_str = dt.strftime('%m-%d %H:%M')
+            except Exception:
+                time_str = ts[:16] if ts else ''
+
+            score_color = "🟢" if score >= 80 else "🟡" if score >= 70 else "🔴" if score > 0 else "⚪"
+
+            label = f"{score_color} {student_name} | {score}分 {grade}"
+            sub_label = f"{method_name} | {time_str}"
+
+            col_h1, col_h2 = st.columns([5, 1])
+            with col_h1:
+                if st.button(f"📋 {label}", key=f"hist_{i}", use_container_width=True):
+                    record_data = _load_history_record(rec['_filepath'])
+                    st.session_state['history_view'] = record_data
+            with col_h2:
+                if st.button("🗑️", key=f"del_hist_{i}"):
+                    _delete_history_record(rec['_filepath'])
+                    if 'history_view' in st.session_state:
+                        _hv = st.session_state.get('history_view', {})
+                        _hv_fp = _hv.get('summary', {}).get('_filepath', '') if _hv else ''
+                        if _hv_fp == rec['_filepath']:
+                            st.session_state.pop('history_view', None)
+                    st.success("已删除")
+                    st.rerun()
+            st.caption(sub_label)
 
 st.markdown("""
 **功能说明：**
@@ -454,10 +2074,11 @@ evaluation_method = st.radio(
     options=[
         ("LLM确定性评分（结果一致，可复现）", "rule_engine"),
         ("分段评估（智能分段，适合长篇论文）", "sectioned"),
-        ("增强评估（引用验证+多模型+提示词优化）", "enhanced")
+        ("增强评估（引用验证+多模型+提示词优化）", "enhanced"),
+        ("深度评估（多Pass分解+Self-Refine+修改路线图）", "deep")
     ],
     format_func=lambda x: x[0],
-    help="确定性评分确保相同输入产生相同输出；分段评估适合长篇论文；增强评估整合引用网络验证、多模型共识和提示词自动优化"
+    help="确定性评分确保相同输入产生相同输出；分段评估适合长篇论文；增强评估整合引用网络验证、多模型共识和提示词自动优化；深度评估通过多Pass分解、自我迭代优化和差异化修改路线图，提供远超直接输入网页的详细评估报告"
 )
 
 method_value = evaluation_method[1]
@@ -468,6 +2089,8 @@ elif method_value == "sectioned":
     st.info("💡 分段评估特点：\n- 智能识别论文结构，按章节分段评估\n- 检测章节之间的逻辑衔接\n- 检测承诺-兑现一致性\n- 适合长篇论文，解决内容丢失问题")
 elif method_value == "enhanced":
     st.info("💡 增强评估特点：\n- 📚 引用网络验证：通过Semantic Scholar/CrossRef API验证参考文献真实性和新颖度\n- 🤖 多模型共识：支持多个LLM交叉评审，降低单一模型偏差\n- 🔧 提示词优化：TextGrad自举模式自动优化评估提示词\n- 📊 偏置校正：基于统计学方法校正LLM评审偏差")
+elif method_value == "deep":
+    st.info("💡 深度评估特点：\n- 🔄 多Pass分解：结构识别→逐章深度评估→衔接检测→承诺追踪→综合诊断，每个Pass聚焦一个维度\n- 🔁 Self-Refine迭代：生成→批评→修订，三轮迭代提升评估深度和准确性\n- 🗺️ 修改路线图：量化每个问题的影响分数，按优先级排序，提供修改前后对比示例\n- ⏱️ 评估时间约5-10分钟，但报告质量远超直接输入网页")
 
 if method_value == "enhanced":
     with st.expander("🔬 增强评估配置", expanded=True):
@@ -1210,6 +2833,11 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                     if response.status_code == 200:
                         result = response.json()
                         
+                        st.session_state['last_eval_result'] = result
+                        st.session_state['last_eval_method'] = 'enhanced'
+                        st.session_state['last_eval_student_info'] = student_info
+                        _save_to_history(result, 'enhanced', student_info)
+                        
                         st.success("✅ 增强评估完成！")
                         
                         st.markdown("---")
@@ -1791,55 +3419,7 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                                     if comment:
                                         st.info(comment)
 
-                        st.markdown("---")
-                        st.subheader("💾 保存与导出")
-                        save_col1, save_col2, save_col3 = st.columns(3)
-                        with save_col1:
-                            if st.button("💾 保存评估结果", key="save_enhanced"):
-                                try:
-                                    save_resp = requests.post(
-                                        f"{API_BASE_URL}/save_evaluation_result",
-                                        json={
-                                            "evaluation_data": result,
-                                            "method": "enhanced",
-                                            "student_info": student_info,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if save_resp.status_code == 200:
-                                        save_data = save_resp.json()
-                                        st.success(f"✅ 已保存: {save_data.get('filename', '')}")
-                                    else:
-                                        st.error(f"保存失败: {save_resp.text}")
-                                except Exception as e:
-                                    st.error(f"保存失败: {str(e)}")
-                        with save_col2:
-                            export_format = st.selectbox("导出格式", ["markdown", "json", "txt"], key="export_format_enhanced")
-                            if st.button("📤 导出报告", key="export_enhanced"):
-                                try:
-                                    export_resp = requests.post(
-                                        f"{API_BASE_URL}/export_evaluation_report",
-                                        json={
-                                            "evaluation_data": result,
-                                            "method": "enhanced",
-                                            "student_info": student_info,
-                                            "format": export_format,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if export_resp.status_code == 200:
-                                        export_data = export_resp.json()
-                                        st.success(f"✅ 已导出({export_format}): {export_data.get('filename', '')}")
-                                        st.info(f"文件路径: {export_data.get('path', '')}")
-                                    else:
-                                        st.error(f"导出失败: {export_resp.text}")
-                                except Exception as e:
-                                    st.error(f"导出失败: {str(e)}")
-                        with save_col3:
-                            if st.button("📋 复制评估摘要", key="copy_enhanced"):
-                                summary = _generate_summary_text(result, "enhanced", student_info)
-                                st.code(summary, language=None)
-                                st.info("请手动复制上方文本")
+                        st.info("💡 评估结果已自动保存，可在页面底部「上次评估结果」区域查看、保存或导出。")
                     
                     else:
                         try:
@@ -1849,6 +3429,44 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                         st.error(f"❌ 增强评估失败: {error_detail}")
                 except Exception as e:
                     st.error(f"❌ 增强评估失败: {str(e)}")
+        elif method_value == "deep":
+            with st.spinner("正在进行深度评估（多Pass分解+Self-Refine迭代+修改路线图，可能需要5-10分钟）..."):
+                try:
+                    response = requests.post(
+                        f"{API_BASE_URL}/evaluate_deep",
+                        json={
+                            "submission_content": submission_content,
+                            "indicators": extracted_guidance,
+                            "student_info": student_info,
+                            "dimension_weights": current_dimension_weights,
+                        },
+                        timeout=900
+                    )
+
+                    if response.status_code == 200:
+                        result = response.json()
+
+                        st.session_state['last_eval_result'] = result
+                        st.session_state['last_eval_method'] = 'deep'
+                        st.session_state['last_eval_student_info'] = student_info
+                        _save_to_history(result, 'deep', student_info)
+
+                        st.success("✅ 深度评估完成！")
+                        st.markdown("---")
+                        st.header("🔬 深度评估报告")
+
+                        _display_deep_result(result, student_info)
+
+                        st.info("💡 评估结果已自动保存，可在页面底部「上次评估结果」区域查看、保存或导出。")
+
+                    else:
+                        try:
+                            error_detail = response.json().get('detail', '未知错误')
+                        except:
+                            error_detail = f"HTTP {response.status_code}"
+                        st.error(f"❌ 深度评估失败: {error_detail}")
+                except Exception as e:
+                    st.error(f"❌ 深度评估失败: {str(e)}")
         elif method_value == "rule_engine":
             with st.spinner("正在进行LLM确定性评分（这可能需要1-2分钟）..."):
                 try:
@@ -1868,6 +3486,11 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                     
                     if response.status_code == 200:
                         result = response.json()
+                        
+                        st.session_state['last_eval_result'] = result
+                        st.session_state['last_eval_method'] = 'rule_engine'
+                        st.session_state['last_eval_student_info'] = student_info
+                        _save_to_history(result, 'rule_engine', student_info)
                         
                         st.success("✅ 评估完成！（确定性评分，结果可复现）")
                         
@@ -2075,55 +3698,7 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                         if not (institutional_eval and institutional_eval.get('institutional_scores')):
                             st.info("💡 未进行校方固有评价体系评分，仅显示原始大模型评分结果。")
 
-                        st.markdown("---")
-                        st.subheader("💾 保存与导出")
-                        save_col1, save_col2, save_col3 = st.columns(3)
-                        with save_col1:
-                            if st.button("💾 保存评估结果", key="save_rule"):
-                                try:
-                                    save_resp = requests.post(
-                                        f"{API_BASE_URL}/save_evaluation_result",
-                                        json={
-                                            "evaluation_data": result,
-                                            "method": "rule_engine",
-                                            "student_info": student_info,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if save_resp.status_code == 200:
-                                        save_data = save_resp.json()
-                                        st.success(f"✅ 已保存: {save_data.get('filename', '')}")
-                                    else:
-                                        st.error(f"保存失败: {save_resp.text}")
-                                except Exception as e:
-                                    st.error(f"保存失败: {str(e)}")
-                        with save_col2:
-                            export_format = st.selectbox("导出格式", ["markdown", "json", "txt"], key="export_format_rule")
-                            if st.button("📤 导出报告", key="export_rule"):
-                                try:
-                                    export_resp = requests.post(
-                                        f"{API_BASE_URL}/export_evaluation_report",
-                                        json={
-                                            "evaluation_data": result,
-                                            "method": "rule_engine",
-                                            "student_info": student_info,
-                                            "format": export_format,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if export_resp.status_code == 200:
-                                        export_data = export_resp.json()
-                                        st.success(f"✅ 已导出({export_format}): {export_data.get('filename', '')}")
-                                        st.info(f"文件路径: {export_data.get('path', '')}")
-                                    else:
-                                        st.error(f"导出失败: {export_resp.text}")
-                                except Exception as e:
-                                    st.error(f"导出失败: {str(e)}")
-                        with save_col3:
-                            if st.button("📋 复制评估摘要", key="copy_rule"):
-                                summary = _generate_summary_text(result, "rule_engine", student_info)
-                                st.code(summary, language=None)
-                                st.info("请手动复制上方文本")
+                        st.info("💡 评估结果已自动保存，可在页面底部「上次评估结果」区域查看、保存或导出。")
 
                     else:
                         st.error(f"❌ 评估失败: {response.json().get('detail', '未知错误')}")
@@ -2147,6 +3722,11 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                     
                     if response.status_code == 200:
                         result = response.json()
+                        
+                        st.session_state['last_eval_result'] = result
+                        st.session_state['last_eval_method'] = 'sectioned'
+                        st.session_state['last_eval_student_info'] = student_info
+                        _save_to_history(result, 'sectioned', student_info)
                         
                         st.success("✅ 分段评估完成！")
                         
@@ -2592,55 +4172,7 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                                     st.markdown(f"- 改进建议: {suggestion_text}")
                                     st.markdown("")
 
-                        st.markdown("---")
-                        st.subheader("💾 保存与导出")
-                        save_col1, save_col2, save_col3 = st.columns(3)
-                        with save_col1:
-                            if st.button("💾 保存评估结果", key="save_sectioned"):
-                                try:
-                                    save_resp = requests.post(
-                                        f"{API_BASE_URL}/save_evaluation_result",
-                                        json={
-                                            "evaluation_data": result,
-                                            "method": "sectioned",
-                                            "student_info": student_info,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if save_resp.status_code == 200:
-                                        save_data = save_resp.json()
-                                        st.success(f"✅ 已保存: {save_data.get('filename', '')}")
-                                    else:
-                                        st.error(f"保存失败: {save_resp.text}")
-                                except Exception as e:
-                                    st.error(f"保存失败: {str(e)}")
-                        with save_col2:
-                            export_format = st.selectbox("导出格式", ["markdown", "json", "txt"], key="export_format_sectioned")
-                            if st.button("📤 导出报告", key="export_sectioned"):
-                                try:
-                                    export_resp = requests.post(
-                                        f"{API_BASE_URL}/export_evaluation_report",
-                                        json={
-                                            "evaluation_data": result,
-                                            "method": "sectioned",
-                                            "student_info": student_info,
-                                            "format": export_format,
-                                        },
-                                        timeout=30,
-                                    )
-                                    if export_resp.status_code == 200:
-                                        export_data = export_resp.json()
-                                        st.success(f"✅ 已导出({export_format}): {export_data.get('filename', '')}")
-                                        st.info(f"文件路径: {export_data.get('path', '')}")
-                                    else:
-                                        st.error(f"导出失败: {export_resp.text}")
-                                except Exception as e:
-                                    st.error(f"导出失败: {str(e)}")
-                        with save_col3:
-                            if st.button("📋 复制评估摘要", key="copy_sectioned"):
-                                summary = _generate_summary_text(result, "sectioned", student_info)
-                                st.code(summary, language=None)
-                                st.info("请手动复制上方文本")
+                        st.info("💡 评估结果已自动保存，可在页面底部「上次评估结果」区域查看、保存或导出。")
 
                     else:
                         st.error(f"❌ 评估失败: {response.json().get('detail', '未知错误')}")
@@ -2666,6 +4198,11 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                     
                     if response.status_code == 200:
                         result = response.json()
+                        
+                        st.session_state['last_eval_result'] = result
+                        st.session_state['last_eval_method'] = 'llm'
+                        st.session_state['last_eval_student_info'] = student_info
+                        _save_to_history(result, 'llm', student_info)
                         
                         st.success("✅ 评估完成！")
                         
@@ -2728,3 +4265,87 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                         st.error(f"❌ 评估失败: {error_detail}")
                 except Exception as e:
                     st.error(f"❌ 评估过程出错: {str(e)}")
+
+st.markdown("---")
+
+if 'history_view' in st.session_state and st.session_state['history_view']:
+    _hv = st.session_state['history_view']
+    _hv_result = _hv.get('result', {})
+    _hv_method = _hv.get('summary', {}).get('method', 'unknown')
+    _hv_student_info = _hv.get('student_info', {})
+    _hv_timestamp = _hv.get('summary', {}).get('timestamp', '')
+
+    method_label = {"enhanced": "增强评估", "rule_engine": "确定性评分", "sectioned": "分段评估", "llm": "LLM评估", "deep": "深度评估"}.get(_hv_method, _hv_method)
+
+    st.subheader("📂 历史评估记录详情")
+    st.info(f"📋 评估方式: {method_label} | 学生: {_hv_student_info.get('student_name', _hv_student_info.get('name', 'N/A'))} ({_hv_student_info.get('student_id', 'N/A')}) | 时间: {_hv_timestamp[:19] if _hv_timestamp else 'N/A'}")
+
+    if _hv_method == 'enhanced':
+        _display_enhanced_result(_hv_result, _hv_student_info)
+    elif _hv_method == 'rule_engine':
+        _display_rule_engine_result(_hv_result, _hv_student_info)
+    elif _hv_method == 'sectioned':
+        _display_sectioned_result(_hv_result, _hv_student_info)
+    elif _hv_method == 'llm':
+        _display_llm_result(_hv_result, _hv_student_info)
+    elif _hv_method == 'deep':
+        _display_deep_result(_hv_result, _hv_student_info)
+
+    st.markdown("---")
+    st.subheader("💾 保存与导出")
+    _save_col1, _save_col2, _save_col3 = st.columns(3)
+    with _save_col1:
+        if st.button("💾 保存评估结果", key="save_history"):
+            try:
+                save_resp = requests.post(
+                    f"{API_BASE_URL}/save_evaluation_result",
+                    json={
+                        "evaluation_data": _hv_result,
+                        "method": _hv_method,
+                        "student_info": _hv_student_info,
+                    },
+                    timeout=30,
+                )
+                if save_resp.status_code == 200:
+                    save_data = save_resp.json()
+                    st.success(f"✅ 已保存: {save_data.get('filename', '')}")
+                else:
+                    st.error(f"保存失败: {save_resp.text}")
+            except Exception as e:
+                st.error(f"保存失败: {str(e)}")
+    with _save_col2:
+        _export_fmt = st.selectbox("导出格式", ["markdown", "json", "txt"], key="export_fmt_history")
+        if st.button("📤 导出报告", key="export_history"):
+            try:
+                export_resp = requests.post(
+                    f"{API_BASE_URL}/export_evaluation_report",
+                    json={
+                        "evaluation_data": _hv_result,
+                        "method": _hv_method,
+                        "student_info": _hv_student_info,
+                        "format": _export_fmt,
+                    },
+                    timeout=30,
+                )
+                if export_resp.status_code == 200:
+                    export_data = export_resp.json()
+                    filepath = export_data.get('path', '')
+                    filename = export_data.get('filename', '')
+                    st.success(f"✅ 已导出({_export_fmt}): {filename}")
+                    if filepath and os.path.exists(filepath):
+                        with open(filepath, 'rb') as f:
+                            st.download_button(
+                                label="⬇️ 下载报告",
+                                data=f,
+                                file_name=filename,
+                                mime="application/octet-stream",
+                                key="download_history_report"
+                            )
+                else:
+                    st.error(f"导出失败: {export_resp.text}")
+            except Exception as e:
+                st.error(f"导出失败: {str(e)}")
+    with _save_col3:
+        if st.button("❌ 关闭历史详情", key="close_history"):
+            st.session_state.pop('history_view', None)
+            st.rerun()

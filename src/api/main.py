@@ -2742,6 +2742,53 @@ async def evaluate_enhanced(
         raise HTTPException(status_code=500, detail=f"增强评估失败: {str(e)}")
 
 
+@app.post("/evaluate_deep")
+async def evaluate_deep(
+    request: Dict = Body(...)
+):
+    """
+    深度评估 - 多Pass分解 + Self-Refine迭代 + 差异化修改路线图
+
+    三大核心策略：
+    1. 多Pass分解：结构识别→逐章深度评估→衔接检测→承诺追踪→综合诊断
+    2. Self-Refine迭代：生成→批评→修订，三轮迭代提升深度
+    3. 修改路线图：量化问题影响→优先级排序→修改前后对比
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    - student_info: 学生信息
+    - indicators: 评价指标
+    - dimension_weights: 维度权重
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        student_info = request.get('student_info', {})
+        indicators = request.get('indicators', {})
+        dimension_weights = request.get('dimension_weights', {})
+
+        from src.evaluation.deep_evaluator import DeepEvaluator
+
+        evaluator = DeepEvaluator()
+
+        result = evaluator.evaluate(
+            content=submission_content,
+            student_info=student_info,
+            indicators=indicators,
+            dimension_weights=dimension_weights if dimension_weights else None,
+        )
+
+        logger.info(f"深度评估完成: score={result.get('diagnosis', {}).get('overall_score', 'N/A')}")
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"深度评估失败: {str(e)}")
+
+
 @app.post("/save_evaluation_result")
 async def save_evaluation_result(
     request: Dict = Body(...)
@@ -2898,7 +2945,7 @@ def _generate_markdown_report(data: dict, method: str, student_info: dict) -> st
         lines.append(f"| 等级 | {grade} |")
         lines.append("\n")
 
-        novelty = data.get('novelty_verification', {})
+        novelty = data.get('enhancement_modules', {}).get('novelty_verification', {}) or data.get('novelty_verification', {})
         if novelty:
             lines.append("## 引用网络新颖度验证\n")
             lines.append(f"- 新颖度评分: {novelty.get('novelty_score', 'N/A')}分\n")
@@ -2906,8 +2953,39 @@ def _generate_markdown_report(data: dict, method: str, student_info: dict) -> st
             ref_stats = novelty.get('reference_statistics', {})
             if ref_stats:
                 lines.append(f"- 总引用数: {ref_stats.get('total_references', 'N/A')}\n")
-                lines.append(f"- 已验证: {ref_stats.get('verified_count', 'N/A')}\n")
-                lines.append(f"- 验证率: {ref_stats.get('verification_rate', 'N/A')}%\n")
+                lines.append(f"- 已验证: {ref_stats.get('verified_references', ref_stats.get('verified_count', 'N/A'))}\n")
+                lines.append(f"- 验证率: {ref_stats.get('verification_rate', 'N/A')}\n")
+                suspicious = ref_stats.get('suspicious_count', 0)
+                if suspicious:
+                    lines.append(f"- 可疑引用: {suspicious}\n")
+            fake_analysis = novelty.get('fake_reference_analysis', {})
+            if fake_analysis:
+                lines.append(f"- 虚假引用风险: {fake_analysis.get('risk_level', 'N/A')} (概率{fake_analysis.get('fake_probability', 0)}%)\n")
+                risk_factors = fake_analysis.get('risk_factors', [])
+                if risk_factors:
+                    lines.append("  - 风险因素:\n")
+                    for rf in risk_factors:
+                        lines.append(f"    - {rf}\n")
+            topic_mismatch = novelty.get('topic_mismatch_references', [])
+            if topic_mismatch:
+                lines.append(f"- **主题不匹配引用**: {len(topic_mismatch)}条\n")
+                for tmr in topic_mismatch:
+                    idx = tmr.get('index', '?')
+                    raw = tmr.get('raw_text', '')[:80]
+                    lines.append(f"  - [{idx}] {raw}...\n")
+            recency = novelty.get('recency_analysis', {})
+            if recency and recency.get('has_year_info'):
+                lines.append(f"- 平均年份: {recency.get('avg_year', 'N/A')}\n")
+                lines.append(f"- 近5年比例: {recency.get('recent_5y_ratio', 0):.1%}\n")
+            lines.append("\n")
+
+        score_adj = data.get('score_adjustments', {})
+        if score_adj:
+            lines.append("## 评分校准详情\n")
+            for adj_key, adj_info in score_adj.items():
+                val = adj_info.get('value', 0)
+                reason = adj_info.get('reason', '')
+                lines.append(f"- **{adj_key}**: {'+' if val >= 0 else ''}{val}分 - {reason}\n")
             lines.append("\n")
 
     elif method == 'sectioned':
@@ -2918,7 +2996,7 @@ def _generate_markdown_report(data: dict, method: str, student_info: dict) -> st
         lines.append(f"- **等级**: {grade}\n")
         lines.append("\n")
 
-    section_evals = data.get('section_evaluations', [])
+    section_evals = data.get('section_evaluations', []) or data.get('base_evaluation', {}).get('section_evaluations', [])
     if section_evals:
         lines.append("## 各章节评估\n")
         for se in section_evals:
@@ -2956,21 +3034,22 @@ def _generate_markdown_report(data: dict, method: str, student_info: dict) -> st
                         lines.append(f"- {sug}\n")
             lines.append("\n")
 
-    strengths = data.get('strengths', [])
+    base_eval = data.get('base_evaluation', {})
+    strengths = data.get('strengths', []) or base_eval.get('strengths', [])
     if strengths:
         lines.append("## 优势\n")
         for s in strengths:
             lines.append(f"- ✅ {s}\n")
         lines.append("\n")
 
-    weaknesses = data.get('weaknesses', [])
+    weaknesses = data.get('weaknesses', []) or base_eval.get('weaknesses', [])
     if weaknesses:
         lines.append("## 不足\n")
         for w in weaknesses:
             lines.append(f"- ❌ {w}\n")
         lines.append("\n")
 
-    suggestions = data.get('improvement_suggestions', [])
+    suggestions = data.get('improvement_suggestions', []) or base_eval.get('improvement_suggestions', [])
     if suggestions:
         lines.append("## 改进建议\n")
         for sug in suggestions:
@@ -2982,7 +3061,7 @@ def _generate_markdown_report(data: dict, method: str, student_info: dict) -> st
                 lines.append(f"- {sug}\n")
         lines.append("\n")
 
-    overall_eval = data.get('overall_evaluation', data.get('overall_comment', ''))
+    overall_eval = data.get('overall_evaluation', data.get('overall_comment', '')) or base_eval.get('overall_evaluation', base_eval.get('overall_comment', ''))
     if overall_eval:
         lines.append("## 总体评价\n")
         lines.append(f"{overall_eval}\n")
@@ -3032,6 +3111,46 @@ async def verify_novelty(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"新颖度验证失败: {str(e)}")
+
+
+@app.post("/check_citation_format")
+async def check_citation_format(
+    request: Dict = Body(...)
+):
+    """
+    使用大模型检查论文参考文献的格式规范性
+
+    检查内容包括：
+    1. 拼写错误（库名、人名、期刊名等）
+    2. 引用格式不统一（编号风格、标点、空格等）
+    3. 信息缺失（缺作者、缺年份、缺页码等）
+    4. 大小写错误、标点空格问题、作者格式问题等
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        from src.evaluation.citation_novelty_verifier import NoveltyVerifier
+
+        verifier = NoveltyVerifier()
+        result = verifier.check_citation_format(submission_content)
+
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        error_message = str(e)
+        if "API密钥未设置" in error_message:
+            raise HTTPException(status_code=400, detail=f"引用格式检查失败: API密钥未设置，请在AI设置页面中配置API密钥")
+        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            raise HTTPException(status_code=504, detail=f"引用格式检查失败: 请求超时，请稍后重试")
+        else:
+            raise HTTPException(status_code=500, detail=f"引用格式检查失败: {error_message}")
 
 
 @app.post("/optimize_prompts_bootstrap")

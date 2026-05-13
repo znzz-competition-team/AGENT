@@ -551,6 +551,18 @@ class EnhancedEvaluator:
         enhanced_result["total_adjustment"] = round(total_adjustment, 1)
         enhanced_result["base_score"] = base_score
 
+        for key in [
+            "section_evaluations", "coherence_checks", "promise_tracking",
+            "quantitative_table", "detailed_analysis", "overall_comment",
+            "strengths", "weaknesses", "improvement_suggestions",
+            "thesis_structure", "avg_section_score", "avg_coherence_score",
+            "coherence_analysis", "promise_fulfillment_analysis",
+            "detailed_evaluation", "section_level_details", "dimension_scores",
+            "conclusion", "evaluation_method",
+        ]:
+            if key not in enhanced_result and key in base:
+                enhanced_result[key] = base[key]
+
         return enhanced_result
 
     def calibrate_with_dataset(

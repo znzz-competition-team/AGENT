@@ -1,0 +1,25 @@
+{
+  "reference_index": 5,
+  "raw_text": "Y. Bai, K. Li, and G. Wang, \"A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive Bald Eagle Search and Fuzzy Logic,\" (in English), Electronics, vol. 14, no. 11, pp. 2112, 2",
+  "verified": true,
+  "confidence": 0.95,
+  "source": "semantic_scholar_doi",
+  "paper_info": {
+    "title": "A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive Bald Eagle Search and Fuzzy Logic",
+    "year": 2025,
+    "citation_count": 1,
+    "authors": [
+      "Yalei Bai",
+      "Kelin Li",
+      "Guangzhao Wang"
+    ],
+    "venue": "Electronics",
+    "doi": "10.3390/electronics14112112",
+    "abstract": "In this study, we propose an innovative inner–outer loop control framework for a quadcopter unmanned aerial vehicle (UAV) that significantly enhances the trajectory-tracking speed and accuracy while enhancing robustness against external disturbances. The inner loop employs a Linear Active Disturbanc"
+  },
+  "suspicious_indicators": [],
+  "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: A Hybrid Quadrotor Unmanned Aerial Vehicle Control Strategy Using Self-Adaptive ",
+  "topic_mismatch": false,
+  "title_mismatch": false,
+  "author_mismatch": false
+}

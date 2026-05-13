@@ -1,0 +1,27 @@
+{
+  "reference_index": 6,
+  "raw_text": "N. Bhuvaneswary, B. Gowtham Reddy, K. Praveen Kumar Reddy, M. Vishnu Vardhan, K. Jagadeesh Kumar, and M. Anudeep Venkat Reddy, \"Quadcopter with Fuzzy Logic based Self-Tuning PID Controller,\" in 5th In",
+  "verified": true,
+  "confidence": 0.95,
+  "source": "semantic_scholar_doi",
+  "paper_info": {
+    "title": "Quadcopter with Fuzzy Logic based Self-Tuning PID Controller",
+    "year": 2025,
+    "citation_count": 0,
+    "authors": [
+      "N. Bhuvaneswary",
+      "B. G. reddy",
+      "K. Praveen",
+      "K. Reddy",
+      "M. Vardhan"
+    ],
+    "venue": "International Conference Trends Material Science and Inventive Materials",
+    "doi": "10.1109/ICTMIM65579.2025.10988349",
+    "abstract": "This paper presents a fuzzy logic-based self-tuning PID controller for real-time adaptive PID parameter tuning in dynamic flight conditions. Quadcopters need adaptive and precise control for stable flight under changing conditions like wind turbulence and changing payloads. Conventional Proportional"
+  },
+  "suspicious_indicators": [],
+  "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Quadcopter with Fuzzy Logic based Self-Tuning PID Controller",
+  "topic_mismatch": false,
+  "title_mismatch": false,
+  "author_mismatch": false
+}

@@ -1,0 +1,25 @@
+{
+  "reference_index": 4,
+  "raw_text": "N. Madebo, C. Abdissa, and L. Lemma, \"Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neural Network Controller,\" (in English), IEEE Access, vol. 12, pp. 190454–190469, 20",
+  "verified": true,
+  "confidence": 0.95,
+  "source": "semantic_scholar_doi",
+  "paper_info": {
+    "title": "Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neural Network Controller",
+    "year": 2024,
+    "citation_count": 47,
+    "authors": [
+      "Nigatu Wanore Madebo",
+      "Chala Merga Abdissa",
+      "Lebsework Negash Lemma"
+    ],
+    "venue": "IEEE Access",
+    "doi": "10.1109/ACCESS.2024.3516494",
+    "abstract": "This paper presents a novel Fuzzy PID-based Recurrent Neural Network (FPIDRNN) controller designed to enhance trajectory control in quadrotor Unmanned Aerial Vehicles (UAVs). Conventional control approaches such as Proportional-Integral-Derivative (PID) and Fuzzy PID (FPID) require extensive tuning "
+  },
+  "suspicious_indicators": [],
+  "verification_detail": "通过DOI在Semantic Scholar找到匹配论文: Enhanced Trajectory Control of Quadrotor UAV Using Fuzzy PID Based Recurrent Neu",
+  "topic_mismatch": false,
+  "title_mismatch": false,
+  "author_mismatch": false
+}
