@@ -6,12 +6,22 @@ from datetime import datetime
 import os
 import re
 import time
-import plotly.graph_objects as go
-import plotly.express as px
-import streamlit as st
 
 # API 基础 URL
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("EVALUATION_API_BASE_URL", "http://localhost:8000")
+
+
+_HEALTH_CACHE_TTL = int(os.getenv("STREAMLIT_HEALTH_CACHE_TTL", "25"))
+
+
+@st.cache_data(ttl=_HEALTH_CACHE_TTL, show_spinner=False)
+def _probe_backend_health(api_base_url: str) -> str:
+    """探测后端 /health，短时缓存，避免 Streamlit 每次重跑都阻塞网络。"""
+    try:
+        r = requests.get(f"{api_base_url.rstrip('/')}/health", timeout=1.2)
+        return "running" if r.status_code == 200 else "error"
+    except Exception:
+        return "offline"
 
 
 def build_auth_headers(target_student_id: str = "") -> dict:
@@ -277,6 +287,38 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
     ka_scores = trend_series.get("knowledge_application_component", [])
     pc_scores = trend_series.get("phase_completion_component", [])
 
+    def _trend_x_numeric(ts: dict) -> list:
+        """优先使用后端提供的数值横坐标，避免相同进度百分比在图中叠成竖线。"""
+        xp = ts.get("x_plot") if isinstance(ts, dict) else None
+        if isinstance(xp, list) and xp:
+            return [float(v) for v in xp]
+        xv = ts.get("x_values", []) if isinstance(ts, dict) else []
+        out = []
+        for i, v in enumerate(xv or []):
+            if isinstance(v, (int, float)):
+                out.append(float(v))
+                continue
+            s = str(v).strip().rstrip("%")
+            try:
+                out.append(float(s) + i * 1e-6)
+            except ValueError:
+                out.append(float(i))
+        return out
+
+    def _scores_for_plotly(vals: list) -> list:
+        """保留 None 以便 Plotly 断线，不把缺测画成 0 分。"""
+        if not isinstance(vals, list):
+            return []
+        out = []
+        for v in vals:
+            if v is None:
+                out.append(None)
+            else:
+                out.append(_safe_float(v))
+        return out
+
+    x_plot_vals = _trend_x_numeric(trend_series)
+
     def _detect_inflection_points(scores: list) -> list:
         """检测趋势拐点：由升转降或由降转升的位置。"""
         indexed = [(idx, _safe_float(val)) for idx, val in enumerate(scores)]
@@ -363,49 +405,64 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
             )
 
     st.subheader("📈 分项趋势图")
-    if not x_values:
+    if not x_plot_vals:
         st.info("暂无可用于绘图的趋势数据。")
     else:
+        import plotly.graph_objects as go
+
+        n = min(len(x_plot_vals), len(overall_scores), len(ability_scores))
+        xa = x_plot_vals[:n]
+        yo = _scores_for_plotly(overall_scores[:n])
+        ya = _scores_for_plotly(ability_scores[:n])
+
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=x_values,
-            y=overall_scores,
+            x=xa,
+            y=yo,
             mode='lines+markers',
             name='总分',
-            line=dict(width=3)
+            line=dict(width=3),
+            connectgaps=False
         ))
         fig.add_trace(go.Scatter(
-            x=x_values,
-            y=ability_scores,
+            x=xa,
+            y=ya,
             mode='lines+markers',
             name='能力点均分',
-            line=dict(width=3)
+            line=dict(width=3),
+            connectgaps=False
         ))
         if "实践" in str(course_type):
             if pc_scores:
+                yp = _scores_for_plotly(pc_scores[:n])
                 fig.add_trace(go.Scatter(
-                    x=x_values,
-                    y=pc_scores,
+                    x=xa,
+                    y=yp,
                     mode='lines+markers',
                     name='阶段完成度',
-                    line=dict(width=3)
+                    line=dict(width=3),
+                    connectgaps=False
                 ))
         else:
             if ku_scores:
+                yku = _scores_for_plotly(ku_scores[:n])
                 fig.add_trace(go.Scatter(
-                    x=x_values,
-                    y=ku_scores,
+                    x=xa,
+                    y=yku,
                     mode='lines+markers',
                     name='知识点理解',
-                    line=dict(width=3)
+                    line=dict(width=3),
+                    connectgaps=False
                 ))
             if ka_scores:
+                yka = _scores_for_plotly(ka_scores[:n])
                 fig.add_trace(go.Scatter(
-                    x=x_values,
-                    y=ka_scores,
+                    x=xa,
+                    y=yka,
                     mode='lines+markers',
                     name='知识点运用',
-                    line=dict(width=3)
+                    line=dict(width=3),
+                    connectgaps=False
                 ))
 
         fig.update_layout(
@@ -421,8 +478,10 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
     ability_dimension_trends = report_data.get("ability_dimension_trends", {})
     if isinstance(ability_dimension_trends, dict):
         dimension_series = ability_dimension_trends.get("series", [])
-        trend_x = ability_dimension_trends.get("x_values", x_values)
+        trend_x = _trend_x_numeric(ability_dimension_trends)
         if isinstance(dimension_series, list) and dimension_series and trend_x:
+            import plotly.graph_objects as go
+
             st.subheader("🧠 各能力点变化趋势图")
             options = [item.get("dimension", "未知能力点") for item in dimension_series]
             descending_dimensions = [
@@ -468,13 +527,18 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
                 })
 
                 line_color = "#d62728" if is_descending else ("#2ca02c" if dim_delta >= 1.0 else "#1f77b4")
+                y_dim = _scores_for_plotly(item.get("scores") or [])
+                tx_use = trend_x[: len(y_dim)] if len(trend_x) >= len(y_dim) else trend_x
+                if len(y_dim) > len(tx_use):
+                    y_dim = y_dim[: len(tx_use)]
                 fig_dim.add_trace(go.Scatter(
-                    x=trend_x,
-                    y=item.get("scores", []),
+                    x=tx_use,
+                    y=y_dim,
                     mode='lines+markers',
                     name=f"{dim_name} ({dim_delta:+.1f})",
                     line=dict(width=3 if is_descending else 2, color=line_color),
-                    marker=dict(size=8)
+                    marker=dict(size=8),
+                    connectgaps=False
                 ))
 
                 inflections = _detect_inflection_points(item.get("scores", []))
@@ -505,7 +569,8 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
                             name=f"{dim_name} 拐点",
                             marker=dict(symbol="diamond", size=10, color="#ff7f0e"),
                             hovertext=inflection_text,
-                            hoverinfo="text"
+                            hoverinfo="text",
+                            connectgaps=False
                         ))
             fig_dim.update_layout(
                 title="能力点分项趋势（按评估进度，自动高亮下降项与拐点）",
@@ -626,22 +691,18 @@ if 'evaluation_api_key' not in st.session_state:
 # 侧边栏导航
 st.sidebar.title("📚 学生多维度能力评估系统")
 
-# 系统状态检查
-try:
-    response = requests.get(f"{API_BASE_URL}/health", timeout=3)
-    if response.status_code == 200:
-        st.sidebar.success("🟢 系统运行正常")
-        st.session_state.system_status = "running"
-    else:
-        st.sidebar.warning("🟡 系统服务异常")
-        st.session_state.system_status = "error"
-except Exception as e:
+# 系统状态检查（缓存 TTL 内不重复请求，显著减少卡顿）
+_health = _probe_backend_health(API_BASE_URL)
+st.session_state.system_status = _health
+if _health == "running":
+    st.sidebar.success("🟢 系统运行正常")
+elif _health == "error":
+    st.sidebar.warning("🟡 系统服务异常")
+else:
     st.sidebar.warning("🟡 系统服务未启动")
-    st.session_state.system_status = "offline"
-    # 提供启动服务的提示
     st.sidebar.markdown("\n**提示：** 请确保后端API服务正在运行")
     st.sidebar.markdown("- 请在终端运行命令: `uvicorn src.api.main:app --reload`")
-    st.sidebar.markdown("- 或检查app.py里的服务地址是否是: http://localhost:8000")
+    st.sidebar.markdown("- 或设置环境变量 `EVALUATION_API_BASE_URL` 指向实际 API 地址")
 
 st.sidebar.markdown("---")
 

@@ -11,17 +11,6 @@ import uuid
 from threading import Lock, Thread
 from src.course_classifier import classify_course_type, classify_course_type_with_meta
 
-# 配置日志
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('api_debug.log', encoding='utf-8')
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # 添加项目根目录到 Python 路径
 current_file = os.path.abspath(__file__)
 api_dir = os.path.dirname(current_file)
@@ -34,6 +23,23 @@ for path in [src_dir, project_root]:
         sys.path.insert(0, path)
 
 from src.config import settings, AI_PROVIDERS, get_ai_config
+
+# 配置日志（默认 INFO，避免 DEBUG 刷屏拖慢接口；可用环境变量 LOG_LEVEL 覆盖）
+_log_level_name = (getattr(settings, "log_level", None) or os.getenv("LOG_LEVEL", "INFO")).upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
+logging.basicConfig(
+    level=_log_level,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('api_debug.log', encoding='utf-8')
+    ],
+    force=True,
+)
+for _noisy in ("urllib3", "httpcore", "httpx", "http11", "openai"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
+
 from src.database import get_db, DatabaseService, init_db
 from src.database.models import Student, Submission, MediaFile, EvaluationResult, ProgressReport
 from src.models.schemas import (
@@ -124,8 +130,12 @@ def _is_valid_ability_description(text: str) -> bool:
     if any(k in normalized for k in blocked_keywords):
         return False
 
-    # 能力点内容通常是陈述性句子，而不是章节标题
-    semantic_keywords = ["能够", "使学生", "学生", "掌握", "理解", "具备", "应用", "分析", "设计", "建模"]
+    # 能力点内容通常是陈述性句子，而不是章节标题（需覆盖工程类与终身学习等常见表述）
+    semantic_keywords = [
+        "能够", "使学生", "学生", "掌握", "理解", "具备", "应用", "分析", "设计", "建模",
+        "具有", "适应", "养成", "做到", "探索", "优化", "终身", "自主", "持续", "强调", "更新",
+        "要有", "协同", "独立", "学习", "能力",
+    ]
     if not any(k in normalized for k in semantic_keywords):
         return False
     return True
@@ -668,6 +678,13 @@ def _align_dimension_scores_to_syllabus(
             )
     return aligned
 
+
+def _is_syllabus_missing_dimension_placeholder(ds: Any) -> bool:
+    """大纲对齐时为「未匹配能力点」插入的占位项，不计入趋势图分项（避免假 0 拉低曲线）。"""
+    r = str(getattr(ds, "reasoning", "") or "")
+    return r.startswith("未找到与大纲能力点")
+
+
 def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_service: DatabaseService) -> Dict[str, Any]:
     points: List[Dict[str, Any]] = []
     course_type_counter = {"理论课": 0, "实践课": 0}
@@ -685,15 +702,34 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         dimension_scores = db_service.get_dimension_scores_by_evaluation_id(ev.evaluation_id)
         ability_names = _extract_syllabus_ability_names(syllabus_analysis)
         aligned_dimension_scores = _align_dimension_scores_to_syllabus(dimension_scores, ability_names)
+
+        raw_dim_dicts: List[Dict[str, Any]] = [
+            {"dimension": str(getattr(ds, "dimension", "") or "").strip(), "score": getattr(ds, "score", None)}
+            for ds in dimension_scores
+            if str(getattr(ds, "dimension", "") or "").strip()
+        ]
+        ability_points_list: List[Any] = []
+        if isinstance(syllabus_analysis, dict):
+            ap = syllabus_analysis.get("ability_points")
+            if isinstance(ap, list):
+                ability_points_list = ap
+
+        fall = _parse_score_value(ev.overall_score)
+        ability_avg = _calculate_ability_average_score(
+            raw_dim_dicts,
+            ability_points_list,
+            fallback_score=float(fall if fall is not None else 0.0),
+        )
+
         ability_dimension_scores: Dict[str, float] = {}
         for ds in aligned_dimension_scores:
             dim_name = str(ds.dimension or "").strip()
             if not dim_name:
                 continue
+            if _is_syllabus_missing_dimension_placeholder(ds):
+                continue
             ability_dimension_scores[dim_name] = _clamp_score(ds.score)
 
-        ability_scores = list(ability_dimension_scores.values())
-        ability_avg = _safe_avg(ability_scores) if ability_scores else _clamp_score(ev.overall_score)
         overall = _clamp_score(ev.overall_score)
         stage_progress = ev.stage_progress if ev.stage_progress is not None else 1.0
 
@@ -736,9 +772,15 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
     # 分项趋势图横坐标改为报告自身进度（0-100%）
     points_for_trend = sorted(points, key=lambda x: x.get("stage_progress", 0.0))
     x_values = [f"{int(round((p.get('stage_progress', 0.0) or 0.0) * 100))}%" for p in points_for_trend]
+    # 数值横坐标：避免相同四舍五入进度在 Plotly 中叠成竖线；与 points_for_trend 顺序一一对应
+    x_plot = [
+        round(float(p.get("stage_progress", 0.0) or 0.0) * 100.0, 4) + idx * 1e-6
+        for idx, p in enumerate(points_for_trend)
+    ]
     trend_series = {
         "x_label": "报告进度(%)",
         "x_values": x_values,
+        "x_plot": x_plot,
         "overall_score": [p["overall_score"] for p in points_for_trend],
         "ability_component": [p["ability_component"] for p in points_for_trend],
         "knowledge_understanding_component": [p["knowledge_understanding_component"] for p in points_for_trend] if not is_practice else [],
@@ -777,6 +819,7 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
     ability_dimension_trends = {
         "x_label": trend_series.get("x_label", "报告进度(%)"),
         "x_values": x_values,
+        "x_plot": x_plot,
         "x_values_date": trend_series.get("x_values_date", []),
         "series": ability_dimension_series
     }
@@ -1051,10 +1094,6 @@ app.max_request_size = 500 * 1024 * 1024  # 500MB
 # 确保上传目录存在
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# 创建数据库表
-from src.database.database import Base, engine
-Base.metadata.create_all(bind=engine)
 
 # 依赖项
 def get_database_service(db: Session = Depends(get_db)) -> DatabaseService:
