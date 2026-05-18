@@ -1,9 +1,13 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from .models import Student, Submission, MediaFile, EvaluationResult, DimensionScore, HandwritingRecord, ProgressReport
+from .models import (
+    Student, Submission, MediaFile, EvaluationResult, DimensionScore,
+    HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+)
 from datetime import datetime
 import uuid
+import json
 
 class DatabaseService:
     def __init__(self, db: Session):
@@ -47,7 +51,7 @@ class DatabaseService:
         student = self.get_student_by_id(student_id)
         if student:
             # 先删除与该学生关联的所有相关记录
-            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore, ProgressReport
+            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore, ProgressReport, EvaluationReviewAudit
             
             # 1. 删除与学生关联的手写识别记录
             self.db.query(HandwritingRecord).filter(HandwritingRecord.student_id == student.id).delete()
@@ -60,6 +64,7 @@ class DatabaseService:
             for evaluation_result in evaluation_results:
                 # 删除维度评分
                 self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation_result.id).delete()
+                self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation_result.id).delete()
                 # 删除评估结果
                 self.db.delete(evaluation_result)
             
@@ -137,6 +142,7 @@ class DatabaseService:
         for evaluation_result in evaluation_results:
             # 删除维度评分
             self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation_result.id).delete()
+            self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation_result.id).delete()
             # 删除评估结果
             self.db.delete(evaluation_result)
         
@@ -231,7 +237,9 @@ class DatabaseService:
                                 recommendations: Optional[str] = None, 
                                 evaluator_agent: str = "comprehensive_evaluator",
                                 stage: Optional[str] = None,
-                                stage_progress: Optional[float] = None) -> EvaluationResult:
+                                stage_progress: Optional[float] = None,
+                                rubric_version_id: Optional[str] = None,
+                                review_status: str = "ai_draft") -> EvaluationResult:
         submission = self.get_submission_by_id(submission_id)
         if not submission:
             raise ValueError(f"Submission with ID {submission_id} not found")
@@ -263,7 +271,9 @@ class DatabaseService:
             recommendations=recommendations_str,
             evaluator_agent=evaluator_agent,
             stage=stage,
-            stage_progress=stage_progress
+            stage_progress=stage_progress,
+            rubric_version_id=rubric_version_id,
+            review_status=review_status
         )
         self.db.add(evaluation_result)
         self.db.commit()
@@ -304,6 +314,7 @@ class DatabaseService:
         
         # 删除相关的维度评分
         self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation.id).delete()
+        self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation.id).delete()
         
         # 删除评估结果
         self.db.delete(evaluation)
@@ -356,6 +367,97 @@ class DatabaseService:
             else:
                 setattr(evaluation, key, value)
         
+        self.db.commit()
+        self.db.refresh(evaluation)
+        return evaluation
+
+    # RubricVersion operations
+    def get_rubric_version_by_hash(self, content_hash: str) -> Optional[RubricVersion]:
+        return self.db.query(RubricVersion).filter(RubricVersion.content_hash == content_hash).first()
+
+    def get_rubric_version_by_id(self, rubric_version_id: str) -> Optional[RubricVersion]:
+        return self.db.query(RubricVersion).filter(RubricVersion.rubric_version_id == rubric_version_id).first()
+
+    def create_rubric_version(
+        self,
+        content_hash: str,
+        snapshot: Dict[str, Any],
+        syllabus_name: Optional[str] = None,
+        course_type: Optional[str] = None
+    ) -> RubricVersion:
+        rubric_version = RubricVersion(
+            rubric_version_id=f"RUBRIC_{uuid.uuid4().hex[:10].upper()}",
+            syllabus_name=syllabus_name,
+            course_type=course_type,
+            content_hash=content_hash,
+            snapshot_json=json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+        )
+        self.db.add(rubric_version)
+        self.db.commit()
+        self.db.refresh(rubric_version)
+        return rubric_version
+
+    # Evaluation review operations
+    def create_evaluation_review_audit(
+        self,
+        evaluation_id: str,
+        action: str,
+        actor_id: Optional[str] = None,
+        actor_role: Optional[str] = None,
+        reason: Optional[str] = None,
+        before_snapshot: Optional[Dict[str, Any]] = None,
+        after_snapshot: Optional[Dict[str, Any]] = None
+    ) -> EvaluationReviewAudit:
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            raise ValueError(f"Evaluation result with ID {evaluation_id} not found")
+
+        audit = EvaluationReviewAudit(
+            audit_id=f"AUDIT_{uuid.uuid4().hex[:10].upper()}",
+            evaluation_id=evaluation.id,
+            action=action,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            reason=reason,
+            before_snapshot=json.dumps(before_snapshot, ensure_ascii=False, sort_keys=True) if before_snapshot is not None else None,
+            after_snapshot=json.dumps(after_snapshot, ensure_ascii=False, sort_keys=True) if after_snapshot is not None else None
+        )
+        self.db.add(audit)
+        self.db.commit()
+        self.db.refresh(audit)
+        return audit
+
+    def get_evaluation_review_audits(self, evaluation_id: str) -> List[EvaluationReviewAudit]:
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            return []
+        return (
+            self.db.query(EvaluationReviewAudit)
+            .filter(EvaluationReviewAudit.evaluation_id == evaluation.id)
+            .order_by(EvaluationReviewAudit.created_at.asc())
+            .all()
+        )
+
+    def update_evaluation_review_state(
+        self,
+        evaluation_id: str,
+        review_status: str,
+        reviewed_by: Optional[str] = None,
+        review_notes: Optional[str] = None
+    ) -> Optional[EvaluationResult]:
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            return None
+
+        evaluation.review_status = review_status
+        if reviewed_by is not None:
+            evaluation.reviewed_by = reviewed_by
+        if review_notes is not None:
+            evaluation.review_notes = review_notes
+        if review_status == "teacher_confirmed":
+            evaluation.confirmed_at = datetime.utcnow()
+        if review_status == "published":
+            evaluation.published_at = datetime.utcnow()
         self.db.commit()
         self.db.refresh(evaluation)
         return evaluation

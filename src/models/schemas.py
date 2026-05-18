@@ -188,6 +188,12 @@ class EvaluationResponse(BaseModel):
     phase_completion_score: Optional[float] = None
     score_policy: Optional[str] = None
     score_breakdown: Optional[Dict[str, Any]] = None
+    rubric_version_id: Optional[str] = None
+    review_status: Optional[str] = "ai_draft"
+    reviewed_by: Optional[str] = None
+    review_notes: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
     strengths: List[str]
     areas_for_improvement: List[str]
     recommendations: List[str]
@@ -195,6 +201,30 @@ class EvaluationResponse(BaseModel):
     evaluator_agent: str
     stage: Optional[str] = None
     stage_progress: Optional[float] = None  # 0.0-1.0 之间的进度值
+
+class EvaluationReviewActionRequest(BaseModel):
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+
+class EvaluationRegradeRequest(BaseModel):
+    reason: str
+
+class EvaluationRegradeResolveRequest(BaseModel):
+    decision: str = Field(pattern="^(accepted|rejected|resolved)$")
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+    updated_evaluation: Optional[Dict[str, Any]] = None
+
+class EvaluationReviewAuditResponse(BaseModel):
+    audit_id: str
+    evaluation_id: str
+    action: str
+    actor_id: Optional[str] = None
+    actor_role: Optional[str] = None
+    reason: Optional[str] = None
+    before_snapshot: Optional[Dict[str, Any]] = None
+    after_snapshot: Optional[Dict[str, Any]] = None
+    created_at: datetime
 
 class EvaluationTaskCreateResponse(BaseModel):
     task_id: str

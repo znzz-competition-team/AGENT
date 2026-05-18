@@ -52,11 +52,11 @@ class DataFusionService:
     
     # 评分等级和对应的描述
     SCORE_LEVELS = {
-        (9.0, 10.1): {"level": "优秀", "description": "表现出色，远超预期"}, # 上限改为10.1以包含满分10.0
-        (7.5, 9.0): {"level": "良好", "description": "表现良好，达到预期"},
-        (6.0, 7.5): {"level": "中等", "description": "表现一般，基本达到要求"},
-        (4.0, 6.0): {"level": "待改进", "description": "表现有待提高，需要努力"},
-        (0.0, 4.0): {"level": "较差", "description": "表现较差，需要大幅改进"}
+        (90.0, 100.1): {"level": "优秀", "description": "表现出色，远超预期"},
+        (80.0, 90.0): {"level": "良好", "description": "表现良好，达到预期"},
+        (70.0, 80.0): {"level": "中等", "description": "表现一般，基本达到要求"},
+        (60.0, 70.0): {"level": "及格", "description": "达到基本要求，但仍有改进空间"},
+        (0.0, 60.0): {"level": "不及格", "description": "未达到基本要求，需要重点改进"}
     }
     
     def __init__(self, custom_weights: Optional[Dict[EvaluationDimension, float]] = None):
@@ -153,7 +153,7 @@ class DataFusionService:
             EvaluationDimension.CRITICAL_THINKING: "批判性思维"
         }
 
-    def generate_strengths(self, dimension_scores: List[DimensionScore], threshold: float = 7.5) -> List[str]:
+    def generate_strengths(self, dimension_scores: List[DimensionScore], threshold: float = 80.0) -> List[str]:
         """生成优势列表"""
         strengths = []
         dimension_names = self._get_dimension_names()
@@ -165,7 +165,7 @@ class DataFusionService:
         
         return strengths
     
-    def generate_areas_for_improvement(self, dimension_scores: List[DimensionScore], threshold: float = 6.0) -> List[str]:
+    def generate_areas_for_improvement(self, dimension_scores: List[DimensionScore], threshold: float = 60.0) -> List[str]:
         """生成待改进领域列表"""
         areas = []
         dimension_names = self._get_dimension_names()
@@ -186,7 +186,7 @@ class DataFusionService:
         lowest_dimensions = sorted_scores[:3]  # 取最低的3个维度
         
         for score in lowest_dimensions:
-            if score.score < 6.0:
+            if score.score < 60.0:
                 recommendation = self._generate_specific_recommendation(score.dimension)
                 if recommendation:
                     recommendations.append(recommendation)

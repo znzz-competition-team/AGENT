@@ -99,6 +99,38 @@ def run_evaluation_task(eval_payload: dict, target_student_id: str = "") -> tupl
             return False, {}, "评估任务超时，请稍后重试"
         time.sleep(1)
 
+
+REVIEW_STATUS_LABELS = {
+    "ai_draft": "AI 初评",
+    "teacher_confirmed": "教师已确认",
+    "published": "已发布",
+    "regrade_requested": "学生申请复评",
+    "regrade_resolved": "复评已处理"
+}
+
+
+def review_status_label(status: str) -> str:
+    return REVIEW_STATUS_LABELS.get(status or "ai_draft", status or "AI 初评")
+
+
+def post_review_action(evaluation_id: str, action: str, payload: dict, target_student_id: str = "") -> tuple[bool, dict, str]:
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/evaluations/{evaluation_id}/{action}",
+            json=payload,
+            headers=build_auth_headers(target_student_id),
+            timeout=30
+        )
+        if response.status_code == 200:
+            return True, response.json(), ""
+        try:
+            detail = response.json().get("detail", f"HTTP {response.status_code}")
+        except Exception:
+            detail = f"HTTP {response.status_code}"
+        return False, {}, str(detail)
+    except Exception as e:
+        return False, {}, str(e)
+
 # 初始化 session state
 if 'ai_settings' not in st.session_state:
     st.session_state.ai_settings = {}
@@ -168,6 +200,72 @@ def process_reasoning(reasoning: str) -> str:
         except:
             pass
     return reasoning
+
+def parse_evidence_item(item) -> dict:
+    """把 evidence 解析成可定位字段；兼容旧的普通字符串证据。"""
+    if isinstance(item, dict):
+        file_name = item.get("file") or item.get("file_name") or item.get("source") or ""
+        location = item.get("location") or item.get("page") or item.get("paragraph") or item.get("table") or ""
+        snippet = item.get("quote") or item.get("text") or item.get("snippet") or item.get("evidence") or ""
+        raw = json.dumps(item, ensure_ascii=False)
+        return {
+            "文件": str(file_name or "未标注"),
+            "位置": str(location or "未标注"),
+            "原文片段": str(snippet or ""),
+            "原始证据": raw
+        }
+
+    raw = str(item or "").strip()
+    file_name = ""
+    location = ""
+    snippet = ""
+
+    file_match = re.search(r"文件[:：]\s*([^|；;\n]+)", raw)
+    if file_match:
+        file_name = file_match.group(1).strip()
+
+    location_match = re.search(r"(?:位置|页码|段落|表格|行)[:：]\s*([^|；;\n]+)", raw)
+    if location_match:
+        location = location_match.group(1).strip()
+
+    snippet_match = re.search(r"(?:原文片段|片段|引用)[:：]\s*(.+)$", raw)
+    if snippet_match:
+        snippet = snippet_match.group(1).strip()
+    elif raw:
+        snippet = raw
+
+    return {
+        "文件": file_name or "未标注",
+        "位置": location or "未标注",
+        "原文片段": snippet,
+        "原始证据": raw
+    }
+
+def render_evidence_locations(evidence, key_prefix: str = "evidence"):
+    """前端展示可定位证据：文件、位置、原文片段。"""
+    if not evidence:
+        st.markdown("**可定位证据：** 未提供明确证据")
+        return
+
+    evidence_items = evidence if isinstance(evidence, list) else [evidence]
+    rows = [parse_evidence_item(item) for item in evidence_items if str(item).strip()]
+    if not rows:
+        st.markdown("**可定位证据：** 未提供明确证据")
+        return
+
+    st.markdown("**可定位证据：**")
+    display_rows = [
+        {
+            "文件": row.get("文件", "未标注"),
+            "位置": row.get("位置", "未标注"),
+            "原文片段": row.get("原文片段", "")
+        }
+        for row in rows
+    ]
+    st.dataframe(pd.DataFrame(display_rows), use_container_width=True)
+    with st.expander("查看原始 evidence"):
+        for row in rows:
+            st.markdown(f"- {row.get('原始证据', '')}")
 
 def _safe_float(value):
     try:
@@ -250,12 +348,7 @@ def render_dimension_score_details(evaluation_result: dict):
         dim_score = _safe_float(score.get("score")) or 0.0
         with st.expander(f"**{dim_name}** - {dim_score:.1f}分"):
             evidence = score.get("evidence", [])
-            if isinstance(evidence, list) and evidence:
-                st.markdown("**证据：**")
-                for item in evidence:
-                    st.markdown(f"- {item}")
-            else:
-                st.markdown("**证据：** 未提供明确证据")
+            render_evidence_locations(evidence, key_prefix=f"dim_{dim_name}")
 
             reasoning = process_reasoning(str(score.get("reasoning", "") or ""))
             if reasoning:
@@ -268,6 +361,81 @@ def render_dimension_score_details(evaluation_result: dict):
                 st.markdown(f"**修改建议：** {suggestion}")
             else:
                 st.markdown("**修改建议：** 建议补充该能力点的关键过程、结果对比和改进验证材料。")
+
+def render_course_objectives_dashboard(dashboard_data: dict):
+    """展示班级/课程目标达成度看板。"""
+    if not isinstance(dashboard_data, dict):
+        st.info("暂无课程目标达成度数据。")
+        return
+
+    summary = dashboard_data.get("summary", {}) if isinstance(dashboard_data.get("summary"), dict) else {}
+    objective_stats = dashboard_data.get("objective_stats", []) if isinstance(dashboard_data.get("objective_stats"), list) else []
+    weakness_ranking = dashboard_data.get("weakness_ranking", []) if isinstance(dashboard_data.get("weakness_ranking"), list) else []
+
+    metric_cols = st.columns(5)
+    with metric_cols[0]:
+        st.metric("评估数", summary.get("evaluation_count", 0))
+    with metric_cols[1]:
+        st.metric("学生数", summary.get("student_count", 0))
+    with metric_cols[2]:
+        st.metric("能力点数", summary.get("objective_count", 0))
+    with metric_cols[3]:
+        st.metric("总体均分", f"{float(summary.get('overall_mean_score', 0.0) or 0.0):.1f}")
+    with metric_cols[4]:
+        st.metric("总体达成率", f"{float(summary.get('overall_achievement_rate', 0.0) or 0.0):.1f}%")
+
+    if not objective_stats:
+        st.info("暂无可聚合的能力点评分。请先完成并发布/保存课程作业评估。")
+        return
+
+    df = pd.DataFrame(objective_stats)
+    display_df = df.rename(columns={
+        "ability": "能力点",
+        "mean_score": "均分",
+        "latest_score": "最新分",
+        "achievement_rate": "达成率(%)",
+        "low_score_rate": "低分比例(%)",
+        "sample_count": "样本数",
+        "student_count": "学生数",
+        "trend_delta": "趋势变化",
+        "trend_direction": "趋势判断"
+    })
+    st.subheader("课程目标达成度明细")
+    st.dataframe(display_df, use_container_width=True)
+
+    chart_df = display_df.set_index("能力点")[["均分", "达成率(%)", "低分比例(%)"]]
+    st.bar_chart(chart_df, use_container_width=True)
+
+    if weakness_ranking:
+        st.subheader("薄弱能力点排行")
+        weak_df = pd.DataFrame(weakness_ranking).rename(columns={
+            "ability": "能力点",
+            "mean_score": "均分",
+            "achievement_rate": "达成率(%)",
+            "low_score_rate": "低分比例(%)",
+            "sample_count": "样本数",
+            "trend_direction": "趋势判断"
+        })
+        st.dataframe(
+            weak_df[["能力点", "均分", "达成率(%)", "低分比例(%)", "样本数", "趋势判断"]],
+            use_container_width=True
+        )
+
+    trend_series = dashboard_data.get("trend_series", {}) if isinstance(dashboard_data.get("trend_series"), dict) else {}
+    if trend_series:
+        st.subheader("能力点趋势")
+        ability_options = list(trend_series.keys())
+        selected_ability = st.selectbox(
+            "选择能力点查看趋势",
+            options=ability_options,
+            key="course_objective_trend_select"
+        )
+        records = trend_series.get(selected_ability, [])
+        if records:
+            trend_df = pd.DataFrame(records)
+            if "x" in trend_df.columns and "score" in trend_df.columns:
+                st.line_chart(trend_df.set_index("x")["score"], use_container_width=True)
+            st.dataframe(trend_df, use_container_width=True)
 
 def render_policy_progress_report(report_data: dict, key_prefix: str = "policy"):
     """按课程类型细则渲染总进度报告与趋势图（0-100分制）。"""
@@ -2175,6 +2343,9 @@ elif page == "🤖 评估管理":
             if response.status_code == 200:
                 submissions = response.json()
                 if submissions:
+                    selected_submission_id = None
+                    selected_student_id = ""
+
                     # 过滤出普通作业提交（非毕业设计）
                     normal_submissions = [s for s in submissions if s.get('submission_purpose', 'normal') == 'normal']
                     graduation_submissions = [s for s in submissions if s.get('submission_purpose', 'normal') == 'graduation']
@@ -2187,6 +2358,7 @@ elif page == "🤖 评估管理":
                     else:
                         # 构建提交选项，包含文件名
                         submission_options = {}
+                        submission_student_map = {}
                         for sub in normal_submissions:
                             submission_id = sub['submission_id']
                             student_id = sub.get('student_id', '未知')
@@ -2206,24 +2378,29 @@ elif page == "🤖 评估管理":
                                         else:
                                             option_key = f"{submission_id}_file_{len(submission_options)}"
                                         submission_options[option_key] = f"{title} - {file_name} (学生ID: {student_id})"
+                                        submission_student_map[option_key] = student_id
                                 else:
                                     # 如果没有文件，也显示提交记录（使用文字提交）
                                     text_content = sub.get('text_content', '')
                                     if text_content:
                                         option_key = f"{submission_id}_text"
                                         submission_options[option_key] = f"{title} - 文字提交 (学生ID: {student_id})"
+                                        submission_student_map[option_key] = student_id
                             else:
                                 # 如果获取文件失败，也显示提交记录
                                 option_key = f"{submission_id}_unknown"
                                 submission_options[option_key] = f"{title} - 未知文件类型 (学生ID: {student_id})"
+                                submission_student_map[option_key] = student_id
                         
                         selected_submission_id = None
+                        selected_student_id = ""
                         if submission_options:
                             selected_option = st.selectbox(
                                 "选择报告",
                                 options=list(submission_options.keys()),
                                 format_func=lambda x: submission_options[x]
                             )
+                            selected_student_id = submission_student_map.get(selected_option, "")
                             
                             # 提取提交ID（处理带文件ID的情况）
                             if '_' in selected_option:
@@ -2239,10 +2416,21 @@ elif page == "🤖 评估管理":
                                     selected_submission_id = selected_option
                             else:
                                 selected_submission_id = selected_option
+
+                            selected_submission = next(
+                                (sub for sub in normal_submissions if sub.get('submission_id') == selected_submission_id),
+                                None
+                            )
+                            if selected_submission:
+                                selected_student_id = selected_submission.get('student_id') or selected_student_id or ""
                         else:
                             st.warning("⚠️ 暂无提交记录，请先在提交管理页面创建提交")
                     
                     if selected_submission_id:
+                        if not selected_student_id or selected_student_id == "未知":
+                            st.error("❌ 该提交未关联学生，无法启动阶段评估。请先在提交管理或文件管理中关联学生。")
+                            st.stop()
+
                         # 学生工作时期设置
                         st.markdown("---")
                         st.subheader("📅 学生工作时期设置")
@@ -2340,7 +2528,7 @@ elif page == "🤖 评估管理":
                                         # 显示评估结果摘要
                                         st.subheader("📊 评估结果摘要")
                                         
-                                        result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+                                        result_col1, result_col2, result_col3, result_col4, result_col5, result_col6 = st.columns(6)
                                         with result_col1:
                                             st.metric("综合评分", f"{evaluation_result['overall_score']}/100")
                                         with result_col2:
@@ -2352,6 +2540,10 @@ elif page == "🤖 评估管理":
                                             stage_progress = evaluation_result.get('stage_progress', 0.5)
                                             progress_percent = int(stage_progress * 100)
                                             st.metric("工作时期进度", f"{progress_percent}%")
+                                        with result_col5:
+                                            st.metric("Rubric 版本", evaluation_result.get("rubric_version_id") or "未绑定")
+                                        with result_col6:
+                                            st.metric("复核状态", review_status_label(evaluation_result.get("review_status") or "ai_draft"))
 
                                         render_score_card(evaluation_result)
                                         score_breakdown = evaluation_result.get("score_breakdown", {})
@@ -2472,13 +2664,17 @@ elif page == "🤖 评估管理":
                                 # 显示评估结果摘要
                                 st.subheader("📊 评估结果摘要")
                                 
-                                result_col1, result_col2, result_col3 = st.columns(3)
+                                result_col1, result_col2, result_col3, result_col4, result_col5 = st.columns(5)
                                 with result_col1:
                                     st.metric("综合评分", f"{evaluation_result['overall_score']}/100")
                                 with result_col2:
                                     st.metric("评估维度", len(evaluation_result['dimension_scores']))
                                 with result_col3:
                                     st.metric("提交数量", 1)  # 现在只评估一个提交
+                                with result_col4:
+                                    st.metric("Rubric 版本", evaluation_result.get("rubric_version_id") or "未绑定")
+                                with result_col5:
+                                    st.metric("复核状态", review_status_label(evaluation_result.get("review_status") or "ai_draft"))
 
                                 render_score_card(evaluation_result)
                                 score_breakdown = evaluation_result.get("score_breakdown", {})
@@ -2816,10 +3012,7 @@ elif page == "🤖 评估管理":
                                         evidence = ds.get('evidence', [])
                                         
                                         with st.expander(f"**{indicator_id}** - {score}分 ({grade})", expanded=False):
-                                            if evidence:
-                                                st.markdown("**证据:**")
-                                                for ev in evidence[:5]:
-                                                    st.markdown(f"- {ev}")
+                                            render_evidence_locations(evidence[:5] if isinstance(evidence, list) else evidence, key_prefix=f"rule_{indicator_id}")
                                 
                                 strengths = result.get('strengths', [])
                                 weaknesses = result.get('weaknesses', [])
@@ -2894,10 +3087,7 @@ elif page == "🤖 评估管理":
                                         
                                         with st.expander(f"**{indicator_name}**: {score}分 ({grade})"):
                                             st.markdown(f"**评分理由：** {reasoning}")
-                                            if evidence:
-                                                st.markdown("**证据：**")
-                                                for e in evidence:
-                                                    st.markdown(f"- {e}")
+                                            render_evidence_locations(evidence, key_prefix=f"grad_{indicator_name}")
                                 
                                 strengths = result.get('strengths', [])
                                 if strengths:
@@ -3007,21 +3197,25 @@ elif page == "📊 结果查询":
                                 evaluated_at = evaluated_at.split(' ')[0]
                         
                         with st.expander(f"评估 {i+1}: {result['evaluation_id']} (时间: {evaluated_at})"):
+                            current_role = st.session_state.get("auth_role", "teacher")
+                            review_status = result.get("review_status") or "ai_draft"
+
                             # 评估操作按钮
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("✏️ 修改评估", key=f"edit_evaluation_{i}"):
-                                    st.session_state['edit_evaluation'] = result
-                                    st.session_state['show_edit_evaluation_form'] = True
-                                    st.session_state['selected_student_id'] = selected_student_id
-                            with col2:
-                                if st.button("🗑️ 删除评估", key=f"delete_evaluation_{i}"):
-                                    # 使用会话状态来管理删除确认
-                                    st.session_state['delete_evaluation_id'] = result['evaluation_id']
-                                    st.session_state['show_delete_confirm'] = True
+                            if current_role in ["teacher", "admin"]:
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("✏️ 修改评估", key=f"edit_evaluation_{i}"):
+                                        st.session_state['edit_evaluation'] = result
+                                        st.session_state['show_edit_evaluation_form'] = True
+                                        st.session_state['selected_student_id'] = selected_student_id
+                                with col2:
+                                    if st.button("🗑️ 删除评估", key=f"delete_evaluation_{i}"):
+                                        # 使用会话状态来管理删除确认
+                                        st.session_state['delete_evaluation_id'] = result['evaluation_id']
+                                        st.session_state['show_delete_confirm'] = True
                             
                             # 删除确认对话框 - 放在每个评估记录内部
-                            if st.session_state.get('show_delete_confirm', False) and st.session_state.get('delete_evaluation_id') == result['evaluation_id']:
+                            if current_role in ["teacher", "admin"] and st.session_state.get('show_delete_confirm', False) and st.session_state.get('delete_evaluation_id') == result['evaluation_id']:
                                 st.warning("⚠️ 确认删除")
                                 st.write(f"确定要删除评估记录 {result['evaluation_id']} 吗？此操作不可恢复。")
                                 
@@ -3055,7 +3249,18 @@ elif page == "📊 结果查询":
                             
 
                             
-                            st.metric("综合评分", f"{result['overall_score']}/100")
+                            metric_col1, metric_col2, metric_col3 = st.columns(3)
+                            with metric_col1:
+                                st.metric("综合评分", f"{result['overall_score']}/100")
+                            with metric_col2:
+                                st.metric("Rubric 版本", result.get("rubric_version_id") or "未绑定")
+                            with metric_col3:
+                                st.metric("复核状态", review_status_label(review_status))
+                            if result.get("reviewed_by") or result.get("review_notes"):
+                                st.caption(
+                                    f"复核人：{result.get('reviewed_by') or '未记录'}"
+                                    f"；备注：{result.get('review_notes') or '无'}"
+                                )
                             
                             # 显示阶段进度信息
                             if 'stage_progress' in result and result['stage_progress'] is not None:
@@ -3064,6 +3269,157 @@ elif page == "📊 结果查询":
                                 st.metric("评估进度", f"{progress_percent}%")
                             else:
                                 st.metric("评估进度", "未知")
+
+                            st.subheader("复核流程")
+                            if current_role in ["teacher", "admin"]:
+                                review_note = st.text_input(
+                                    "复核备注",
+                                    value="",
+                                    placeholder="可填写确认、发布或复评处理说明",
+                                    key=f"review_note_{result['evaluation_id']}_{i}"
+                                )
+                                action_col1, action_col2 = st.columns(2)
+                                with action_col1:
+                                    if review_status == "ai_draft":
+                                        if st.button("✅ 教师确认", key=f"confirm_evaluation_{i}", use_container_width=True):
+                                            ok, updated_result, error_detail = post_review_action(
+                                                result['evaluation_id'],
+                                                "confirm",
+                                                {"reason": review_note or "教师确认 AI 初评", "notes": review_note},
+                                                selected_student_id
+                                            )
+                                            if ok:
+                                                st.session_state['evaluation_results'][i] = updated_result
+                                                st.success("✅ 已确认评估")
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ 确认失败: {error_detail}")
+                                    elif review_status in ["teacher_confirmed", "regrade_resolved"]:
+                                        if st.button("📣 发布给学生", key=f"publish_evaluation_{i}", use_container_width=True):
+                                            ok, updated_result, error_detail = post_review_action(
+                                                result['evaluation_id'],
+                                                "publish",
+                                                {"reason": review_note or "发布给学生", "notes": review_note},
+                                                selected_student_id
+                                            )
+                                            if ok:
+                                                st.session_state['evaluation_results'][i] = updated_result
+                                                st.success("✅ 已发布给学生")
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ 发布失败: {error_detail}")
+                                    else:
+                                        st.info("当前状态无需确认/发布操作")
+
+                                with action_col2:
+                                    if review_status == "regrade_requested":
+                                        st.warning("学生已申请复评，请在下方处理。")
+                                    elif review_status == "published":
+                                        st.success("评估已发布，学生可查看并申请复评。")
+                                    elif review_status == "ai_draft":
+                                        st.info("请先确认 AI 初评，再发布给学生。")
+
+                                if review_status == "regrade_requested":
+                                    with st.form(f"resolve_regrade_form_{result['evaluation_id']}_{i}"):
+                                        decision = st.selectbox(
+                                            "复评处理结果",
+                                            options=["accepted", "rejected", "resolved"],
+                                            format_func=lambda x: {
+                                                "accepted": "接受并调整",
+                                                "rejected": "驳回申请",
+                                                "resolved": "已沟通处理"
+                                            }.get(x, x),
+                                            key=f"regrade_decision_{i}"
+                                        )
+                                        resolve_reason = st.text_area(
+                                            "处理说明",
+                                            value=review_note or "",
+                                            height=90,
+                                            key=f"regrade_resolve_reason_{i}"
+                                        )
+                                        resolve_submit = st.form_submit_button("提交复评处理", use_container_width=True)
+                                        if resolve_submit:
+                                            ok, updated_result, error_detail = post_review_action(
+                                                result['evaluation_id'],
+                                                "regrade-resolve",
+                                                {
+                                                    "decision": decision,
+                                                    "reason": resolve_reason or "教师已处理复评申请",
+                                                    "notes": resolve_reason
+                                                },
+                                                selected_student_id
+                                            )
+                                            if ok:
+                                                st.session_state['evaluation_results'][i] = updated_result
+                                                st.success("✅ 复评已处理")
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ 复评处理失败: {error_detail}")
+
+                                with st.expander("查看复核审计记录"):
+                                    if st.button("加载审计记录", key=f"load_review_audits_{i}", use_container_width=True):
+                                        try:
+                                            audit_response = requests.get(
+                                                f"{API_BASE_URL}/evaluations/{result['evaluation_id']}/review-audits",
+                                                headers=build_auth_headers(selected_student_id),
+                                                timeout=30
+                                            )
+                                            if audit_response.status_code == 200:
+                                                audits = audit_response.json()
+                                                if audits:
+                                                    audit_rows = [
+                                                        {
+                                                            "时间": item.get("created_at", "")[:19],
+                                                            "动作": item.get("action", ""),
+                                                            "角色": item.get("actor_role", ""),
+                                                            "操作者": item.get("actor_id", ""),
+                                                            "原因": item.get("reason", "")
+                                                        }
+                                                        for item in audits
+                                                    ]
+                                                    st.dataframe(pd.DataFrame(audit_rows), use_container_width=True)
+                                                    with st.expander("查看审计快照 JSON"):
+                                                        st.json(audits)
+                                                else:
+                                                    st.info("暂无审计记录")
+                                            else:
+                                                try:
+                                                    detail = audit_response.json().get("detail", "加载失败")
+                                                except Exception:
+                                                    detail = f"HTTP {audit_response.status_code}"
+                                                st.error(f"❌ 加载审计失败: {detail}")
+                                        except Exception as e:
+                                            st.error(f"❌ 加载审计失败: {str(e)}")
+                            else:
+                                if review_status == "published" or review_status == "regrade_resolved":
+                                    with st.form(f"student_regrade_form_{result['evaluation_id']}_{i}"):
+                                        regrade_reason = st.text_area(
+                                            "复评申请理由",
+                                            placeholder="请说明你认为需要复核的评分项、依据或疑问",
+                                            height=90,
+                                            key=f"student_regrade_reason_{i}"
+                                        )
+                                        request_submit = st.form_submit_button("提交复评申请", use_container_width=True)
+                                        if request_submit:
+                                            if not regrade_reason.strip():
+                                                st.error("❌ 请填写复评申请理由")
+                                            else:
+                                                ok, updated_result, error_detail = post_review_action(
+                                                    result['evaluation_id'],
+                                                    "regrade-request",
+                                                    {"reason": regrade_reason.strip()},
+                                                    selected_student_id
+                                                )
+                                                if ok:
+                                                    st.session_state['evaluation_results'][i] = updated_result
+                                                    st.success("✅ 复评申请已提交")
+                                                    st.rerun()
+                                                else:
+                                                    st.error(f"❌ 复评申请失败: {error_detail}")
+                                elif review_status == "regrade_requested":
+                                    st.info("复评申请已提交，等待教师处理。")
+                                else:
+                                    st.info("该评估尚未发布，暂不能申请复评。")
                             
                             # 显示评估结果详情
                             st.subheader("维度评分详情")
@@ -3320,6 +3676,11 @@ if st.session_state.get('show_edit_evaluation_form', False):
             value="\n".join(edit_evaluation.get('recommendations', [])),
             height=100
         )
+        review_reason = st.text_area(
+            "复核/修改原因",
+            placeholder="说明本次人工修改的依据或原因，会写入复核审计记录",
+            height=80
+        )
         
         # 提交按钮
         col1, col2 = st.columns(2)
@@ -3340,7 +3701,8 @@ if st.session_state.get('show_edit_evaluation_form', False):
                     "strengths": new_strengths.split('\n') if new_strengths else [],
                     "areas_for_improvement": new_areas_for_improvement.split('\n') if new_areas_for_improvement else [],
                     "recommendations": new_recommendations.split('\n') if new_recommendations else [],
-                    "evaluated_at": new_eval_datetime
+                    "evaluated_at": new_eval_datetime,
+                    "review_reason": review_reason or "教师人工修改评估"
                 }
                 
                 # 发送更新请求
@@ -4349,6 +4711,56 @@ elif page == "📈 成长分析":
     st.markdown("""
     **功能说明：** 全面分析学生在各个维度的能力成长变化，通过多种可视化图表直观展示进步趋势。
     """)
+
+    if st.session_state.get("auth_role", "teacher") in ["teacher", "admin"]:
+        st.subheader("🏫 班级/课程目标达成度看板")
+        with st.expander("查看课程目标达成度", expanded=True):
+            if "course_objectives_dashboard" not in st.session_state:
+                st.session_state["course_objectives_dashboard"] = None
+
+            dash_col1, dash_col2, dash_col3 = st.columns([2, 1, 1])
+            with dash_col1:
+                syllabus_filter = st.text_input(
+                    "课程大纲筛选（可选，需与提交绑定的大纲文件名一致）",
+                    value="",
+                    placeholder="留空表示汇总所有课程大纲"
+                )
+            with dash_col2:
+                achievement_threshold = st.number_input("达成阈值", min_value=0.0, max_value=100.0, value=60.0, step=1.0)
+            with dash_col3:
+                low_score_threshold = st.number_input("低分阈值", min_value=0.0, max_value=100.0, value=60.0, step=1.0)
+
+            if st.button("刷新课程目标看板", use_container_width=True):
+                try:
+                    params = {
+                        "achievement_threshold": achievement_threshold,
+                        "low_score_threshold": low_score_threshold
+                    }
+                    if syllabus_filter.strip():
+                        params["syllabus_name"] = syllabus_filter.strip()
+                    dashboard_resp = requests.get(
+                        f"{API_BASE_URL}/analytics/course-objectives",
+                        params=params,
+                        headers=build_auth_headers(),
+                        timeout=30
+                    )
+                    if dashboard_resp.status_code == 200:
+                        dashboard_data = dashboard_resp.json()
+                        st.session_state["course_objectives_dashboard"] = dashboard_data
+                        st.success("✅ 课程目标看板已更新")
+                    else:
+                        try:
+                            error_detail = dashboard_resp.json().get("detail", "未知错误")
+                        except Exception:
+                            error_detail = f"HTTP {dashboard_resp.status_code}"
+                        st.error(f"❌ 获取课程目标看板失败: {error_detail}")
+                except Exception as e:
+                    st.error(f"❌ 获取课程目标看板失败: {str(e)}")
+
+            if st.session_state.get("course_objectives_dashboard"):
+                render_course_objectives_dashboard(st.session_state["course_objectives_dashboard"])
+            else:
+                st.info("点击“刷新课程目标看板”后，将在这里显示班级/课程目标达成度、薄弱能力点排行和趋势。")
     
     # 时间维度选择
     st.subheader("📅 时间维度选择")

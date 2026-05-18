@@ -16,6 +16,14 @@ def ensure_sqlite_schema_compatibility():
             "submission_purpose": "VARCHAR(20) DEFAULT 'normal'",
             "course_type": "VARCHAR(50) DEFAULT '理论课'",
             "syllabus_name": "VARCHAR(255)"
+        },
+        "evaluation_results": {
+            "rubric_version_id": "VARCHAR(50)",
+            "review_status": "VARCHAR(30) DEFAULT 'ai_draft'",
+            "reviewed_by": "VARCHAR(100)",
+            "review_notes": "TEXT",
+            "confirmed_at": "DATETIME",
+            "published_at": "DATETIME"
         }
     }
 
@@ -80,7 +88,10 @@ def get_db():
 # 初始化数据库
 def init_db():
     # 导入所有模型，确保它们被注册到 Base.metadata
-    from .models import Student, Submission, MediaFile, EvaluationResult, DimensionScore, HandwritingRecord, ProgressReport
+    from .models import (
+        Student, Submission, MediaFile, EvaluationResult, DimensionScore,
+        HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+    )
     
     # 只创建表，不删除现有表
     # 注意：如果需要更新表结构，应该使用数据库迁移工具

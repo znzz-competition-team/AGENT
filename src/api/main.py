@@ -48,7 +48,9 @@ from src.models.schemas import (
     MediaFileResponse,
     EvaluationResultResponse, DimensionScoreResponse,
     EvaluationRequest, EvaluationResponse, ProgressReportResponse,
-    EvaluationDimension, EvaluationTaskCreateResponse, EvaluationTaskStatusResponse
+    EvaluationDimension, EvaluationTaskCreateResponse, EvaluationTaskStatusResponse,
+    EvaluationReviewActionRequest, EvaluationRegradeRequest, EvaluationRegradeResolveRequest,
+    EvaluationReviewAuditResponse
 )
 from src.models.schemas import EvaluationResult as SchemaEvaluationResult
 # 移除对CrewAI和MediaProcessor的依赖，避免CV2依赖
@@ -61,6 +63,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 import json
 import re
+import hashlib
 from typing import Union
 
 # 增加文件大小限制
@@ -495,6 +498,51 @@ def _load_syllabus_analysis(syllabus_name: str) -> Optional[Dict[str, Any]]:
                 continue
     return None
 
+def _rubric_snapshot_from_syllabus(
+    syllabus_analysis: Optional[Dict[str, Any]],
+    syllabus_name: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(syllabus_analysis, dict):
+        return None
+
+    return {
+        "syllabus_name": syllabus_name or syllabus_analysis.get("syllabus_name"),
+        "course_type": syllabus_analysis.get("course_type", "理论课"),
+        "ability_points": syllabus_analysis.get("ability_points", []),
+        "evaluation_criteria": syllabus_analysis.get("evaluation_criteria", []),
+        "evaluation_weights": syllabus_analysis.get("evaluation_weights", {}),
+        "knowledge_points": syllabus_analysis.get("knowledge_points", []),
+        "grading_levels": syllabus_analysis.get("grading_levels", {}),
+        "score_policy": (
+            "practice_stage_process"
+            if "实践" in str(syllabus_analysis.get("course_type", "理论课"))
+            else "theory_ability_knowledge_split"
+        )
+    }
+
+def _get_or_create_rubric_version(
+    db_service: DatabaseService,
+    syllabus_analysis: Optional[Dict[str, Any]],
+    syllabus_name: Optional[str] = None
+) -> Optional[str]:
+    snapshot = _rubric_snapshot_from_syllabus(syllabus_analysis, syllabus_name)
+    if not snapshot:
+        return None
+
+    snapshot_text = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str)
+    content_hash = hashlib.sha256(snapshot_text.encode("utf-8")).hexdigest()
+    existing = db_service.get_rubric_version_by_hash(content_hash)
+    if existing:
+        return existing.rubric_version_id
+
+    rubric_version = db_service.create_rubric_version(
+        content_hash=content_hash,
+        snapshot=snapshot,
+        syllabus_name=snapshot.get("syllabus_name"),
+        course_type=str(snapshot.get("course_type", "理论课"))
+    )
+    return rubric_version.rubric_version_id
+
 def _calculate_weighted_overall_score(dimension_scores: List[Dict[str, Any]], syllabus_analysis: Optional[Dict[str, Any]]) -> Optional[float]:
     if not dimension_scores or not syllabus_analysis:
         return None
@@ -677,6 +725,85 @@ def _align_dimension_scores_to_syllabus(
                 )
             )
     return aligned
+
+def _dimension_score_to_dict(ds: Any) -> Dict[str, Any]:
+    return {
+        "dimension": str(getattr(ds, "dimension", "") or ""),
+        "score": float(getattr(ds, "score", 0.0) or 0.0),
+        "confidence": float(getattr(ds, "confidence", 0.0) or 0.0),
+        "evidence": process_evidence(getattr(ds, "evidence", None)),
+        "reasoning": str(getattr(ds, "reasoning", "") or "")
+    }
+
+def _evaluation_snapshot(db_service: DatabaseService, evaluation_id: str) -> Optional[Dict[str, Any]]:
+    evaluation = db_service.get_evaluation_result_by_id(evaluation_id)
+    if not evaluation:
+        return None
+    dimension_scores = db_service.get_dimension_scores_by_evaluation_id(evaluation_id)
+    return {
+        "evaluation_id": evaluation.evaluation_id,
+        "overall_score": evaluation.overall_score,
+        "strengths": process_string_list(evaluation.strengths),
+        "areas_for_improvement": process_string_list(evaluation.areas_for_improvement),
+        "recommendations": process_string_list(evaluation.recommendations),
+        "dimension_scores": [_dimension_score_to_dict(ds) for ds in dimension_scores],
+        "rubric_version_id": getattr(evaluation, "rubric_version_id", None),
+        "review_status": getattr(evaluation, "review_status", None),
+        "reviewed_by": getattr(evaluation, "reviewed_by", None),
+        "review_notes": getattr(evaluation, "review_notes", None),
+        "confirmed_at": getattr(evaluation, "confirmed_at", None).isoformat() if getattr(evaluation, "confirmed_at", None) else None,
+        "published_at": getattr(evaluation, "published_at", None).isoformat() if getattr(evaluation, "published_at", None) else None
+    }
+
+def _audit_response(audit: Any, public_evaluation_id: str) -> EvaluationReviewAuditResponse:
+    def _loads(value: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not value:
+            return None
+        try:
+            return json.loads(value)
+        except Exception:
+            return {"raw": value}
+
+    return EvaluationReviewAuditResponse(
+        audit_id=audit.audit_id,
+        evaluation_id=public_evaluation_id,
+        action=audit.action,
+        actor_id=audit.actor_id,
+        actor_role=audit.actor_role,
+        reason=audit.reason,
+        before_snapshot=_loads(audit.before_snapshot),
+        after_snapshot=_loads(audit.after_snapshot),
+        created_at=audit.created_at
+    )
+
+def _build_evaluation_response(
+    evaluation: Any,
+    student: Any,
+    dimension_scores_response: List[DimensionScoreResponse],
+    score_policy: Optional[str] = None,
+    score_breakdown: Optional[Dict[str, Any]] = None
+) -> EvaluationResponse:
+    return EvaluationResponse(
+        evaluation_id=evaluation.evaluation_id,
+        student_id=student.student_id,
+        overall_score=evaluation.overall_score,
+        strengths=process_string_list(evaluation.strengths),
+        areas_for_improvement=process_string_list(evaluation.areas_for_improvement),
+        recommendations=process_string_list(evaluation.recommendations),
+        dimension_scores=dimension_scores_response,
+        score_policy=score_policy,
+        score_breakdown=score_breakdown,
+        rubric_version_id=getattr(evaluation, "rubric_version_id", None),
+        review_status=getattr(evaluation, "review_status", None) or "ai_draft",
+        reviewed_by=getattr(evaluation, "reviewed_by", None),
+        review_notes=getattr(evaluation, "review_notes", None),
+        confirmed_at=getattr(evaluation, "confirmed_at", None),
+        published_at=getattr(evaluation, "published_at", None),
+        evaluated_at=evaluation.evaluated_at,
+        evaluator_agent=evaluation.evaluator_agent,
+        stage=getattr(evaluation, "stage", None),
+        stage_progress=getattr(evaluation, "stage_progress", None)
+    )
 
 
 def _is_syllabus_missing_dimension_placeholder(ds: Any) -> bool:
@@ -999,6 +1126,146 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         "report": report
     }
 
+def _match_dimension_score_for_ability(dimension_scores: List[Any], ability_name: str) -> Optional[float]:
+    ability_key = _normalize_dimension_name(ability_name)
+    if not ability_key:
+        return None
+    candidates: List[tuple[int, float]] = []
+    for ds in dimension_scores:
+        dim_name = str(getattr(ds, "dimension", "") or "")
+        dim_key = _normalize_dimension_name(dim_name)
+        if not dim_key:
+            continue
+        score = _parse_score_value(getattr(ds, "score", None))
+        if score is None:
+            continue
+        if dim_key == ability_key:
+            candidates.append((3, score))
+        elif ability_key in dim_key or dim_key in ability_key:
+            candidates.append((2, score))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+def _build_course_objectives_dashboard(
+    db_service: DatabaseService,
+    syllabus_name: Optional[str] = None,
+    achievement_threshold: float = 60.0,
+    low_score_threshold: float = 60.0
+) -> Dict[str, Any]:
+    evaluations = db_service.db.query(EvaluationResult).order_by(EvaluationResult.evaluated_at.asc()).all()
+    objective_records: Dict[str, List[Dict[str, Any]]] = {}
+    course_type_counter = {"理论课": 0, "实践课": 0}
+    included_evaluations = 0
+    included_students = set()
+    included_syllabi = set()
+
+    for evaluation in evaluations:
+        submission = db_service.db.query(Submission).filter(Submission.id == evaluation.submission_id).first()
+        if not submission:
+            continue
+        submission_syllabus_name = getattr(submission, "syllabus_name", None)
+        if syllabus_name and submission_syllabus_name != syllabus_name:
+            continue
+        course_type, syllabus_analysis = _resolve_submission_course_type(submission)
+        if not isinstance(syllabus_analysis, dict):
+            continue
+
+        ability_names = _extract_syllabus_ability_names(syllabus_analysis)
+        if not ability_names:
+            continue
+
+        if "实践" in course_type:
+            course_type_counter["实践课"] += 1
+        else:
+            course_type_counter["理论课"] += 1
+        included_evaluations += 1
+        included_students.add(evaluation.student_id)
+        if submission_syllabus_name:
+            included_syllabi.add(submission_syllabus_name)
+
+        dimension_scores = db_service.get_dimension_scores_by_evaluation_id(evaluation.evaluation_id)
+        student = db_service.get_student_by_internal_id(evaluation.student_id)
+        for ability_name in ability_names:
+            score = _match_dimension_score_for_ability(dimension_scores, ability_name)
+            if score is None:
+                continue
+            objective_records.setdefault(ability_name, []).append({
+                "score": score,
+                "student_id": student.student_id if student else str(evaluation.student_id),
+                "evaluation_id": evaluation.evaluation_id,
+                "evaluated_at": evaluation.evaluated_at.isoformat() if evaluation.evaluated_at else "",
+                "stage_progress": evaluation.stage_progress,
+                "syllabus_name": submission_syllabus_name,
+                "course_type": course_type
+            })
+
+    objective_stats: List[Dict[str, Any]] = []
+    trend_series: Dict[str, Any] = {}
+    for ability_name, records in objective_records.items():
+        records.sort(key=lambda item: item.get("evaluated_at") or "")
+        scores = [float(item["score"]) for item in records]
+        achieved_count = sum(1 for score in scores if score >= achievement_threshold)
+        low_count = sum(1 for score in scores if score < low_score_threshold)
+        unique_students = {item["student_id"] for item in records}
+        first_score = scores[0] if scores else 0.0
+        latest_score = scores[-1] if scores else 0.0
+        mean_score = _safe_avg(scores)
+        objective_stats.append({
+            "ability": ability_name,
+            "mean_score": mean_score,
+            "latest_score": round(latest_score, 2),
+            "achievement_rate": round(achieved_count / len(scores) * 100.0, 2) if scores else 0.0,
+            "low_score_rate": round(low_count / len(scores) * 100.0, 2) if scores else 0.0,
+            "sample_count": len(scores),
+            "student_count": len(unique_students),
+            "trend_delta": round(latest_score - first_score, 2),
+            "trend_direction": _delta_direction(latest_score - first_score)
+        })
+        trend_series[ability_name] = [
+            {
+                "x": item.get("evaluated_at", "")[:10],
+                "score": item["score"],
+                "student_id": item["student_id"],
+                "evaluation_id": item["evaluation_id"]
+            }
+            for item in records
+        ]
+
+    objective_stats.sort(key=lambda item: (item["mean_score"], -item["low_score_rate"]))
+    weakness_ranking = sorted(
+        objective_stats,
+        key=lambda item: (item["mean_score"], -item["low_score_rate"], item["achievement_rate"])
+    )
+
+    all_scores = [score for records in objective_records.values() for score in [float(item["score"]) for item in records]]
+    course_type = "实践课" if course_type_counter["实践课"] > course_type_counter["理论课"] else "理论课"
+    return {
+        "course_type": course_type,
+        "syllabus_name": syllabus_name,
+        "syllabi": sorted(included_syllabi),
+        "achievement_threshold": achievement_threshold,
+        "low_score_threshold": low_score_threshold,
+        "summary": {
+            "evaluation_count": included_evaluations,
+            "student_count": len(included_students),
+            "objective_count": len(objective_stats),
+            "overall_mean_score": _safe_avg(all_scores),
+            "overall_achievement_rate": round(
+                sum(1 for score in all_scores if score >= achievement_threshold) / len(all_scores) * 100.0,
+                2
+            ) if all_scores else 0.0,
+            "overall_low_score_rate": round(
+                sum(1 for score in all_scores if score < low_score_threshold) / len(all_scores) * 100.0,
+                2
+            ) if all_scores else 0.0
+        },
+        "objective_stats": objective_stats,
+        "weakness_ranking": weakness_ranking[:10],
+        "trend_series": trend_series
+    }
+
 # 文档内容提取函数
 def extract_document_content(file_path: str) -> str:
     """提取文档内容"""
@@ -1018,6 +1285,84 @@ def extract_document_content(file_path: str) -> str:
     except Exception as e:
         logger.error(f"提取文件内容失败: {str(e)}")
         return ""
+
+def _truncate_evidence_text(text: str, max_len: int = 900) -> str:
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip() + "..."
+
+def extract_document_content_with_locations(file_path: str, file_name: str = "") -> str:
+    """提取文档内容，并保留可引用的位置标记，供模型输出可核验证据。"""
+    display_name = file_name or os.path.basename(file_path)
+    try:
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext == ".pdf":
+            return extract_pdf_content_with_locations(file_path, display_name)
+        if file_ext == ".docx":
+            return extract_docx_content_with_locations(file_path, display_name)
+        if file_ext == ".doc":
+            content = extract_doc_content(file_path)
+            return f"[文件: {display_name} | 位置: 全文]\n{_truncate_evidence_text(content, 6000)}"
+        if file_ext == ".txt":
+            return extract_txt_content_with_locations(file_path, display_name)
+        return extract_document_content(file_path)
+    except Exception as e:
+        logger.error(f"提取带位置文档内容失败: {str(e)}")
+        return extract_document_content(file_path)
+
+def extract_pdf_content_with_locations(file_path: str, file_name: str) -> str:
+    try:
+        import PyPDF2
+        chunks = []
+        with open(file_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            for page_num, page in enumerate(reader.pages, 1):
+                page_text = _truncate_evidence_text(page.extract_text() or "")
+                if page_text:
+                    chunks.append(f"[文件: {file_name} | 页码: {page_num}]\n{page_text}")
+        return "\n\n".join(chunks)
+    except Exception as e:
+        logger.error(f"提取PDF定位内容失败: {str(e)}")
+        return extract_pdf_content(file_path)
+
+def extract_docx_content_with_locations(file_path: str, file_name: str) -> str:
+    try:
+        from docx import Document
+        doc = Document(file_path)
+        chunks = []
+        para_index = 0
+        for paragraph in doc.paragraphs:
+            text = _truncate_evidence_text(paragraph.text)
+            if text:
+                para_index += 1
+                chunks.append(f"[文件: {file_name} | 段落: {para_index}]\n{text}")
+
+        for table_index, table in enumerate(doc.tables, 1):
+            for row_index, row in enumerate(table.rows, 1):
+                cells = [_truncate_evidence_text(cell.text.replace("\n", " "), 220) for cell in row.cells if cell.text and cell.text.strip()]
+                if cells:
+                    chunks.append(f"[文件: {file_name} | 表格: {table_index} | 行: {row_index}]\n{' | '.join(cells)}")
+        return "\n\n".join(chunks)
+    except Exception as e:
+        logger.error(f"提取DOCX定位内容失败: {str(e)}")
+        return extract_docx_content(file_path)
+
+def extract_txt_content_with_locations(file_path: str, file_name: str) -> str:
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+            raw_text = file.read()
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n+", raw_text) if p.strip()]
+        if not paragraphs:
+            paragraphs = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        chunks = [
+            f"[文件: {file_name} | 段落: {idx}]\n{_truncate_evidence_text(text)}"
+            for idx, text in enumerate(paragraphs, 1)
+        ]
+        return "\n\n".join(chunks)
+    except Exception as e:
+        logger.error(f"提取TXT定位内容失败: {str(e)}")
+        return extract_txt_content(file_path)
 
 def extract_pdf_content(file_path: str) -> str:
     """提取PDF文件内容"""
@@ -1238,7 +1583,10 @@ def _evaluate_submission_core(request: EvaluationRequest, db_service: DatabaseSe
             file_contents = []
             for media_file in media_files:
                 if media_file.media_type == "document":
-                    file_content = extract_document_content(media_file.file_path)
+                    file_content = extract_document_content_with_locations(
+                        media_file.file_path,
+                        getattr(media_file, "file_name", "") or os.path.basename(media_file.file_path)
+                    )
                     if file_content:
                         file_contents.append(f"文件 {media_file.file_name} 的内容:\n{file_content}")
             if file_contents:
@@ -1275,6 +1623,12 @@ def _evaluate_submission_core(request: EvaluationRequest, db_service: DatabaseSe
             if weighted_overall is not None:
                 evaluation_result["overall_score"] = weighted_overall
 
+        rubric_version_id = _get_or_create_rubric_version(
+            db_service=db_service,
+            syllabus_analysis=syllabus_analysis,
+            syllabus_name=getattr(submission, "syllabus_name", None)
+        )
+
         strengths = evaluation_result.get("strengths", [])
         if not isinstance(strengths, list):
             strengths = [str(strengths)]
@@ -1295,7 +1649,9 @@ def _evaluate_submission_core(request: EvaluationRequest, db_service: DatabaseSe
             areas_for_improvement=", ".join(areas_for_improvement),
             recommendations=", ".join(recommendations),
             stage=request.stage,
-            stage_progress=stage_progress
+            stage_progress=stage_progress,
+            rubric_version_id=rubric_version_id,
+            review_status="ai_draft"
         )
 
         dimension_scores_response = []
@@ -1329,6 +1685,16 @@ def _evaluate_submission_core(request: EvaluationRequest, db_service: DatabaseSe
                 )
             )
 
+        db_service.create_evaluation_review_audit(
+            evaluation_id=db_evaluation.evaluation_id,
+            action="ai_initial_evaluation",
+            actor_id="llm_evaluator",
+            actor_role="system",
+            reason="AI 初评生成",
+            before_snapshot=None,
+            after_snapshot=_evaluation_snapshot(db_service, db_evaluation.evaluation_id)
+        )
+
         _transition_submission_status(db_service, request.submission_id, SubmissionStatus.COMPLETED.value)
 
         response_strengths = evaluation_result.get("strengths", [])
@@ -1354,6 +1720,12 @@ def _evaluate_submission_core(request: EvaluationRequest, db_service: DatabaseSe
             phase_completion_score=evaluation_result.get("phase_completion_score"),
             score_policy=evaluation_result.get("score_policy"),
             score_breakdown=evaluation_result.get("score_breakdown"),
+            rubric_version_id=rubric_version_id,
+            review_status=getattr(db_evaluation, "review_status", None) or "ai_draft",
+            reviewed_by=getattr(db_evaluation, "reviewed_by", None),
+            review_notes=getattr(db_evaluation, "review_notes", None),
+            confirmed_at=getattr(db_evaluation, "confirmed_at", None),
+            published_at=getattr(db_evaluation, "published_at", None),
             evaluated_at=datetime.utcnow(),
             evaluator_agent="llm_evaluator",
             stage=f"progress_{stage_progress:.2f}",
@@ -2709,6 +3081,10 @@ async def get_evaluation(
     if not student:
         raise HTTPException(status_code=404, detail="学生不存在")
     _can_access_student(auth, student.student_id)
+    if auth["role"] == "student" and (getattr(evaluation, "review_status", None) or "ai_draft") not in {
+        "published", "regrade_requested", "regrade_resolved"
+    }:
+        raise HTTPException(status_code=403, detail="该评估尚未发布给学生")
     
     submission = db_service.db.query(Submission).filter(Submission.id == evaluation.submission_id).first()
     syllabus_analysis = _resolve_submission_course_type(submission)[1] if submission else None
@@ -2734,6 +3110,12 @@ async def get_evaluation(
         areas_for_improvement=process_string_list(evaluation.areas_for_improvement),
         recommendations=process_string_list(evaluation.recommendations),
         dimension_scores=dimension_scores_response,
+        rubric_version_id=getattr(evaluation, "rubric_version_id", None),
+        review_status=getattr(evaluation, "review_status", None) or "ai_draft",
+        reviewed_by=getattr(evaluation, "reviewed_by", None),
+        review_notes=getattr(evaluation, "review_notes", None),
+        confirmed_at=getattr(evaluation, "confirmed_at", None),
+        published_at=getattr(evaluation, "published_at", None),
         evaluated_at=evaluation.evaluated_at,
         evaluator_agent=evaluation.evaluator_agent,
         stage=stage,
@@ -2755,6 +3137,10 @@ async def get_student_evaluations(
         
         response = []
         for evaluation in evaluations:
+            if auth["role"] == "student" and (getattr(evaluation, "review_status", None) or "ai_draft") not in {
+                "published", "regrade_requested", "regrade_resolved"
+            }:
+                continue
             submission = db_service.db.query(Submission).filter(Submission.id == evaluation.submission_id).first()
             syllabus_analysis = _resolve_submission_course_type(submission)[1] if submission else None
             ability_names = _extract_syllabus_ability_names(syllabus_analysis)
@@ -2784,6 +3170,12 @@ async def get_student_evaluations(
                 areas_for_improvement=process_string_list(evaluation.areas_for_improvement),
                 recommendations=process_string_list(evaluation.recommendations),
                 dimension_scores=dimension_scores_response,
+                rubric_version_id=getattr(evaluation, "rubric_version_id", None),
+                review_status=getattr(evaluation, "review_status", None) or "ai_draft",
+                reviewed_by=getattr(evaluation, "reviewed_by", None),
+                review_notes=getattr(evaluation, "review_notes", None),
+                confirmed_at=getattr(evaluation, "confirmed_at", None),
+                published_at=getattr(evaluation, "published_at", None),
                 evaluated_at=evaluation.evaluated_at,
                 evaluator_agent=evaluation.evaluator_agent,
                 stage=stage,
@@ -2816,10 +3208,31 @@ async def update_evaluation(
     auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
 ):
     """更新评估记录"""
+    before_snapshot = _evaluation_snapshot(db_service, evaluation_id)
+    reason = str(update_data.pop("review_reason", "") or update_data.pop("reason", "") or "教师手动修改评估")
+    if "review_status" not in update_data:
+        update_data["review_status"] = "teacher_confirmed"
+    if "reviewed_by" not in update_data:
+        update_data["reviewed_by"] = auth.get("user_id") or auth.get("role")
+
     # 更新评估结果
     evaluation = db_service.update_evaluation_result(evaluation_id, **update_data)
     if not evaluation:
         raise HTTPException(status_code=404, detail="评估结果不存在")
+    if getattr(evaluation, "review_status", None) == "teacher_confirmed" and not getattr(evaluation, "confirmed_at", None):
+        evaluation.confirmed_at = datetime.utcnow()
+        db_service.db.commit()
+        db_service.db.refresh(evaluation)
+    after_snapshot = _evaluation_snapshot(db_service, evaluation_id)
+    db_service.create_evaluation_review_audit(
+        evaluation_id=evaluation_id,
+        action="teacher_update",
+        actor_id=auth.get("user_id") or auth.get("role"),
+        actor_role=auth.get("role"),
+        reason=reason,
+        before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot
+    )
     
     # 获取学生信息
     student = db_service.get_student_by_internal_id(evaluation.student_id)
@@ -2859,10 +3272,202 @@ async def update_evaluation(
         areas_for_improvement=process_string_list(evaluation.areas_for_improvement),
         recommendations=process_string_list(evaluation.recommendations),
         dimension_scores=dimension_scores_response,
+        rubric_version_id=getattr(evaluation, "rubric_version_id", None),
+        review_status=getattr(evaluation, "review_status", None) or "ai_draft",
+        reviewed_by=getattr(evaluation, "reviewed_by", None),
+        review_notes=getattr(evaluation, "review_notes", None),
+        confirmed_at=getattr(evaluation, "confirmed_at", None),
+        published_at=getattr(evaluation, "published_at", None),
         evaluated_at=evaluation.evaluated_at,
         evaluator_agent=evaluation.evaluator_agent,
         stage=stage,
         stage_progress=stage_progress
+    )
+
+def _load_evaluation_for_review(
+    evaluation_id: str,
+    db_service: DatabaseService
+) -> tuple[Any, Any, List[DimensionScoreResponse]]:
+    evaluation = db_service.get_evaluation_result_by_id(evaluation_id)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+    student = db_service.get_student_by_internal_id(evaluation.student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    submission = db_service.db.query(Submission).filter(Submission.id == evaluation.submission_id).first()
+    syllabus_analysis = _resolve_submission_course_type(submission)[1] if submission else None
+    ability_names = _extract_syllabus_ability_names(syllabus_analysis)
+    dimension_scores = db_service.get_dimension_scores_by_evaluation_id(evaluation_id)
+    dimension_scores_response = _align_dimension_scores_to_syllabus(dimension_scores, ability_names)
+    return evaluation, student, dimension_scores_response
+
+@app.post("/evaluations/{evaluation_id}/confirm", response_model=EvaluationResponse)
+async def confirm_evaluation(
+    evaluation_id: str,
+    request: EvaluationReviewActionRequest,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    before_snapshot = _evaluation_snapshot(db_service, evaluation_id)
+    evaluation = db_service.update_evaluation_review_state(
+        evaluation_id=evaluation_id,
+        review_status="teacher_confirmed",
+        reviewed_by=auth.get("user_id") or auth.get("role"),
+        review_notes=request.notes or request.reason
+    )
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+
+    db_service.create_evaluation_review_audit(
+        evaluation_id=evaluation_id,
+        action="teacher_confirm",
+        actor_id=auth.get("user_id") or auth.get("role"),
+        actor_role=auth.get("role"),
+        reason=request.reason or request.notes or "教师确认 AI 初评",
+        before_snapshot=before_snapshot,
+        after_snapshot=_evaluation_snapshot(db_service, evaluation_id)
+    )
+    evaluation, student, dimension_scores_response = _load_evaluation_for_review(evaluation_id, db_service)
+    return _build_evaluation_response(evaluation, student, dimension_scores_response)
+
+@app.post("/evaluations/{evaluation_id}/publish", response_model=EvaluationResponse)
+async def publish_evaluation(
+    evaluation_id: str,
+    request: EvaluationReviewActionRequest,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    evaluation = db_service.get_evaluation_result_by_id(evaluation_id)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+    if (getattr(evaluation, "review_status", None) or "ai_draft") not in {"teacher_confirmed", "published", "regrade_resolved"}:
+        raise HTTPException(status_code=409, detail="发布前需要先完成教师确认或复评处理")
+
+    before_snapshot = _evaluation_snapshot(db_service, evaluation_id)
+    evaluation = db_service.update_evaluation_review_state(
+        evaluation_id=evaluation_id,
+        review_status="published",
+        reviewed_by=auth.get("user_id") or auth.get("role"),
+        review_notes=request.notes or request.reason
+    )
+    db_service.create_evaluation_review_audit(
+        evaluation_id=evaluation_id,
+        action="publish_to_student",
+        actor_id=auth.get("user_id") or auth.get("role"),
+        actor_role=auth.get("role"),
+        reason=request.reason or request.notes or "发布给学生",
+        before_snapshot=before_snapshot,
+        after_snapshot=_evaluation_snapshot(db_service, evaluation_id)
+    )
+    evaluation, student, dimension_scores_response = _load_evaluation_for_review(evaluation_id, db_service)
+    return _build_evaluation_response(evaluation, student, dimension_scores_response)
+
+@app.post("/evaluations/{evaluation_id}/regrade-request", response_model=EvaluationResponse)
+async def request_regrade(
+    evaluation_id: str,
+    request: EvaluationRegradeRequest,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("student"))
+):
+    evaluation = db_service.get_evaluation_result_by_id(evaluation_id)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+    student = db_service.get_student_by_internal_id(evaluation.student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+    _can_access_student(auth, student.student_id)
+    if (getattr(evaluation, "review_status", None) or "ai_draft") not in {"published", "regrade_resolved"}:
+        raise HTTPException(status_code=409, detail="只有已发布的评估可以申请复评")
+
+    before_snapshot = _evaluation_snapshot(db_service, evaluation_id)
+    evaluation = db_service.update_evaluation_review_state(
+        evaluation_id=evaluation_id,
+        review_status="regrade_requested",
+        reviewed_by=getattr(evaluation, "reviewed_by", None),
+        review_notes=request.reason
+    )
+    db_service.create_evaluation_review_audit(
+        evaluation_id=evaluation_id,
+        action="student_regrade_request",
+        actor_id=auth.get("user_id"),
+        actor_role=auth.get("role"),
+        reason=request.reason,
+        before_snapshot=before_snapshot,
+        after_snapshot=_evaluation_snapshot(db_service, evaluation_id)
+    )
+    evaluation, student, dimension_scores_response = _load_evaluation_for_review(evaluation_id, db_service)
+    return _build_evaluation_response(evaluation, student, dimension_scores_response)
+
+@app.post("/evaluations/{evaluation_id}/regrade-resolve", response_model=EvaluationResponse)
+async def resolve_regrade(
+    evaluation_id: str,
+    request: EvaluationRegradeResolveRequest,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    evaluation = db_service.get_evaluation_result_by_id(evaluation_id)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+    if (getattr(evaluation, "review_status", None) or "ai_draft") != "regrade_requested":
+        raise HTTPException(status_code=409, detail="当前评估没有待处理的复评申请")
+
+    before_snapshot = _evaluation_snapshot(db_service, evaluation_id)
+    if request.updated_evaluation:
+        payload = dict(request.updated_evaluation)
+        payload["review_status"] = "regrade_resolved"
+        payload["reviewed_by"] = auth.get("user_id") or auth.get("role")
+        payload["review_notes"] = request.notes or request.reason
+        evaluation = db_service.update_evaluation_result(evaluation_id, **payload)
+    else:
+        evaluation = db_service.update_evaluation_review_state(
+            evaluation_id=evaluation_id,
+            review_status="regrade_resolved",
+            reviewed_by=auth.get("user_id") or auth.get("role"),
+            review_notes=request.notes or request.reason
+        )
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+
+    db_service.create_evaluation_review_audit(
+        evaluation_id=evaluation_id,
+        action=f"regrade_{request.decision}",
+        actor_id=auth.get("user_id") or auth.get("role"),
+        actor_role=auth.get("role"),
+        reason=request.reason or request.notes or f"复评处理：{request.decision}",
+        before_snapshot=before_snapshot,
+        after_snapshot=_evaluation_snapshot(db_service, evaluation_id)
+    )
+    evaluation, student, dimension_scores_response = _load_evaluation_for_review(evaluation_id, db_service)
+    return _build_evaluation_response(evaluation, student, dimension_scores_response)
+
+@app.get("/evaluations/{evaluation_id}/review-audits", response_model=List[EvaluationReviewAuditResponse])
+async def get_evaluation_review_audits(
+    evaluation_id: str,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    evaluation = db_service.get_evaluation_result_by_id(evaluation_id)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+    audits = db_service.get_evaluation_review_audits(evaluation_id)
+    return [_audit_response(audit, evaluation.evaluation_id) for audit in audits]
+
+@app.get("/analytics/course-objectives")
+async def get_course_objectives_dashboard(
+    syllabus_name: Optional[str] = None,
+    achievement_threshold: float = 60.0,
+    low_score_threshold: float = 60.0,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    return _build_course_objectives_dashboard(
+        db_service=db_service,
+        syllabus_name=syllabus_name,
+        achievement_threshold=max(0.0, min(100.0, achievement_threshold)),
+        low_score_threshold=max(0.0, min(100.0, low_score_threshold))
     )
 
 @app.get("/students/{student_id}/progress-report", response_model=ProgressReportResponse)
@@ -3156,6 +3761,12 @@ async def get_submission_evaluation(
             areas_for_improvement=process_string_list(evaluation.areas_for_improvement),
             recommendations=process_string_list(evaluation.recommendations),
             dimension_scores=dimension_scores_response,
+            rubric_version_id=getattr(evaluation, "rubric_version_id", None),
+            review_status=getattr(evaluation, "review_status", None) or "ai_draft",
+            reviewed_by=getattr(evaluation, "reviewed_by", None),
+            review_notes=getattr(evaluation, "review_notes", None),
+            confirmed_at=getattr(evaluation, "confirmed_at", None),
+            published_at=getattr(evaluation, "published_at", None),
             evaluated_at=evaluation.evaluated_at,
             evaluator_agent=evaluation.evaluator_agent,
             stage=stage

@@ -877,7 +877,10 @@ class LLMEvaluator:
             "dimension": "能力点名称（必须来自大纲能力点列表）",
             "score": 75,
             "confidence": 0.85,
-            "evidence": ["作业中支持该评分的具体证据1", "作业中支持该评分的具体证据2"],
+            "evidence": [
+                "文件: 文件名 | 位置: 页码/段落/表格行 | 原文片段: 支持该评分的原文短句",
+                "文件: 文件名 | 位置: 页码/段落/表格行 | 原文片段: 支持该评分的原文短句"
+            ],
             "reasoning": "详细解释为什么给出这个分数（至少200字），必须引用作业中的具体内容，详细分析学生的表现，指出优点和不足",
             "improvement_suggestion": "针对该能力点的可执行修改建议（至少80字，说明应改什么、如何改、做到什么程度）"
         }}
@@ -913,7 +916,7 @@ class LLMEvaluator:
 # 特别提醒
 
 1. **必须对大纲中的每个能力点进行评估**，不得遗漏
-2. **每个评分必须有具体证据支撑**，引用作业中的具体内容
+2. **每个评分必须有具体证据支撑**，引用作业中的具体内容。若提交内容中出现 `[文件: ... | 页码/段落/表格: ...]` 位置标记，evidence 必须保留文件名与位置，并摘录对应原文片段，不得凭空编造位置
 3. **必须客观公正**，像真正的老师一样严格评分
 4. **必须指出劣势**，不得只说优势不说劣势
 5. **评估内容必须详细**，每个能力点的reasoning至少200字
@@ -923,6 +926,7 @@ class LLMEvaluator:
 9. **理论课必须给出 knowledge_understanding_score 与 knowledge_application_score**
 10. **实践课必须给出 phase_completion_score 并围绕当前阶段重点评估**
 11. **dimension_scores 必须覆盖所有能力点且不得为空**
+12. **evidence 格式必须便于教师核验**：推荐格式为 `文件: xxx | 位置: 页码/段落/表格行 | 原文片段: ...`；每个能力点至少给出1条可定位证据，无法定位时必须写明“未在提交材料中找到可定位证据”
 """
         
         return prompt
@@ -1080,8 +1084,17 @@ class LLMEvaluator:
             evidence = score_info.get("evidence", [])
             if not isinstance(evidence, list):
                 evidence = [str(evidence)] if evidence else []
+            evidence = [
+                (
+                    f"文件: {item.get('file') or item.get('file_name') or item.get('source') or '未标注'} | "
+                    f"位置: {item.get('location') or item.get('page') or item.get('paragraph') or item.get('table') or '未标注'} | "
+                    f"原文片段: {item.get('quote') or item.get('text') or item.get('snippet') or item.get('evidence') or ''}"
+                )
+                if isinstance(item, dict) else str(item)
+                for item in evidence
+            ]
             if not evidence:
-                evidence = ["未提取到明确证据，请在作业中补充与该能力点对应的内容。"]
+                evidence = ["未在提交材料中找到可定位证据，请在作业中补充与该能力点对应的内容。"]
             score_info["evidence"] = evidence
 
             suggestion = str(score_info.get("improvement_suggestion", "")).strip()
