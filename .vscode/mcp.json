@@ -1,0 +1,32 @@
+{
+	"servers": {
+	
+		"playwright-browser": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"@executeautomation/playwright-mcp-server"
+			],
+			"env": {
+				"HEADLESS": "true"
+			},
+			"type": "stdio"
+		},
+		"TongjiFormatValidator": {
+			"command": "python",
+			"args": [
+				"D:\\Agent\\my_mcp.py"
+			],
+			"type": "stdio"
+		},
+		"my-mcp-server-dd799ed6": {
+			"type": "stdio",
+			"command": "mcp",
+			"args": [
+				"run",
+				"my_mcp.py"
+			]
+		}
+	},
+	"inputs": []
+}
