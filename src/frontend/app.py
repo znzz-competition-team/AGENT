@@ -1081,6 +1081,15 @@ elif page == "📋 大纲管理":
     
     # 大纲文件夹路径（使用绝对路径）
     syllabus_folder = os.path.join(project_root, "评价大纲")
+    analysis_results_dir = os.path.join(project_root, "analysis_results")
+    extracted_indicators_dir = os.path.join(project_root, "extracted_indicators")
+    try:
+        os.makedirs(syllabus_folder, exist_ok=True)
+        os.makedirs(analysis_results_dir, exist_ok=True)
+        os.makedirs(extracted_indicators_dir, exist_ok=True)
+    except OSError as e:
+        st.error(f"❌ 无法创建大纲相关文件夹: {str(e)}")
+        st.stop()
     
     # 检查大纲文件夹是否存在
     if not os.path.exists(syllabus_folder):

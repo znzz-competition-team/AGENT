@@ -3040,6 +3040,7 @@ async def get_syllabus_files():
     import os
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     syllabus_folder = os.path.join(project_root, "评价大纲")
+    os.makedirs(syllabus_folder, exist_ok=True)
     
     if not os.path.exists(syllabus_folder):
         return {"files": [], "folder_path": syllabus_folder}
