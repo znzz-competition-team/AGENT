@@ -437,6 +437,220 @@ def render_course_objectives_dashboard(dashboard_data: dict):
                 st.line_chart(trend_df.set_index("x")["score"], use_container_width=True)
             st.dataframe(trend_df, use_container_width=True)
 
+def render_feedback_analytics(analytics: dict):
+    """渲染匿名课程反馈分析。"""
+    if not isinstance(analytics, dict):
+        st.info("暂无反馈分析数据。")
+        return
+
+    summary = analytics.get("summary", {}) if isinstance(analytics.get("summary"), dict) else {}
+    ratings = summary.get("ratings", {}) if isinstance(summary.get("ratings"), dict) else {}
+    metric_cols = st.columns(5)
+    with metric_cols[0]:
+        st.metric("回应数", summary.get("response_count", 0))
+    with metric_cols[1]:
+        st.metric("回应率", f"{float(summary.get('response_rate', 0.0) or 0.0):.1f}%")
+    with metric_cols[2]:
+        st.metric("课程评分", f"{float(ratings.get('course', 0.0) or 0.0):.2f}/5")
+    with metric_cols[3]:
+        st.metric("任务设计", f"{float(ratings.get('assignment_design', 0.0) or 0.0):.2f}/5")
+    with metric_cols[4]:
+        st.metric("难度感知", f"{float(ratings.get('difficulty', 0.0) or 0.0):.2f}/5")
+
+    sentiment_counts = summary.get("sentiment_counts", {})
+    if isinstance(sentiment_counts, dict) and sentiment_counts:
+        st.subheader("反馈情绪分布")
+        st.bar_chart(pd.DataFrame([sentiment_counts]).T.rename(columns={0: "数量"}), use_container_width=True)
+
+    clusters = analytics.get("theme_clusters", [])
+    st.subheader("匿名文本主题聚类")
+    if clusters:
+        cluster_df = pd.DataFrame([
+            {
+                "主题": item.get("theme", ""),
+                "数量": item.get("count", 0),
+                "平均难度": item.get("avg_difficulty", 0.0),
+                "关键词": "、".join(item.get("keywords", []) or []),
+                "示例": " | ".join(item.get("examples", []) or [])
+            }
+            for item in clusters
+        ])
+        st.dataframe(cluster_df, use_container_width=True)
+    else:
+        st.info("暂无可聚类的文本反馈。")
+
+    links = analytics.get("weak_ability_links", [])
+    st.subheader("学生困难点与系统薄弱能力点关联")
+    if links:
+        link_rows = []
+        for item in links:
+            matched = item.get("matched_weak_abilities", []) or []
+            link_rows.append({
+                "匿名反馈片段": item.get("student_difficulty", ""),
+                "关联薄弱能力点": "；".join([
+                    f"{m.get('ability', '')}（均分 {m.get('mean_score', 'N/A')}，低分率 {m.get('low_score_rate', 'N/A')}%）"
+                    for m in matched
+                ])
+            })
+        st.dataframe(pd.DataFrame(link_rows), use_container_width=True)
+    else:
+        st.info("暂未匹配到明确的薄弱能力点关联。")
+
+    weakness = analytics.get("system_weakness_ranking", [])
+    if weakness:
+        with st.expander("查看系统评估薄弱能力点排行"):
+            st.dataframe(pd.DataFrame(weakness), use_container_width=True)
+
+def render_calibration_report(report: dict):
+    """渲染 AI 与教师标杆的评分偏差报告。"""
+    if not isinstance(report, dict) or not report:
+        st.info("暂无校准报告。")
+        return
+    cols = st.columns(4)
+    with cols[0]:
+        st.metric("教师标杆分", f"{float(report.get('teacher_overall_score', 0.0) or 0.0):.1f}")
+    with cols[1]:
+        st.metric("AI评分", f"{float(report.get('ai_overall_score', 0.0) or 0.0):.1f}")
+    with cols[2]:
+        st.metric("总分偏差", f"{float(report.get('overall_bias', 0.0) or 0.0):+.1f}")
+    with cols[3]:
+        st.metric("判定", report.get("overall_judgement", "N/A"))
+    st.markdown(f"**偏差摘要：** {report.get('summary', '')}")
+    dimension_biases = report.get("dimension_biases", [])
+    if dimension_biases:
+        st.dataframe(pd.DataFrame(dimension_biases), use_container_width=True)
+
+def render_student_profile(profile: dict, key_prefix: str = "profile"):
+    """展示基于课程作业文件、证据和趋势生成的学生画像。"""
+    if not isinstance(profile, dict) or not profile:
+        return
+
+    st.subheader("🧩 学生画像")
+    st.caption(f"画像依据：{profile.get('profile_basis', '课程作业文件、评分证据和趋势数据')}")
+
+    cols = st.columns(4)
+    with cols[0]:
+        st.metric("评估次数", profile.get("evaluation_count", 0))
+    with cols[1]:
+        latest_score = _safe_float(profile.get("latest_overall_score"))
+        st.metric("最新总分", f"{latest_score:.1f}" if latest_score is not None else "N/A")
+    with cols[2]:
+        delta = _safe_float(profile.get("overall_delta"))
+        st.metric("总分变化", f"{delta:+.1f}" if delta is not None else "N/A")
+    with cols[3]:
+        volatility = _safe_float(profile.get("overall_volatility"))
+        st.metric("波动度", f"{volatility:.1f}" if volatility is not None else "N/A")
+
+    tags = profile.get("tags", [])
+    if isinstance(tags, list) and tags:
+        st.markdown(" ".join([f"`{tag}`" for tag in tags if str(tag).strip()]))
+
+    left, right = st.columns(2)
+    strengths = profile.get("strengths", [])
+    risks = profile.get("risks", [])
+    with left:
+        st.markdown("**优势能力点**")
+        if strengths:
+            st.dataframe(pd.DataFrame(strengths), use_container_width=True)
+        else:
+            st.info("暂无稳定优势能力点。")
+    with right:
+        st.markdown("**待补强能力点**")
+        if risks:
+            st.dataframe(pd.DataFrame(risks), use_container_width=True)
+        else:
+            st.info("暂无明确风险能力点。")
+
+    mastery_summary = profile.get("mastery_summary", [])
+    if isinstance(mastery_summary, list) and mastery_summary:
+        with st.expander("查看能力画像明细"):
+            st.dataframe(pd.DataFrame(mastery_summary), use_container_width=True)
+
+    assignment_basis = profile.get("assignment_basis", [])
+    if isinstance(assignment_basis, list) and assignment_basis:
+        st.markdown("**画像所依据的课程作业文件**")
+        assignment_rows = []
+        for item in assignment_basis:
+            if not isinstance(item, dict):
+                continue
+            assignment_rows.append({
+                "评估ID": item.get("evaluation_id", ""),
+                "提交ID": item.get("submission_id", ""),
+                "作业标题": item.get("title", ""),
+                "课程大纲": item.get("syllabus_name", ""),
+                "文件": "、".join(item.get("files", []) or []),
+                "文本摘要": item.get("text_preview", ""),
+                "总分": item.get("overall_score", ""),
+                "评估时间": str(item.get("evaluated_at", ""))[:19]
+            })
+        if assignment_rows:
+            st.dataframe(pd.DataFrame(assignment_rows), use_container_width=True)
+
+    evidence_basis = profile.get("evidence_basis", [])
+    if isinstance(evidence_basis, list) and evidence_basis:
+        with st.expander("查看画像证据片段"):
+            for idx, item in enumerate(evidence_basis):
+                if not isinstance(item, dict):
+                    continue
+                st.markdown(
+                    f"**{item.get('ability', '未知能力点')}** "
+                    f"（评估 {item.get('evaluation_id', '')}，得分 {item.get('score', 'N/A')}）"
+                )
+                render_evidence_locations(item.get("evidence", []), key_prefix=f"{key_prefix}_evidence_{idx}")
+
+
+def render_trend_closure_plan(plan: dict, key_prefix: str = "closure"):
+    """展示趋势分析闭环：诊断、干预、补证和复评。"""
+    if not isinstance(plan, dict) or not plan:
+        return
+
+    st.subheader("🔁 趋势分析闭环")
+    top_cols = st.columns(3)
+    with top_cols[0]:
+        st.metric("闭环状态", plan.get("status", "持续跟踪"))
+    with top_cols[1]:
+        st.metric("当前阶段", plan.get("current_stage", "未知"))
+    with top_cols[2]:
+        st.metric("课程类型", plan.get("course_type", "未知"))
+    st.caption(plan.get("loop_name", "趋势诊断 -> 教师干预 -> 学生补证 -> 同口径复评"))
+
+    actions = plan.get("priority_actions", [])
+    if isinstance(actions, list) and actions:
+        action_rows = []
+        for item in actions:
+            if not isinstance(item, dict):
+                continue
+            action_rows.append({
+                "能力点": item.get("ability", ""),
+                "优先级": item.get("priority", ""),
+                "当前分": item.get("current_score", ""),
+                "目标分": item.get("target_score", ""),
+                "诊断": item.get("diagnosis", ""),
+                "教师动作": item.get("teacher_action", ""),
+                "复评方式": item.get("verification", "")
+            })
+        st.dataframe(pd.DataFrame(action_rows), use_container_width=True)
+
+        with st.expander("查看学生需补充的证据项"):
+            for item in actions:
+                if not isinstance(item, dict):
+                    continue
+                st.markdown(f"**{item.get('ability', '未知能力点')}**")
+                for evidence_item in item.get("student_evidence_required", []) or []:
+                    st.markdown(f"- {evidence_item}")
+
+    checklist = plan.get("next_evaluation_checklist", [])
+    success_criteria = plan.get("success_criteria", [])
+    cols = st.columns(2)
+    with cols[0]:
+        st.markdown("**下一轮复评检查项**")
+        for idx, item in enumerate(checklist or []):
+            st.checkbox(str(item), value=False, key=f"{key_prefix}_check_{idx}")
+    with cols[1]:
+        st.markdown("**闭环成功标准**")
+        for item in success_criteria or []:
+            st.markdown(f"- {item}")
+
 def render_policy_progress_report(report_data: dict, key_prefix: str = "policy"):
     """按课程类型细则渲染总进度报告与趋势图（0-100分制）。"""
     if not isinstance(report_data, dict):
@@ -548,6 +762,8 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
             st.metric("知识点运用", f"{_safe_float(latest_ka):.1f}" if _safe_float(latest_ka) is not None else "N/A")
 
     st.caption(f"评分公式：{formula}")
+
+    render_student_profile(report_data.get("student_profile", {}), key_prefix=f"{key_prefix}_profile")
 
     trend_diagnostics = report_data.get("trend_diagnostics", {})
     if isinstance(trend_diagnostics, dict) and trend_diagnostics:
@@ -790,6 +1006,8 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
                         low_targets = "、".join(low_items["能力点"].head(4).tolist())
                         st.markdown(f"- **低优先级**：维持 {low_targets} 的当前策略，关注稳定性并防止后续回落。")
 
+    render_trend_closure_plan(report_data.get("trend_closure_plan", {}), key_prefix=f"{key_prefix}_closure")
+
     stage_breakdown = report_data.get("stage_breakdown", [])
     if isinstance(stage_breakdown, list) and stage_breakdown:
         st.subheader("🧭 阶段分桶分析")
@@ -907,6 +1125,8 @@ pages = [
     ("🤖", "评估管理"),
     ("📊", "结果查询"),
     ("📈", "成长分析"),
+    ("📝", "课程反馈"),
+    ("🎚️", "评分校准"),
     ("⚙️", "AI设置"),
     ("🔧", "API文档")
 ]
@@ -4523,6 +4743,303 @@ elif page == "📂 文件管理":
                 st.session_state.pop('edit_file', None)
                 st.rerun()
 
+# ==================== 课程反馈 ====================
+elif page == "📝 课程反馈":
+    st.title("📝 匿名课程反馈")
+    st.caption("支持期中/期末问卷、匿名文本反馈、回应率统计、主题聚类，并把学生困难点与系统识别的薄弱能力点关联。")
+
+    feedback_tabs = st.tabs(["创建问卷", "匿名提交", "反馈分析"])
+
+    with feedback_tabs[0]:
+        if st.session_state.get("auth_role", "teacher") not in ["teacher", "admin"]:
+            st.info("只有教师或管理员可以创建问卷。")
+        else:
+            with st.form("create_feedback_survey_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    survey_title = st.text_input("问卷标题*", value="课程期中匿名反馈")
+                    course_name = st.text_input("课程名称", placeholder="例如：人工智能")
+                    survey_type = st.selectbox("问卷类型", options=["midterm", "final", "custom"], format_func=lambda x: {"midterm": "期中", "final": "期末", "custom": "自定义"}[x])
+                with col2:
+                    syllabus_name = st.text_input("关联课程大纲文件名", placeholder="可留空；填入后用于关联薄弱能力点")
+                    target_count = st.number_input("目标回应数", min_value=0, value=30, step=1)
+                    survey_status = st.selectbox("初始状态", options=["draft", "open", "closed"], index=1, format_func=lambda x: {"draft": "草稿", "open": "开放", "closed": "关闭"}[x])
+                description = st.text_area("说明", placeholder="例如：请匿名反馈本阶段课程任务的难点与建议")
+                submitted = st.form_submit_button("创建问卷", use_container_width=True)
+
+            if submitted:
+                if not survey_title.strip():
+                    st.error("问卷标题不能为空。")
+                else:
+                    payload = {
+                        "title": survey_title.strip(),
+                        "course_name": course_name.strip() or None,
+                        "syllabus_name": syllabus_name.strip() or None,
+                        "survey_type": survey_type,
+                        "status": survey_status,
+                        "target_response_count": int(target_count),
+                        "description": description.strip() or None
+                    }
+                    try:
+                        resp = requests.post(
+                            f"{API_BASE_URL}/feedback/surveys",
+                            json=payload,
+                            headers=build_auth_headers(),
+                            timeout=30
+                        )
+                        if resp.status_code == 200:
+                            st.success("问卷已创建。")
+                            st.json(resp.json())
+                        else:
+                            st.error(f"创建失败：{resp.json().get('detail', resp.text)}")
+                    except Exception as e:
+                        st.error(f"创建失败：{str(e)}")
+
+    with feedback_tabs[1]:
+        try:
+            resp = requests.get(
+                f"{API_BASE_URL}/feedback/surveys",
+                headers=build_auth_headers(st.session_state.get("auth_user_id", "")),
+                timeout=30
+            )
+            surveys = resp.json() if resp.status_code == 200 else []
+        except Exception:
+            surveys = []
+        open_surveys = [s for s in surveys if s.get("status") == "open"]
+        if not open_surveys:
+            st.info("暂无开放中的问卷。")
+        else:
+            survey_options = {s["survey_id"]: f"{s['title']}（回应率 {s.get('response_rate', 0)}%）" for s in open_surveys}
+            selected_survey_id = st.selectbox(
+                "选择问卷",
+                options=list(survey_options.keys()),
+                format_func=lambda x: survey_options[x],
+                key="feedback_submit_survey"
+            )
+            st.caption("提交时不记录姓名和学号；可选匿名令牌只会被哈希化，用于后续去重扩展。")
+            with st.form("anonymous_feedback_form"):
+                rating_cols = st.columns(5)
+                with rating_cols[0]:
+                    rating_course = st.slider("课程", 1, 5, 4)
+                with rating_cols[1]:
+                    rating_teacher = st.slider("教师", 1, 5, 4)
+                with rating_cols[2]:
+                    rating_design = st.slider("任务设计", 1, 5, 3)
+                with rating_cols[3]:
+                    difficulty = st.slider("难度", 1, 5, 3)
+                with rating_cols[4]:
+                    workload = st.slider("工作量", 1, 5, 3)
+                respondent_token = st.text_input("匿名令牌（可选）", type="password")
+                difficulty_text = st.text_area("你觉得任务难在哪里？", placeholder="例如：需求不够明确、理论概念不熟、代码调试卡住、报告不知道怎么组织")
+                task_design_text = st.text_area("对课程/教师/任务设计的建议", placeholder="例如：希望增加样例、评分标准、阶段性反馈")
+                feedback_text = st.text_area("其他匿名反馈", placeholder="可以写任何想补充的体验或建议")
+                submit_feedback = st.form_submit_button("匿名提交", use_container_width=True)
+
+            if submit_feedback:
+                payload = {
+                    "respondent_token": respondent_token.strip() or None,
+                    "rating_course": rating_course,
+                    "rating_teacher": rating_teacher,
+                    "rating_assignment_design": rating_design,
+                    "difficulty_level": difficulty,
+                    "workload_level": workload,
+                    "difficulty_text": difficulty_text.strip() or None,
+                    "task_design_text": task_design_text.strip() or None,
+                    "feedback_text": feedback_text.strip() or None
+                }
+                try:
+                    submit_resp = requests.post(
+                        f"{API_BASE_URL}/feedback/surveys/{selected_survey_id}/responses",
+                        json=payload,
+                        timeout=30
+                    )
+                    if submit_resp.status_code == 200:
+                        st.success("已匿名提交反馈。")
+                    else:
+                        st.error(f"提交失败：{submit_resp.json().get('detail', submit_resp.text)}")
+                except Exception as e:
+                    st.error(f"提交失败：{str(e)}")
+
+    with feedback_tabs[2]:
+        if st.session_state.get("auth_role", "teacher") not in ["teacher", "admin"]:
+            st.info("只有教师或管理员可以查看反馈分析。")
+        else:
+            try:
+                resp = requests.get(
+                    f"{API_BASE_URL}/feedback/surveys",
+                    headers=build_auth_headers(),
+                    timeout=30
+                )
+                surveys = resp.json() if resp.status_code == 200 else []
+            except Exception:
+                surveys = []
+            if not surveys:
+                st.info("暂无问卷。")
+            else:
+                survey_options = {s["survey_id"]: f"{s['title']}（{s.get('survey_type', '')}，回应 {s.get('response_count', 0)}）" for s in surveys}
+                selected_analysis_survey = st.selectbox(
+                    "选择要分析的问卷",
+                    options=list(survey_options.keys()),
+                    format_func=lambda x: survey_options[x],
+                    key="feedback_analysis_survey"
+                )
+                if st.button("刷新反馈分析", use_container_width=True):
+                    try:
+                        analytics_resp = requests.get(
+                            f"{API_BASE_URL}/feedback/surveys/{selected_analysis_survey}/analytics",
+                            headers=build_auth_headers(),
+                            timeout=30
+                        )
+                        if analytics_resp.status_code == 200:
+                            st.session_state["feedback_analytics"] = analytics_resp.json()
+                        else:
+                            st.error(f"分析失败：{analytics_resp.json().get('detail', analytics_resp.text)}")
+                    except Exception as e:
+                        st.error(f"分析失败：{str(e)}")
+                if st.session_state.get("feedback_analytics"):
+                    render_feedback_analytics(st.session_state["feedback_analytics"])
+
+# ==================== 评分校准 ====================
+elif page == "🎚️ 评分校准":
+    st.title("🎚️ 评分一致性与校准")
+    st.caption("把教师评分后的同一份作业纳入标杆样本库，并与后续 AI 评分比较，输出偏宽/偏严偏差报告。")
+
+    if st.session_state.get("auth_role", "teacher") not in ["teacher", "admin"]:
+        st.info("只有教师或管理员可以管理评分校准。")
+    else:
+        calibration_tabs = st.tabs(["标杆样本库", "偏差比较", "历史报告"])
+
+        with calibration_tabs[0]:
+            try:
+                submissions_resp = requests.get(
+                    f"{API_BASE_URL}/submissions",
+                    headers=build_auth_headers(),
+                    timeout=30
+                )
+                submissions = submissions_resp.json() if submissions_resp.status_code == 200 else []
+            except Exception:
+                submissions = []
+
+            if not submissions:
+                st.info("暂无可用提交。请先上传或创建作业提交。")
+            else:
+                sub_options = {
+                    item["submission_id"]: f"{item['submission_id']} - {item.get('title', '')}"
+                    for item in submissions
+                }
+                with st.form("create_calibration_benchmark_form"):
+                    selected_submission = st.selectbox(
+                        "选择标杆作业",
+                        options=list(sub_options.keys()),
+                        format_func=lambda x: sub_options[x]
+                    )
+                    teacher_overall = st.number_input("教师总分", min_value=0.0, max_value=100.0, value=80.0, step=1.0)
+                    dim_json = st.text_area(
+                        "教师分维度评分 JSON",
+                        value='[\n  {"dimension": "创新性", "score": 80, "notes": "方案有一定创新但验证不足"},\n  {"dimension": "文档规范", "score": 85, "notes": "结构完整，引用仍可加强"}\n]',
+                        height=180
+                    )
+                    notes = st.text_area("标杆说明", placeholder="说明教师评分依据、样本用途或适用评分标准")
+                    create_benchmark = st.form_submit_button("加入标杆样本库", use_container_width=True)
+
+                if create_benchmark:
+                    try:
+                        dimension_scores = json.loads(dim_json) if dim_json.strip() else []
+                        if not isinstance(dimension_scores, list):
+                            raise ValueError("分维度评分必须是数组")
+                        payload = {
+                            "submission_id": selected_submission,
+                            "teacher_overall_score": teacher_overall,
+                            "teacher_dimension_scores": dimension_scores,
+                            "notes": notes.strip() or None
+                        }
+                        resp = requests.post(
+                            f"{API_BASE_URL}/calibration/benchmarks",
+                            json=payload,
+                            headers=build_auth_headers(),
+                            timeout=30
+                        )
+                        if resp.status_code == 200:
+                            st.success("标杆样本已保存。")
+                            st.json(resp.json())
+                        else:
+                            st.error(f"保存失败：{resp.json().get('detail', resp.text)}")
+                    except Exception as e:
+                        st.error(f"保存失败：{str(e)}")
+
+            try:
+                bench_resp = requests.get(
+                    f"{API_BASE_URL}/calibration/benchmarks",
+                    headers=build_auth_headers(),
+                    timeout=30
+                )
+                benchmarks = bench_resp.json() if bench_resp.status_code == 200 else []
+            except Exception:
+                benchmarks = []
+            if benchmarks:
+                st.subheader("已有标杆样本")
+                st.dataframe(pd.DataFrame(benchmarks), use_container_width=True)
+
+        with calibration_tabs[1]:
+            try:
+                bench_resp = requests.get(
+                    f"{API_BASE_URL}/calibration/benchmarks",
+                    headers=build_auth_headers(),
+                    timeout=30
+                )
+                benchmarks = bench_resp.json() if bench_resp.status_code == 200 else []
+            except Exception:
+                benchmarks = []
+            if not benchmarks:
+                st.info("请先创建标杆样本。")
+            else:
+                bench_options = {
+                    item["benchmark_id"]: f"{item['benchmark_id']} - {item.get('submission_id', '')} - {item.get('title', '')}"
+                    for item in benchmarks
+                }
+                selected_benchmark = st.selectbox(
+                    "选择标杆样本",
+                    options=list(bench_options.keys()),
+                    format_func=lambda x: bench_options[x],
+                    key="calibration_compare_benchmark"
+                )
+                evaluation_id = st.text_input("指定 AI 评估ID（可选；留空则使用该提交当前评估）")
+                if st.button("生成偏差报告", use_container_width=True):
+                    payload = {"evaluation_id": evaluation_id.strip() or None}
+                    try:
+                        compare_resp = requests.post(
+                            f"{API_BASE_URL}/calibration/benchmarks/{selected_benchmark}/compare",
+                            json=payload,
+                            headers=build_auth_headers(),
+                            timeout=30
+                        )
+                        if compare_resp.status_code == 200:
+                            st.session_state["calibration_report"] = compare_resp.json()
+                            st.success("偏差报告已生成。")
+                        else:
+                            st.error(f"比较失败：{compare_resp.json().get('detail', compare_resp.text)}")
+                    except Exception as e:
+                        st.error(f"比较失败：{str(e)}")
+                if st.session_state.get("calibration_report"):
+                    render_calibration_report(st.session_state["calibration_report"])
+
+        with calibration_tabs[2]:
+            try:
+                reports_resp = requests.get(
+                    f"{API_BASE_URL}/calibration/reports",
+                    headers=build_auth_headers(),
+                    timeout=30
+                )
+                reports = reports_resp.json() if reports_resp.status_code == 200 else []
+            except Exception:
+                reports = []
+            if reports:
+                st.dataframe(pd.DataFrame(reports), use_container_width=True)
+                selected_idx = st.selectbox("查看报告详情", options=list(range(len(reports))), format_func=lambda i: reports[i].get("report_id", f"报告{i+1}"))
+                render_calibration_report(reports[selected_idx])
+            else:
+                st.info("暂无历史校准报告。")
+
 # ==================== API文档 ====================
 elif page == "🔧 API文档":
     st.title("🔧 API 文档")
@@ -4642,6 +5159,36 @@ elif page == "🔧 API文档":
             "path": "/submissions/{submission_id}/evaluation",
             "description": "获取提交的评估结果",
             "params": "submission_id (路径参数)"
+        },
+        {
+            "method": "POST",
+            "path": "/feedback/surveys",
+            "description": "创建期中/期末匿名课程反馈问卷",
+            "params": "title, survey_type, target_response_count, syllabus_name"
+        },
+        {
+            "method": "POST",
+            "path": "/feedback/surveys/{survey_id}/responses",
+            "description": "匿名提交课程/教师/任务设计反馈",
+            "params": "rating_course, difficulty_text, feedback_text"
+        },
+        {
+            "method": "GET",
+            "path": "/feedback/surveys/{survey_id}/analytics",
+            "description": "获取回应率、主题聚类和薄弱能力点关联分析",
+            "params": "survey_id (路径参数)"
+        },
+        {
+            "method": "POST",
+            "path": "/calibration/benchmarks",
+            "description": "创建教师评分标杆样本",
+            "params": "submission_id, teacher_overall_score, teacher_dimension_scores"
+        },
+        {
+            "method": "POST",
+            "path": "/calibration/benchmarks/{benchmark_id}/compare",
+            "description": "比较 AI 评分与教师标杆并生成偏差报告",
+            "params": "benchmark_id, evaluation_id (可选)"
         }
     ]
     

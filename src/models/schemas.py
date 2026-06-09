@@ -260,3 +260,97 @@ class ProgressReportResponse(BaseModel):
     stage_breakdown: Optional[List[Dict[str, Any]]] = None
     report_sections: Optional[Dict[str, str]] = None
     follow_up_points: Optional[List[str]] = None
+    student_profile: Optional[Dict[str, Any]] = None
+    trend_closure_plan: Optional[Dict[str, Any]] = None
+
+class FeedbackSurveyCreate(BaseModel):
+    title: str
+    course_name: Optional[str] = None
+    syllabus_name: Optional[str] = None
+    survey_type: str = Field(default="midterm", pattern="^(midterm|final|custom)$")
+    status: str = Field(default="draft", pattern="^(draft|open|closed|archived)$")
+    target_response_count: int = Field(default=0, ge=0)
+    description: Optional[str] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+
+class FeedbackSurveyUpdate(BaseModel):
+    title: Optional[str] = None
+    course_name: Optional[str] = None
+    syllabus_name: Optional[str] = None
+    survey_type: Optional[str] = Field(default=None, pattern="^(midterm|final|custom)$")
+    status: Optional[str] = Field(default=None, pattern="^(draft|open|closed|archived)$")
+    target_response_count: Optional[int] = Field(default=None, ge=0)
+    description: Optional[str] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+
+class FeedbackSurveyResponse(BaseModel):
+    survey_id: str
+    title: str
+    course_name: Optional[str] = None
+    syllabus_name: Optional[str] = None
+    survey_type: str
+    status: str
+    target_response_count: int
+    response_count: int = 0
+    response_rate: float = 0.0
+    description: Optional[str] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+class FeedbackResponseCreate(BaseModel):
+    respondent_token: Optional[str] = None
+    rating_course: Optional[float] = Field(default=None, ge=1, le=5)
+    rating_teacher: Optional[float] = Field(default=None, ge=1, le=5)
+    rating_assignment_design: Optional[float] = Field(default=None, ge=1, le=5)
+    difficulty_level: Optional[float] = Field(default=None, ge=1, le=5)
+    workload_level: Optional[float] = Field(default=None, ge=1, le=5)
+    difficulty_text: Optional[str] = None
+    feedback_text: Optional[str] = None
+    task_design_text: Optional[str] = None
+
+class FeedbackResponseResult(BaseModel):
+    response_id: str
+    survey_id: str
+    submitted_at: datetime
+
+class CalibrationDimensionScore(BaseModel):
+    dimension: str
+    score: float = Field(ge=0, le=100)
+    notes: Optional[str] = None
+
+class CalibrationBenchmarkCreate(BaseModel):
+    submission_id: str
+    teacher_overall_score: float = Field(ge=0, le=100)
+    teacher_dimension_scores: List[CalibrationDimensionScore] = []
+    notes: Optional[str] = None
+
+class CalibrationBenchmarkResponse(BaseModel):
+    benchmark_id: str
+    submission_id: str
+    title: Optional[str] = None
+    teacher_id: Optional[str] = None
+    teacher_overall_score: float
+    teacher_dimension_scores: List[Dict[str, Any]] = []
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+class CalibrationCompareRequest(BaseModel):
+    evaluation_id: Optional[str] = None
+
+class CalibrationReportResponse(BaseModel):
+    report_id: str
+    benchmark_id: str
+    evaluation_id: str
+    submission_id: str
+    teacher_overall_score: float
+    ai_overall_score: float
+    overall_bias: float
+    overall_judgement: str
+    dimension_biases: List[Dict[str, Any]]
+    summary: str
+    created_at: datetime

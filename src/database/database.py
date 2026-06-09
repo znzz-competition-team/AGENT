@@ -90,7 +90,8 @@ def init_db():
     # 导入所有模型，确保它们被注册到 Base.metadata
     from .models import (
         Student, Submission, MediaFile, EvaluationResult, DimensionScore,
-        HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+        HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit,
+        CourseFeedbackSurvey, CourseFeedbackResponse, CalibrationBenchmark, CalibrationReport
     )
     
     # 只创建表，不删除现有表
