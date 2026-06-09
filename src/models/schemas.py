@@ -39,7 +39,7 @@ class EvaluationDimension(str, Enum):
 
 class DimensionScore(BaseModel):
     dimension: EvaluationDimension
-    score: float = Field(ge=0, le=10)
+    score: float = Field(ge=0, le=100)
     confidence: float = Field(ge=0, le=1)
     evidence: List[str] = []
     reasoning: str
@@ -48,7 +48,7 @@ class EvaluationResult(BaseModel):
     student_id: str
     evaluation_id: str
     dimension_scores: List[DimensionScore]
-    overall_score: float = Field(ge=0, le=10)
+    overall_score: float = Field(ge=0, le=100)
     strengths: List[str] = []
     areas_for_improvement: List[str] = []
     recommendations: List[str] = []
@@ -101,7 +101,15 @@ class SubmissionType(str, Enum):
     FILE = "file"
     TEXT = "text"
 
+class SubmissionPurpose(str, Enum):
+    NORMAL = "normal"
+    GRADUATION = "graduation"
+
 class SubmissionStatus(str, Enum):
+    DRAFTED = "drafted"
+    OPEN = "open"
+    CLOSED = "closed"
+    ARCHIVED = "archived"
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -112,7 +120,9 @@ class SubmissionCreate(BaseModel):
     title: str
     description: Optional[str] = None
     submission_type: SubmissionType = SubmissionType.FILE
+    submission_purpose: SubmissionPurpose = SubmissionPurpose.NORMAL
     text_content: Optional[str] = None
+    syllabus_name: Optional[str] = None
 
 class SubmissionResponse(BaseModel):
     id: int
@@ -121,7 +131,9 @@ class SubmissionResponse(BaseModel):
     title: str
     description: Optional[str] = None
     submission_type: SubmissionType
+    submission_purpose: SubmissionPurpose = SubmissionPurpose.NORMAL
     text_content: Optional[str] = None
+    syllabus_name: Optional[str] = None
     status: SubmissionStatus
     created_at: datetime
     updated_at: datetime
@@ -130,6 +142,7 @@ class MediaFileResponse(BaseModel):
     id: int
     submission_id: int
     file_path: str
+    file_name: str
     media_type: MediaType
     duration: Optional[float] = None
     size_bytes: int
@@ -137,11 +150,12 @@ class MediaFileResponse(BaseModel):
     uploaded_at: datetime
 
 class DimensionScoreResponse(BaseModel):
-    dimension: EvaluationDimension
+    dimension: str  # 改为字符串类型，支持大纲提取的能力点名称
     score: float
     confidence: float
     evidence: List[str]
     reasoning: str
+    improvement_suggestion: Optional[str] = None
 
 class EvaluationResultResponse(BaseModel):
     id: int
@@ -158,12 +172,28 @@ class EvaluationRequest(BaseModel):
     submission_id: str
     stage: Optional[str] = None
     stage_progress: Optional[float] = None  # 0.0-1.0 之间的进度值
+    custom_prompts: Optional[Dict[str, str]] = None  # 自定义提示词
+    syllabus_analysis: Optional[Dict] = None  # 大纲分析结果
+    force_re_evaluate: bool = False  # 是否允许对已完成提交强制重评
+    window_start: Optional[datetime] = None  # 允许评估的时间窗口开始
+    window_end: Optional[datetime] = None  # 允许评估的时间窗口结束
 
 class EvaluationResponse(BaseModel):
     evaluation_id: str
     student_id: str
     overall_score: float
     dimension_scores: List[DimensionScoreResponse]
+    knowledge_understanding_score: Optional[float] = None
+    knowledge_application_score: Optional[float] = None
+    phase_completion_score: Optional[float] = None
+    score_policy: Optional[str] = None
+    score_breakdown: Optional[Dict[str, Any]] = None
+    rubric_version_id: Optional[str] = None
+    review_status: Optional[str] = "ai_draft"
+    reviewed_by: Optional[str] = None
+    review_notes: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
     strengths: List[str]
     areas_for_improvement: List[str]
     recommendations: List[str]
@@ -171,6 +201,45 @@ class EvaluationResponse(BaseModel):
     evaluator_agent: str
     stage: Optional[str] = None
     stage_progress: Optional[float] = None  # 0.0-1.0 之间的进度值
+
+class EvaluationReviewActionRequest(BaseModel):
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+
+class EvaluationRegradeRequest(BaseModel):
+    reason: str
+
+class EvaluationRegradeResolveRequest(BaseModel):
+    decision: str = Field(pattern="^(accepted|rejected|resolved)$")
+    reason: Optional[str] = None
+    notes: Optional[str] = None
+    updated_evaluation: Optional[Dict[str, Any]] = None
+
+class EvaluationReviewAuditResponse(BaseModel):
+    audit_id: str
+    evaluation_id: str
+    action: str
+    actor_id: Optional[str] = None
+    actor_role: Optional[str] = None
+    reason: Optional[str] = None
+    before_snapshot: Optional[Dict[str, Any]] = None
+    after_snapshot: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+class EvaluationTaskCreateResponse(BaseModel):
+    task_id: str
+    status: str
+    created_at: datetime
+
+class EvaluationTaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    progress: float = Field(ge=0, le=1)
+    created_at: datetime
+    updated_at: datetime
+    message: Optional[str] = None
+    result: Optional[EvaluationResponse] = None
+    error: Optional[str] = None
 
 class ProgressReportResponse(BaseModel):
     student_id: str
@@ -180,7 +249,17 @@ class ProgressReportResponse(BaseModel):
     time_range: dict
     key_insights: List[str]
     improvement_areas: List[str]
-
+    report_id: Optional[str] = None
+    course_type: Optional[str] = None
+    score_policy: Optional[str] = None
+    overall_score: Optional[float] = None
+    policy_summary: Optional[Dict[str, Any]] = None
+    trend_series: Optional[Dict[str, Any]] = None
+    ability_dimension_trends: Optional[Dict[str, Any]] = None
+    trend_diagnostics: Optional[Dict[str, Any]] = None
+    stage_breakdown: Optional[List[Dict[str, Any]]] = None
+    report_sections: Optional[Dict[str, str]] = None
+    follow_up_points: Optional[List[str]] = None
 
 class ExamQuestionResult(BaseModel):
     question_number: str
@@ -191,7 +270,6 @@ class ExamQuestionResult(BaseModel):
     reasoning: str
     strengths: List[str] = []
     mistakes: List[str] = []
-
 
 class FormulaRecognitionBox(BaseModel):
     page_index: int = 1
@@ -205,7 +283,6 @@ class FormulaRecognitionBox(BaseModel):
     latex: Optional[str] = None
     box_type: str = "formula"
 
-
 class DerivationCheckItem(BaseModel):
     question_number: str
     status: str = "uncertain"
@@ -213,7 +290,6 @@ class DerivationCheckItem(BaseModel):
     evidence: str = ""
     issue: str = ""
     suggestion: str = ""
-
 
 class HandwritingExamGradeResponse(BaseModel):
     success: bool
