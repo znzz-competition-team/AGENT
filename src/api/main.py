@@ -4917,6 +4917,7 @@ async def evaluate_enhanced(request: Dict = Body(...)):
             student_info=request.get("student_info", {}),
             indicators=request.get("indicators", {}),
             dimension_weights=request.get("dimension_weights") or None,
+            file_path=request.get("file_path"),
         )
     except HTTPException:
         raise
@@ -5017,6 +5018,945 @@ def get_current_ai_config():
     return _current_ai_config
 
 # AI 配置相关路由
+
+# ========== Migrated graduation-thesis evaluation helpers/endpoints ==========
+# These routes are kept separate from course evaluation APIs.
+def clean_text_content(text: str) -> str:
+    """
+    清理文本内容，移除多余空格
+    
+    与摘要提取使用相同的清理逻辑
+    """
+    if not text:
+        return ""
+    
+    text = re.sub(r'[ \t]+', '', text)
+    text = re.sub(r'\n+', '\n', text)
+    
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
+def extract_chapter(content: str, chapter_name: str) -> str:
+    """
+    从论文内容中提取指定章节
+    
+    Args:
+        content: 论文全文内容
+        chapter_name: 章节名称，如 "引言"、"绪论"、"结论" 等
+        
+    Returns:
+        提取的章节内容
+    """
+    if not content or not chapter_name:
+        return ""
+    
+    chapter_patterns = {
+        "摘要": [r'摘\s*要\s*[：:]*\s*\n?(.*?)(?=\s*(?:关键词|Key\s*words|Keyword|ABSTRACT|Abstract))'],
+        "引言": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?引言\s*\n?(.*?)(?=\n\s*(?:第[一二三四五六七八九十\d]+\s*章|参考文献|致谢|结论|总结))'],
+        "绪论": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?绪论\s*\n?(.*?)(?=\n\s*(?:第[一二三四五六七八九十\d]+\s*章|参考文献|致谢|结论|总结))'],
+        "结论": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?结论\s*\n?(.*?)(?=\n\s*(?:参考文献|致谢|附录))'],
+        "总结": [r'(?:第[一二三四五六七八九十\d]+\s*章\s*)?总结\s*\n?(.*?)(?=\n\s*(?:参考文献|致谢|附录))'],
+        "参考文献": [r'参考\s*文献\s*\n?(.*?)(?=\n\s*(?:致谢|附录|$))'],
+        "致谢": [r'致\s*谢\s*\n?(.*?)(?=\n\s*(?:附录|作者简介|$))'],
+    }
+    
+    patterns = chapter_patterns.get(chapter_name, [re.escape(chapter_name) + r'\s*\n?(.*?)(?=\n\s*(?:第[一二三四五六七八九十\d]+\s*章|参考文献|致谢))'])
+    
+    for pattern in patterns:
+        match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+        if match:
+            chapter_content = match.group(1).strip()
+            chapter_content = clean_text_content(chapter_content)
+            if len(chapter_content) > 50:
+                return chapter_content[:3000]
+    
+    lines = content.split('\n')
+    chapter_start = -1
+    chapter_end = -1
+    
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if chapter_name in line_stripped:
+            chapter_start = i + 1
+            break
+    
+    if chapter_start == -1:
+        return ""
+    
+    for j in range(chapter_start, min(chapter_start + 100, len(lines))):
+        line_stripped = lines[j].strip()
+        
+        if re.match(r'^第[一二三四五六七八九十\d]+\s*章', line_stripped):
+            chapter_end = j
+            break
+        if '参考文献' in line_stripped or '致谢' in line_stripped:
+            chapter_end = j
+            break
+    
+    if chapter_end == -1:
+        chapter_end = min(chapter_start + 50, len(lines))
+    
+    chapter_lines = []
+    for k in range(chapter_start, chapter_end):
+        line = lines[k].strip()
+        if line:
+            chapter_lines.append(line)
+    
+    if chapter_lines:
+        chapter_content = '\n'.join(chapter_lines)
+        return chapter_content[:3000]
+    
+    return ""
+
+
+class ExtractChapterRequest(BaseModel):
+    content: str
+    chapter_name: str
+
+@app.post("/extract_chapter")
+async def api_extract_chapter(request: ExtractChapterRequest):
+    """
+    提取论文指定章节内容
+    
+    Args:
+        content: 论文全文内容
+        chapter_name: 章节名称（摘要、引言、绪论、结论、总结、参考文献、致谢）
+        
+    Returns:
+        提取的章节内容
+    """
+    try:
+        chapter_content = extract_chapter(request.content, request.chapter_name)
+        
+        return {
+            "chapter_name": request.chapter_name,
+            "content": chapter_content,
+            "has_content": len(chapter_content) > 0
+        }
+    except Exception as e:
+        logger.error(f"提取章节内容失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"提取章节内容失败: {str(e)}")
+
+@app.post("/debug_pdf_extraction")
+async def debug_pdf_extraction(
+    file: UploadFile = File(...)
+):
+    """
+    调试PDF提取 - 查看提取的原始内容和章节识别结果
+    
+    用于诊断PDF提取问题
+    """
+    try:
+        import tempfile
+        import os
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+        
+        try:
+            from src.utils.pdf_extractor_enhanced import EnhancedPDFExtractor
+            
+            extractor = EnhancedPDFExtractor(enable_ocr=False)
+            result = extractor.extract_with_metadata(tmp_path)
+            
+            text = result["text"]
+            
+            chapter_markers = re.findall(r'【章节】([^\n]+)', text)
+            title_markers = re.findall(r'【标题】([^\n]+)', text)
+            
+            lines = text.split('\n')
+            first_100_lines = '\n'.join(lines[:100])
+            
+            chapter_patterns = [
+                r'第[一二三四五六七八九十\d]+\s*章[^\n]*',
+                r'摘\s*要',
+                r'ABSTRACT',
+                r'结论',
+                r'总结',
+            ]
+            
+            found_chapters = []
+            for pattern in chapter_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                found_chapters.extend(matches)
+            
+            return {
+                "metadata": result["metadata"],
+                "extraction_log": result["log"],
+                "chapter_markers_found": chapter_markers[:20],
+                "title_markers_found": title_markers[:20],
+                "chapters_found_by_pattern": list(set(found_chapters))[:20],
+                "first_100_lines": first_100_lines,
+                "total_chars": len(text),
+                "total_lines": len(lines),
+                "sample_content": {
+                    "first_500_chars": text[:500],
+                    "middle_500_chars": text[len(text)//2:len(text)//2+500] if len(text) > 1000 else "",
+                    "last_500_chars": text[-500:] if len(text) > 500 else ""
+                }
+            }
+        finally:
+            os.unlink(tmp_path)
+            
+    except Exception as e:
+        logger.error(f"调试PDF提取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"调试PDF提取失败: {str(e)}")
+
+@app.post("/debug_section_extraction")
+async def debug_section_extraction(
+    request: Dict = Body(...)
+):
+    """
+    调试章节提取 - 查看章节识别和提取结果
+    
+    用于诊断章节提取问题
+    """
+    try:
+        content = request.get('content', '')
+        
+        if not content:
+            raise HTTPException(status_code=400, detail="内容不能为空")
+        
+        from src.evaluation.llm_evaluator import llm_evaluator
+        from src.evaluation.sectioned_evaluator import SectionedEvaluator
+        
+        sectioned_evaluator = SectionedEvaluator(llm_evaluator)
+        
+        structure = sectioned_evaluator.identify_thesis_structure(content)
+        
+        sections = sectioned_evaluator.extract_sections(content, structure)
+        
+        sections_debug = []
+        for sec in sections:
+            sections_debug.append({
+                "title": sec.get("title", ""),
+                "type": sec.get("section_type", ""),
+                "content_length": len(sec.get("content", "")),
+                "content_preview": sec.get("content", "")[:500] if sec.get("content") else "",
+                "start_marker": sec.get("start_marker", ""),
+                "end_marker": sec.get("end_marker", "")
+            })
+        
+        return {
+            "structure": structure,
+            "sections_debug": sections_debug,
+            "total_sections": len(sections),
+            "empty_sections": [s["title"] for s in sections_debug if s["content_length"] < 100]
+        }
+        
+    except Exception as e:
+        logger.error(f"调试章节提取失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"调试章节提取失败: {str(e)}")
+
+# 主入口
+
+@app.post("/build_knowledge_base")
+async def build_knowledge_base(
+    request: Dict = Body(...)
+):
+    """
+    构建论文本地知识库 - 结构化+语义双索引
+
+    请求参数:
+    - file_path: PDF文件路径（必填）
+    - content: 已提取的文本内容（可选，如不提供则从PDF提取）
+    """
+    try:
+        file_path = request.get('file_path', '')
+        if not file_path:
+            raise HTTPException(status_code=400, detail="file_path不能为空")
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=400, detail=f"文件不存在: {file_path}")
+
+        content = request.get('content', '')
+
+        from src.evaluation.thesis_knowledge_base import ThesisKnowledgeBase
+        kb = ThesisKnowledgeBase()
+        stats = kb.build_from_file(file_path, content)
+
+        kb_context = kb.get_full_evaluation_context()
+
+        return {
+            "status": "success",
+            "stats": stats,
+            "context_length": len(kb_context),
+            "context_preview": kb_context[:2000],
+            "tables_count": len(kb.structured_index.get("tables_structured", [])) + len(kb.visual_index.get("tables", [])),
+            "figures_count": len(kb.structured_index.get("figures", [])) + len(kb.visual_index.get("figures", [])),
+            "formulas_count": len(kb.structured_index.get("formulas", [])) + len(kb.visual_index.get("formulas", [])),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"知识库构建失败: {str(e)}")
+
+
+@app.post("/visualize_knowledge_base")
+async def visualize_knowledge_base(
+    request: Dict = Body(...)
+):
+    try:
+        file_path = request.get('file_path', '')
+        if not file_path:
+            raise HTTPException(status_code=400, detail="file_path不能为空")
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=400, detail=f"文件不存在: {file_path}")
+
+        content = request.get('content', '')
+        skip_visual = request.get('skip_visual', True)
+
+        from src.evaluation.thesis_knowledge_base import ThesisKnowledgeBase
+        kb = ThesisKnowledgeBase()
+        stats = kb.build_from_file(file_path, content, skip_visual=skip_visual, use_cache=True)
+
+        sections = kb.structured_index.get("sections", [])
+        sections_viz = []
+        for sec in sections:
+            sec_viz = {
+                "title": sec.get("title", ""),
+                "type": sec.get("type", "other"),
+                "content_length": len(sec.get("content", "")),
+                "start_offset": sec.get("start_offset", 0),
+                "end_offset": sec.get("end_offset", 0),
+            }
+            sections_viz.append(sec_viz)
+
+        tables_structured = kb.structured_index.get("tables_structured", [])
+        tables_viz = []
+        for t in tables_structured:
+            tables_viz.append({
+                "table_number": t.get("table_number", ""),
+                "caption": t.get("caption", ""),
+                "row_count": t.get("row_count", 0),
+                "headers": t.get("headers", []),
+                "text_representation": t.get("text_representation", ""),
+                "summary": t.get("summary", ""),
+            })
+
+        visual_tables = kb.visual_index.get("tables", [])
+        visual_tables_viz = []
+        for vt in visual_tables:
+            visual_tables_viz.append({
+                "table_number": vt.get("table_number", ""),
+                "caption": vt.get("caption", ""),
+                "page": vt.get("page", 0),
+                "description": vt.get("description", ""),
+                "text_representation": vt.get("text_representation", ""),
+            })
+
+        figures = kb.structured_index.get("figures", [])
+        figures_viz = []
+        for fig in figures:
+            figures_viz.append({
+                "number": fig.get("number", ""),
+                "label": fig.get("label", ""),
+                "caption": fig.get("caption", ""),
+            })
+
+        visual_figures = kb.visual_index.get("figures", [])
+        visual_figures_viz = []
+        for vf in visual_figures:
+            visual_figures_viz.append({
+                "figure_number": vf.get("figure_number", ""),
+                "caption": vf.get("caption", ""),
+                "type": vf.get("type", ""),
+                "page": vf.get("page", 0),
+                "description": vf.get("description", ""),
+                "key_findings": vf.get("key_findings", ""),
+            })
+
+        formulas = kb.structured_index.get("formulas", [])
+        formulas_viz = []
+        for f in formulas:
+            formulas_viz.append({
+                "number": f.get("number", ""),
+                "label": f.get("label", ""),
+                "context": f.get("context", "")[:200],
+            })
+
+        visual_formulas = kb.visual_index.get("formulas", [])
+        visual_formulas_viz = []
+        for vf in visual_formulas:
+            visual_formulas_viz.append({
+                "latex": vf.get("latex", ""),
+                "description": vf.get("description", ""),
+                "context": vf.get("context", ""),
+                "page": vf.get("page", 0),
+            })
+
+        key_terms = kb.structured_index.get("key_terms", [])
+        key_terms_viz = []
+        for kt in key_terms[:30]:
+            key_terms_viz.append({
+                "term": kt.get("term", ""),
+                "count": kt.get("count", 0),
+            })
+
+        research_chain = kb.structured_index.get("research_chain", {})
+        research_chain_viz = {
+            "problem": research_chain.get("problem", ""),
+            "method": research_chain.get("method", ""),
+            "experiment": research_chain.get("experiment", ""),
+            "conclusion": research_chain.get("conclusion", ""),
+            "logic_flow": research_chain.get("logic_flow", []),
+        }
+
+        chunk_type_counts = {}
+        chunk_section_counts = {}
+        for chunk in kb.chunks:
+            ct = chunk.get("chunk_type", "unknown")
+            chunk_type_counts[ct] = chunk_type_counts.get(ct, 0) + 1
+            st = chunk.get("section_title", "unknown")
+            chunk_section_counts[st] = chunk_section_counts.get(st, 0) + 1
+
+        algorithms = kb.structured_index.get("algorithms", [])
+        algorithms_viz = []
+        for a in algorithms:
+            algorithms_viz.append({
+                "number": a.get("number", ""),
+                "label": a.get("label", ""),
+                "context": a.get("context", "")[:200],
+            })
+
+        return {
+            "status": "success",
+            "stats": stats,
+            "file_type": kb.structured_index.get("file_type", "unknown"),
+            "content_length": kb.structured_index.get("content_length", 0),
+            "sections": sections_viz,
+            "tables_structured": tables_viz,
+            "visual_tables": visual_tables_viz,
+            "figures": figures_viz,
+            "visual_figures": visual_figures_viz,
+            "formulas": formulas_viz,
+            "visual_formulas": visual_formulas_viz,
+            "algorithms": algorithms_viz,
+            "key_terms": key_terms_viz,
+            "research_chain": research_chain_viz,
+            "chunk_distribution": {
+                "by_type": chunk_type_counts,
+                "by_section": chunk_section_counts,
+            },
+            "has_semantic_index": kb.semantic_index is not None,
+            "visual_pages_analyzed": kb.visual_index.get("total_pages_analyzed", 0),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"知识库可视化失败: {str(e)}")
+
+
+@app.get("/list_knowledge_bases")
+async def list_knowledge_bases():
+    try:
+        from src.evaluation.thesis_knowledge_base import ThesisKnowledgeBase
+        kbs = ThesisKnowledgeBase.get_local_knowledge_bases()
+        return {"knowledge_bases": kbs, "total": len(kbs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取知识库列表失败: {str(e)}")
+
+
+@app.post("/delete_knowledge_base")
+async def delete_knowledge_base(request: Dict = Body(...)):
+    try:
+        filepath = request.get('filepath', '')
+        if not filepath or not os.path.exists(filepath):
+            raise HTTPException(status_code=400, detail="文件路径无效")
+        kb_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'data', 'knowledge_bases')
+        if not os.path.abspath(filepath).startswith(os.path.abspath(kb_dir)):
+            raise HTTPException(status_code=400, detail="只能删除知识库目录下的文件")
+        os.remove(filepath)
+        return {"status": "success", "message": "知识库已删除"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除知识库失败: {str(e)}")
+
+
+@app.post("/evaluate_agent")
+async def evaluate_agent(
+    request: Dict = Body(...)
+):
+    """
+    智能体评估 - 搜寻研究现状 + 大模型自主推理评估
+
+    核心特点：
+    1. 搜寻论文相关领域的研究现状作为前后文
+    2. 将研究现状与论文一起输入大模型
+    3. 大模型自主决定评估重点和策略（非固定工作流）
+    4. 输出极其详细的评价内容与修改建议
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    - student_info: 学生信息
+    - indicators: 评价指标
+    - dimension_weights: 维度权重
+    - file_path: PDF文件路径（可选，用于知识库构建）
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        student_info = request.get('student_info', {})
+        indicators = request.get('indicators', {})
+        dimension_weights = request.get('dimension_weights', {})
+        file_path = request.get('file_path', None)
+
+        from src.evaluation.thesis_evaluation_agent import ThesisEvaluationAgent
+
+        agent = ThesisEvaluationAgent()
+
+        result = agent.evaluate(
+            content=submission_content,
+            student_info=student_info,
+            indicators=indicators,
+            dimension_weights=dimension_weights if dimension_weights else None,
+            file_path=file_path,
+        )
+
+        logger.info(f"智能体评估完成: score={result.get('evaluation', {}).get('overall_assessment', {}).get('score', 'N/A')}")
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"智能体评估失败: {str(e)}")
+
+
+@app.post("/save_evaluation_result")
+async def save_evaluation_result(
+    request: Dict = Body(...)
+):
+    evaluation_data = request.get('evaluation_data', {})
+    method = request.get('method', 'unknown')
+    student_info = request.get('student_info', {})
+
+    import os
+    import json
+    from datetime import datetime
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'saved_evaluations')
+    os.makedirs(save_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    student_id = student_info.get('student_id', 'unknown')
+    filename = f"eval_{method}_{student_id}_{timestamp}.json"
+    filepath = os.path.join(save_dir, filename)
+
+    save_obj = {
+        "saved_at": datetime.now().isoformat(),
+        "method": method,
+        "student_info": student_info,
+        "result": evaluation_data,
+    }
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(save_obj, f, ensure_ascii=False, indent=2, default=str)
+
+    return {"status": "ok", "filename": filename, "path": filepath}
+
+
+@app.get("/list_saved_evaluations")
+async def list_saved_evaluations():
+    import os
+    import json
+    from datetime import datetime
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'saved_evaluations')
+    if not os.path.exists(save_dir):
+        return {"evaluations": []}
+
+    evaluations = []
+    for fname in sorted(os.listdir(save_dir), reverse=True):
+        if fname.endswith('.json'):
+            fpath = os.path.join(save_dir, fname)
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                evaluations.append({
+                    "filename": fname,
+                    "saved_at": data.get("saved_at", ""),
+                    "method": data.get("method", ""),
+                    "student_info": data.get("student_info", {}),
+                    "overall_score": data.get("result", {}).get("overall_score") or data.get("result", {}).get("final_enhanced_score") or data.get("result", {}).get("base_evaluation", {}).get("overall_score", "N/A"),
+                })
+            except:
+                pass
+
+    return {"evaluations": evaluations}
+
+
+@app.get("/get_saved_evaluation/{filename}")
+async def get_saved_evaluation(filename: str):
+    import os
+    import json
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'saved_evaluations')
+    fpath = os.path.join(save_dir, filename)
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=404, detail="评估结果不存在")
+
+    with open(fpath, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    return data
+
+
+@app.post("/export_evaluation_report")
+async def export_evaluation_report(
+    request: Dict = Body(...)
+):
+    evaluation_data = request.get('evaluation_data', {})
+    method = request.get('method', 'unknown')
+    student_info = request.get('student_info', {})
+    format_type = request.get('format', 'json')
+
+    import os
+    import json
+    from datetime import datetime
+
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), '..', 'data', 'exported_reports')
+    os.makedirs(save_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    student_id = student_info.get('student_id', 'unknown')
+    student_name = student_info.get('student_name', student_info.get('name', 'unknown'))
+
+    if format_type == 'json':
+        filename = f"report_{student_id}_{timestamp}.json"
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(evaluation_data, f, ensure_ascii=False, indent=2, default=str)
+        return {"status": "ok", "filename": filename, "path": filepath, "format": "json"}
+
+    elif format_type == 'markdown':
+        report_md = _generate_markdown_report(evaluation_data, method, student_info)
+        filename = f"report_{student_id}_{timestamp}.md"
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(report_md)
+        return {"status": "ok", "filename": filename, "path": filepath, "format": "markdown"}
+
+    elif format_type == 'txt':
+        report_txt = _generate_text_report(evaluation_data, method, student_info)
+        filename = f"report_{student_id}_{timestamp}.txt"
+        filepath = os.path.join(save_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(report_txt)
+        return {"status": "ok", "filename": filename, "path": filepath, "format": "txt"}
+
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的导出格式: {format_type}")
+
+
+def _generate_markdown_report(data: dict, method: str, student_info: dict) -> str:
+    from datetime import datetime
+    lines = []
+    lines.append("# 毕业设计评估报告\n")
+    lines.append(f"**生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    lines.append(f"**评估方式**: {method}\n")
+
+    si = student_info or {}
+    if si:
+        lines.append(f"**学生**: {si.get('student_name', si.get('name', 'N/A'))} ({si.get('student_id', 'N/A')})\n")
+        if si.get('title'):
+            lines.append(f"**论文题目**: {si['title']}\n")
+    lines.append("\n---\n")
+
+    if method == 'enhanced':
+        base_eval = data.get('base_evaluation', {})
+        overall = data.get('final_enhanced_score', base_eval.get('overall_score', 0))
+        grade = data.get('final_enhanced_grade', base_eval.get('grade_level', ''))
+        base_score = data.get('base_score', base_eval.get('overall_score', 0))
+        adjustment = data.get('total_adjustment', 0)
+
+        lines.append("## 评估结果总览\n")
+        lines.append(f"| 项目 | 分数 |")
+        lines.append(f"| --- | --- |")
+        lines.append(f"| 基础评分 | {base_score}分 |")
+        lines.append(f"| 校准调整 | {adjustment:+.1f}分 |")
+        lines.append(f"| **最终评分** | **{overall}分** |")
+        lines.append(f"| 等级 | {grade} |")
+        lines.append("\n")
+
+        novelty = data.get('enhancement_modules', {}).get('novelty_verification', {}) or data.get('novelty_verification', {})
+        if novelty:
+            lines.append("## 引用网络新颖度验证\n")
+            lines.append(f"- 新颖度评分: {novelty.get('novelty_score', 'N/A')}分\n")
+            lines.append(f"- 新颖度等级: {novelty.get('novelty_grade', 'N/A')}\n")
+            ref_stats = novelty.get('reference_statistics', {})
+            if ref_stats:
+                lines.append(f"- 总引用数: {ref_stats.get('total_references', 'N/A')}\n")
+                lines.append(f"- 已验证: {ref_stats.get('verified_references', ref_stats.get('verified_count', 'N/A'))}\n")
+                lines.append(f"- 验证率: {ref_stats.get('verification_rate', 'N/A')}\n")
+                suspicious = ref_stats.get('suspicious_count', 0)
+                if suspicious:
+                    lines.append(f"- 可疑引用: {suspicious}\n")
+            fake_analysis = novelty.get('fake_reference_analysis', {})
+            if fake_analysis:
+                lines.append(f"- 虚假引用风险: {fake_analysis.get('risk_level', 'N/A')} (概率{fake_analysis.get('fake_probability', 0)}%)\n")
+                risk_factors = fake_analysis.get('risk_factors', [])
+                if risk_factors:
+                    lines.append("  - 风险因素:\n")
+                    for rf in risk_factors:
+                        lines.append(f"    - {rf}\n")
+            topic_mismatch = novelty.get('topic_mismatch_references', [])
+            if topic_mismatch:
+                lines.append(f"- **主题不匹配引用**: {len(topic_mismatch)}条\n")
+                for tmr in topic_mismatch:
+                    idx = tmr.get('index', '?')
+                    raw = tmr.get('raw_text', '')[:80]
+                    lines.append(f"  - [{idx}] {raw}...\n")
+            recency = novelty.get('recency_analysis', {})
+            if recency and recency.get('has_year_info'):
+                lines.append(f"- 平均年份: {recency.get('avg_year', 'N/A')}\n")
+                lines.append(f"- 近5年比例: {recency.get('recent_5y_ratio', 0):.1%}\n")
+            lines.append("\n")
+
+        score_adj = data.get('score_adjustments', {})
+        if score_adj:
+            lines.append("## 评分校准详情\n")
+            for adj_key, adj_info in score_adj.items():
+                val = adj_info.get('value', 0)
+                reason = adj_info.get('reason', '')
+                lines.append(f"- **{adj_key}**: {'+' if val >= 0 else ''}{val}分 - {reason}\n")
+            lines.append("\n")
+
+    elif method == 'sectioned':
+        overall = data.get('overall_score', 0)
+        grade = data.get('grade_level', '')
+        lines.append("## 评估结果总览\n")
+        lines.append(f"- **总分**: {overall}分\n")
+        lines.append(f"- **等级**: {grade}\n")
+        lines.append("\n")
+
+    section_evals = data.get('section_evaluations', []) or data.get('base_evaluation', {}).get('section_evaluations', [])
+    if section_evals:
+        lines.append("## 各章节评估\n")
+        for se in section_evals:
+            title = se.get('section_title', '未知')
+            score = se.get('section_score', 0)
+            grade = se.get('grade_level', '')
+            lines.append(f"### {title} - {score}分 ({grade})\n")
+
+            cq = se.get('content_quality', {})
+            if cq:
+                lines.append(f"**内容质量** ({cq.get('score', 'N/A')}分): {cq.get('comment', '')}\n")
+                for s in cq.get('strengths', []):
+                    lines.append(f"- ✅ {s}\n")
+                for w in cq.get('weaknesses', []):
+                    lines.append(f"- ❌ {w}\n")
+
+            lc = se.get('logic_coherence', {})
+            if lc:
+                lines.append(f"**逻辑连贯性** ({lc.get('score', 'N/A')}分): {lc.get('comment', '')}\n")
+                for iss in lc.get('issues', []):
+                    lines.append(f"- ⚠️ {iss}\n")
+
+            ic = se.get('innovation_contribution', {})
+            if ic:
+                lines.append(f"**创新与贡献** ({ic.get('score', 'N/A')}分): {ic.get('comment', '')}\n")
+                lines.append(f"- 创新类型: {ic.get('novelty_type', 'N/A')}\n")
+
+            suggestions = se.get('improvement_suggestions', [])
+            if suggestions:
+                lines.append("**改进建议:**\n")
+                for sug in suggestions:
+                    if isinstance(sug, dict):
+                        lines.append(f"- [{sug.get('priority', '中')}] **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}\n")
+                    else:
+                        lines.append(f"- {sug}\n")
+            lines.append("\n")
+
+    base_eval = data.get('base_evaluation', {})
+    strengths = data.get('strengths', []) or base_eval.get('strengths', [])
+    if strengths:
+        lines.append("## 优势\n")
+        for s in strengths:
+            lines.append(f"- ✅ {s}\n")
+        lines.append("\n")
+
+    weaknesses = data.get('weaknesses', []) or base_eval.get('weaknesses', [])
+    if weaknesses:
+        lines.append("## 不足\n")
+        for w in weaknesses:
+            lines.append(f"- ❌ {w}\n")
+        lines.append("\n")
+
+    suggestions = data.get('improvement_suggestions', []) or base_eval.get('improvement_suggestions', [])
+    if suggestions:
+        lines.append("## 改进建议\n")
+        for sug in suggestions:
+            if isinstance(sug, dict):
+                lines.append(f"- [{sug.get('priority', '中')}] **{sug.get('aspect', '')}**: {sug.get('suggestion', '')}\n")
+                if sug.get('current_issue'):
+                    lines.append(f"  - 当前问题: {sug['current_issue']}\n")
+            else:
+                lines.append(f"- {sug}\n")
+        lines.append("\n")
+
+    overall_eval = data.get('overall_evaluation', data.get('overall_comment', '')) or base_eval.get('overall_evaluation', base_eval.get('overall_comment', ''))
+    if overall_eval:
+        lines.append("## 总体评价\n")
+        lines.append(f"{overall_eval}\n")
+
+    return '\n'.join(lines)
+
+
+def _generate_text_report(data: dict, method: str, student_info: dict) -> str:
+    md = _generate_markdown_report(data, method, student_info)
+    import re
+    text = md
+    text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'^\|.*\|$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^---$', '=' * 60, text, flags=re.MULTILINE)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text
+
+
+@app.post("/verify_novelty")
+async def verify_novelty(
+    request: Dict = Body(...)
+):
+    """
+    单独运行引用网络新颖度验证
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    - semantic_scholar_api_key: Semantic Scholar API密钥（可选）
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        s2_api_key = request.get('semantic_scholar_api_key', None)
+
+        from src.evaluation.citation_novelty_verifier import NoveltyVerifier
+
+        verifier = NoveltyVerifier(semantic_scholar_api_key=s2_api_key)
+        result = verifier.verify_thesis_novelty(submission_content)
+
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"新颖度验证失败: {str(e)}")
+
+
+@app.post("/check_citation_format")
+async def check_citation_format(
+    request: Dict = Body(...)
+):
+    """
+    使用大模型检查论文参考文献的格式规范性
+
+    检查内容包括：
+    1. 拼写错误（库名、人名、期刊名等）
+    2. 引用格式不统一（编号风格、标点、空格等）
+    3. 信息缺失（缺作者、缺年份、缺页码等）
+    4. 大小写错误、标点空格问题、作者格式问题等
+
+    请求参数:
+    - submission_content: 论文内容（必填）
+    """
+    try:
+        submission_content = request.get('submission_content', '')
+        if not submission_content:
+            raise HTTPException(status_code=400, detail="提交内容不能为空")
+
+        from src.evaluation.citation_novelty_verifier import NoveltyVerifier
+
+        verifier = NoveltyVerifier()
+        result = verifier.check_citation_format(submission_content)
+
+        return result
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        error_message = str(e)
+        if "API密钥未设置" in error_message:
+            raise HTTPException(status_code=400, detail=f"引用格式检查失败: API密钥未设置，请在AI设置页面中配置API密钥")
+        elif "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            raise HTTPException(status_code=504, detail=f"引用格式检查失败: 请求超时，请稍后重试")
+        else:
+            raise HTTPException(status_code=500, detail=f"引用格式检查失败: {error_message}")
+
+
+@app.post("/optimize_prompts_bootstrap")
+async def optimize_prompts_bootstrap(
+    request: Dict = Body(...)
+):
+    """
+    TextGrad提示词自举优化（无需人工评分）
+
+    请求参数:
+    - thesis_samples: 论文样本列表（只需论文文本，至少2篇）
+    - n_iterations: 迭代次数（默认2）
+    """
+    try:
+        thesis_samples = request.get('thesis_samples', [])
+        n_iterations = request.get('n_iterations', 2)
+
+        if len(thesis_samples) < 2:
+            raise HTTPException(status_code=400, detail="至少需要2篇论文样本进行自举优化")
+
+        from src.evaluation.textgrad_optimizer import TextGradOptimizer
+        from src.prompts.thesis_prompts import ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT
+
+        optimizer = TextGradOptimizer()
+
+        user_template = """请对以下毕业设计论文进行校方固有评价体系维度评分。
+
+## 论文内容
+
+{content}
+
+请返回JSON格式的评分结果。"""
+
+        result = optimizer.optimize_prompt_bootstrap(
+            initial_system_prompt=ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT,
+            initial_user_prompt_template=user_template,
+            thesis_samples=thesis_samples,
+            n_iterations=n_iterations,
+        )
+
+        return {
+            "status": "success",
+            "best_consistency": result.get("best_consistency"),
+            "n_iterations_completed": result.get("n_iterations_completed"),
+            "optimization_history": result.get("optimization_history"),
+            "optimized_system_prompt_preview": result.get("optimized_system_prompt", "")[:500],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"提示词优化失败: {str(e)}")
+
+# ========== End migrated graduation-thesis evaluation endpoints ==========
+
 @app.get("/ai-config")
 async def get_ai_configuration():
     """获取当前 AI 配置"""
