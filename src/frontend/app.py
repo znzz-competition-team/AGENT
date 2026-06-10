@@ -6,6 +6,8 @@ from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
 import os
+import asyncio
+import sys
 
 # API 基础 URL
 API_BASE_URL = "http://localhost:8000"
@@ -128,9 +130,54 @@ pages = [
     ("✏️", "手写识别"),
     ("🤖", "评估管理"),
     ("📊", "结果查询"),
+    ("🎓", "论文格式校验"),
     ("⚙️", "AI设置"),
     ("🔧", "API文档")
 ]
+
+# === 新增 MCP 客户端核心调用逻辑 ===
+def call_mcp_validator(absolute_file_path: str) -> str:
+    """
+    前端 MCP 客户端：通过标准 MCP 协议拉起后台的 my_mcp.py Stdio 服务，
+    并精确调度其 check_thesis_format 工具。
+    """
+    try:
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+    except ImportError:
+        return "❌ 运行环境未检测到 `mcp` 依赖库。请先在终端执行：`pip install mcp`"
+
+    async def _async_run():
+        # 配置 MCP Stdio 服务的启动参数，指向项目根目录下的 my_mcp.py
+        server_params = StdioServerParameters(
+            command=sys.executable,  # 自动获取当前 Python 虚拟环境路径
+            args=[os.path.abspath("my_mcp.py")], # 确保 my_mcp.py 在当前工作目录下
+            env=os.environ.copy()
+        )
+        
+        try:
+            # 1. 建立 Stdio 管道连接
+            async with stdio_client(server_params) as (read, write):
+                # 2. 绑定客户端 MCP 会话
+                async with ClientSession(read, write) as session:
+                    # 3. 初始化协议握手
+                    await session.initialize()
+                    
+                    # 4. 远程调用注册在 my_mcp.py 里的工具，传递论文的绝对路径
+                    result = await session.call_tool(
+                        "check_thesis_format", 
+                        arguments={"file_path": absolute_file_path}
+                    )
+                    
+                    # 5. 解析并返回报告文本
+                    if result and hasattr(result, 'content') and result.content:
+                        return result.content[0].text
+                    return "⚠️ MCP 服务响应成功，但未返回有效的文本报告。"
+        except Exception as err:
+            return f"❌ [MCP 客户端错误] 无法连接或调用后台工具。原因: {str(err)}\n请检查 `my_mcp.py` 是否放置在当前运行目录下。"
+
+    # 在 Streamlit 同步流中驱动异步任务
+    return asyncio.run(_async_run())
 
 # 创建导航按钮
 for emoji, page_name in pages:
@@ -1468,6 +1515,52 @@ elif page == "✏️ 手写识别":
                         st.error(f"❌ 识别失败: {error_detail}")
                 except Exception as e:
                     st.error(f"❌ 识别失败: {str(e)}")
+
+# ==================== 🎓 论文格式校验 (MCP集成) ====================
+elif page == "🎓 论文格式校验":
+    st.title("🎓 论文格式量化校验看板")
+    st.markdown("""
+    本模块基于 **MCP (Model Context Protocol)** 开放标准协议构建。
+    前端作为 MCP 客户端，会直接将上传的文档交由后台解耦的 `TongjiFormatValidator` 微服务进行深度诊断。
+    """)
+    
+    st.warning("💡 提示：校验引擎已自动包含 XML 回溯机制，能够彻底解决 Word 段落首行缩进等误报 Bug。")
+    
+    # 1. 前端文件接收器
+    uploaded_file = st.file_uploader("📤 请上传需要检查格式的同济大学毕业论文 (.docx)", type=["docx"])
+    
+    if uploaded_file is not None:
+        # 2. 在本地前端创建临时缓存目录
+        frontend_cache_dir = "./frontend_mcp_cache"
+        os.makedirs(frontend_cache_dir, exist_ok=True)
+        temp_file_path = os.path.join(frontend_cache_dir, uploaded_file.name)
+        
+        # 3. 将浏览器内存中的流数据写入服务器磁盘路径，以便后台工具可以直接读取
+        with open(temp_file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+            
+        absolute_path = os.path.abspath(temp_file_path)
+        
+        st.info(f"📋 文档已安全加载。待诊断路径：`{uploaded_file.name}`")
+        
+        # 4. 用户点击触发校验按钮
+        if st.button("🚀 启动后台 MCP 格式校验服务", use_container_width=True, type="primary"):
+            with st.spinner("🤖 正在建立 MCP 协议通道并深度解析文档结构，请稍候..."):
+                
+                # 调用我们在第三步编写的 MCP 客户端连接函数
+                report_markdown = call_mcp_validator(absolute_path)
+                
+                # 5. 在右侧面板中直接显示炫酷的量化得分与 Markdown 报告表格
+                st.success("✅ 后端 MCP 诊断工具执行完毕！")
+                st.markdown("---")
+                st.markdown(report_markdown)
+                
+                # 6. 阅后即焚，清理前端产生的临时文件
+                try:
+                    if os.path.exists(absolute_path):
+                        os.remove(absolute_path)
+                except:
+                    pass
 
 # ==================== AI 设置 ====================
 elif page == "⚙️ AI设置":
