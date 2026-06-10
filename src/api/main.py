@@ -41,7 +41,7 @@ for _noisy in ("urllib3", "httpcore", "httpx", "http11", "openai"):
 logger = logging.getLogger(__name__)
 
 from src.database import get_db, DatabaseService, init_db
-from src.database.models import Student, Submission, MediaFile, EvaluationResult, ProgressReport
+from src.database.models import Student, Submission, MediaFile, EvaluationResult, ProgressReport, CalibrationBenchmark
 from src.models.schemas import (
     StudentCreate, StudentUpdate, StudentResponse,
     SubmissionCreate, SubmissionResponse, SubmissionStatus, SubmissionType, SubmissionPurpose,
@@ -50,7 +50,11 @@ from src.models.schemas import (
     EvaluationRequest, EvaluationResponse, ProgressReportResponse,
     EvaluationDimension, EvaluationTaskCreateResponse, EvaluationTaskStatusResponse,
     EvaluationReviewActionRequest, EvaluationRegradeRequest, EvaluationRegradeResolveRequest,
-    EvaluationReviewAuditResponse, HandwritingExamGradeResponse
+    EvaluationReviewAuditResponse, HandwritingExamGradeResponse,
+    FeedbackSurveyCreate, FeedbackSurveyUpdate, FeedbackSurveyResponse,
+    FeedbackResponseCreate, FeedbackResponseResult,
+    CalibrationBenchmarkCreate, CalibrationBenchmarkResponse,
+    CalibrationCompareRequest, CalibrationReportResponse
 )
 from src.models.schemas import EvaluationResult as SchemaEvaluationResult
 # 移除对CrewAI和MediaProcessor的依赖，避免CV2依赖
@@ -812,6 +816,218 @@ def _is_syllabus_missing_dimension_placeholder(ds: Any) -> bool:
     return r.startswith("未找到与大纲能力点")
 
 
+def _get_submission_file_names(db_service: DatabaseService, submission_id: int) -> List[str]:
+    files = db_service.db.query(MediaFile).filter(MediaFile.submission_id == submission_id).all()
+    return [str(file.file_name or "").strip() for file in files if str(file.file_name or "").strip()]
+
+
+def _build_student_profile_payload(
+    student_id: str,
+    points: List[Dict[str, Any]],
+    evaluations: List[Any],
+    ability_dimension_series: List[Dict[str, Any]],
+    trend_diagnostics: Dict[str, Any],
+    course_type: str,
+    db_service: DatabaseService
+) -> Dict[str, Any]:
+    latest_point = points[-1] if points else {}
+    latest_overall = _safe_avg([latest_point.get("overall_score")]) if latest_point else 0.0
+    overall_delta = float(trend_diagnostics.get("overall_delta", 0.0) or 0.0)
+    overall_volatility = float(trend_diagnostics.get("overall_volatility", 0.0) or 0.0)
+
+    tags: List[str] = []
+    if overall_delta >= 3:
+        tags.append("稳定提升型")
+    elif overall_delta <= -3:
+        tags.append("需干预回落型")
+    else:
+        tags.append("稳态保持型")
+    if overall_volatility >= 8:
+        tags.append("波动较高")
+    elif overall_volatility <= 3 and len(points) >= 2:
+        tags.append("表现稳定")
+    if latest_overall >= 85:
+        tags.append("高达成")
+    elif latest_overall < 60:
+        tags.append("达成风险")
+
+    ranked_by_mean = sorted(
+        ability_dimension_series,
+        key=lambda item: float(item.get("mean_score", 0.0) or 0.0),
+        reverse=True
+    )
+    strengths = [
+        {
+            "ability": item.get("dimension", "未知能力点"),
+            "mean_score": item.get("mean_score", 0.0),
+            "delta": item.get("delta", 0.0),
+            "reason": "均分靠前，适合作为后续任务中的稳定支撑项。"
+        }
+        for item in ranked_by_mean[:3]
+    ]
+
+    risk_sources = sorted(
+        ability_dimension_series,
+        key=lambda item: (
+            float(item.get("mean_score", 100.0) or 100.0),
+            float(item.get("delta", 0.0) or 0.0),
+            -float(item.get("volatility", 0.0) or 0.0)
+        )
+    )
+    risks = [
+        {
+            "ability": item.get("dimension", "未知能力点"),
+            "mean_score": item.get("mean_score", 0.0),
+            "delta": item.get("delta", 0.0),
+            "volatility": item.get("volatility", 0.0),
+            "reason": "均分偏低、下降或波动较大，建议进入下一轮闭环跟踪。"
+        }
+        for item in risk_sources[:3]
+    ]
+
+    assignment_basis: List[Dict[str, Any]] = []
+    evidence_basis: List[Dict[str, Any]] = []
+    for ev in evaluations:
+        submission = db_service.db.query(Submission).filter(Submission.id == ev.submission_id).first()
+        if not submission:
+            continue
+        assignment_basis.append({
+            "evaluation_id": ev.evaluation_id,
+            "submission_id": submission.submission_id,
+            "title": submission.title,
+            "syllabus_name": getattr(submission, "syllabus_name", None),
+            "files": _get_submission_file_names(db_service, submission.id),
+            "text_preview": _truncate_evidence_text(getattr(submission, "text_content", "") or "", 180),
+            "overall_score": _clamp_score(ev.overall_score),
+            "evaluated_at": ev.evaluated_at.isoformat() if ev.evaluated_at else ""
+        })
+
+        dimension_scores = db_service.get_dimension_scores_by_evaluation_id(ev.evaluation_id)
+        for ds in dimension_scores:
+            if len(evidence_basis) >= 10:
+                break
+            evidence_items = process_evidence(getattr(ds, "evidence", None))
+            if not evidence_items:
+                continue
+            evidence_basis.append({
+                "evaluation_id": ev.evaluation_id,
+                "ability": str(getattr(ds, "dimension", "") or "未知能力点"),
+                "score": _clamp_score(getattr(ds, "score", 0.0)),
+                "evidence": evidence_items[:2]
+            })
+
+    mastery_summary = [
+        {
+            "ability": item.get("dimension", "未知能力点"),
+            "latest_score": next((score for score in reversed(item.get("scores", []) or []) if score is not None), None),
+            "mean_score": item.get("mean_score", 0.0),
+            "delta": item.get("delta", 0.0),
+            "direction": item.get("direction", "未知"),
+            "volatility": item.get("volatility", 0.0)
+        }
+        for item in ability_dimension_series
+    ]
+
+    return {
+        "student_id": student_id,
+        "profile_basis": "课程作业文件、文本提交、能力点评分、可定位证据和纵向趋势",
+        "course_type": course_type,
+        "evaluation_count": len(points),
+        "latest_overall_score": latest_overall,
+        "overall_delta": overall_delta,
+        "overall_volatility": overall_volatility,
+        "tags": tags,
+        "strengths": strengths,
+        "risks": risks,
+        "mastery_summary": mastery_summary,
+        "assignment_basis": assignment_basis[-8:],
+        "evidence_basis": evidence_basis
+    }
+
+
+def _build_trend_closure_plan(
+    points: List[Dict[str, Any]],
+    ability_dimension_series: List[Dict[str, Any]],
+    trend_diagnostics: Dict[str, Any],
+    course_type: str
+) -> Dict[str, Any]:
+    if not points:
+        return {}
+
+    def _latest_score(item: Dict[str, Any]) -> float:
+        for score in reversed(item.get("scores", []) or []):
+            if score is not None:
+                return _clamp_score(score)
+        return _clamp_score(item.get("mean_score", 0.0) or 0.0)
+
+    def _priority_score(item: Dict[str, Any]) -> float:
+        mean_score = float(item.get("mean_score", 0.0) or 0.0)
+        delta = float(item.get("delta", 0.0) or 0.0)
+        volatility = float(item.get("volatility", 0.0) or 0.0)
+        return round(max(0.0, 75.0 - mean_score) * 0.6 + max(0.0, -delta) * 1.8 + volatility, 2)
+
+    priority_dimensions = sorted(ability_dimension_series, key=_priority_score, reverse=True)[:4]
+    actions: List[Dict[str, Any]] = []
+    for item in priority_dimensions:
+        ability = item.get("dimension", "未知能力点")
+        latest_score = _latest_score(item)
+        target_score = min(100.0, max(60.0, latest_score + (8.0 if latest_score < 70 else 5.0)))
+        priority_score = _priority_score(item)
+        priority = "高" if priority_score >= 18 else ("中" if priority_score >= 9 else "低")
+        actions.append({
+            "ability": ability,
+            "priority": priority,
+            "current_score": latest_score,
+            "target_score": round(target_score, 1),
+            "diagnosis": (
+                f"均分 {float(item.get('mean_score', 0.0) or 0.0):.1f}，"
+                f"变化 {float(item.get('delta', 0.0) or 0.0):+.1f}，"
+                f"波动度 {float(item.get('volatility', 0.0) or 0.0):.1f}。"
+            ),
+            "teacher_action": "布置一次针对性修订任务，并要求学生补充过程说明、结果对比和反思记录。",
+            "student_evidence_required": [
+                "原作业关键片段修订前后对照",
+                "与该能力点对应的文件名、页码/段落/表格位置",
+                "改进说明和自我检查结论"
+            ],
+            "verification": "下一次同 Rubric 口径复评，目标是达到目标分且证据链完整。"
+        })
+
+    if not actions:
+        actions.append({
+            "ability": "整体表现稳定性",
+            "priority": "中",
+            "current_score": _clamp_score(points[-1].get("overall_score", 0.0)),
+            "target_score": min(100.0, _clamp_score(points[-1].get("overall_score", 0.0)) + 5.0),
+            "diagnosis": "当前能力点分项不足以形成明确短板排序，先按总分趋势建立复盘闭环。",
+            "teacher_action": "要求学生补交一次作业复盘，明确任务目标、产出证据和下一步改进。",
+            "student_evidence_required": ["作业文件清单", "关键原文片段", "自我反思记录"],
+            "verification": "下一次评估检查总分、能力点均分和证据完整性是否同步提升。"
+        })
+
+    latest_stage = points[-1].get("stage_label", "最新阶段")
+    overall_delta = float(trend_diagnostics.get("overall_delta", 0.0) or 0.0)
+    return {
+        "loop_name": "趋势诊断 -> 教师干预 -> 学生补证 -> 同口径复评",
+        "current_stage": latest_stage,
+        "course_type": course_type,
+        "status": "需干预" if overall_delta < -1 or any(a["priority"] == "高" for a in actions) else "持续跟踪",
+        "priority_actions": actions,
+        "next_evaluation_checklist": [
+            "是否沿用同一 Rubric 版本或记录版本变更原因",
+            "是否提交了文件名、页码/段落/表格位置和原文片段",
+            "教师是否确认 AI 初评并记录修改原因",
+            "目标能力点是否达到目标分或至少提升 3 分"
+        ],
+        "success_criteria": [
+            "优先能力点达到目标分",
+            "下降能力点不再连续回落",
+            "作业证据链可被教师快速核验",
+            "下一轮复评记录进入历史趋势"
+        ]
+    }
+
+
 def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_service: DatabaseService) -> Dict[str, Any]:
     points: List[Dict[str, Any]] = []
     course_type_counter = {"理论课": 0, "实践课": 0}
@@ -1111,6 +1327,22 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         f"### 八、改进路径\n{report_sections['improvement_path']}\n"
     )
 
+    student_profile = _build_student_profile_payload(
+        student_id=student_id,
+        points=points,
+        evaluations=evaluations,
+        ability_dimension_series=ability_dimension_series,
+        trend_diagnostics=trend_diagnostics,
+        course_type=course_type,
+        db_service=db_service
+    )
+    trend_closure_plan = _build_trend_closure_plan(
+        points=points,
+        ability_dimension_series=ability_dimension_series,
+        trend_diagnostics=trend_diagnostics,
+        course_type=course_type
+    )
+
     return {
         "course_type": course_type,
         "points": points,
@@ -1123,6 +1355,8 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         "key_insights": key_insights,
         "follow_up_points": follow_up_points,
         "improvement_areas": improvement_areas,
+        "student_profile": student_profile,
+        "trend_closure_plan": trend_closure_plan,
         "report": report
     }
 
@@ -1267,6 +1501,295 @@ def _build_course_objectives_dashboard(
     }
 
 # 文档内容提取函数
+def _loads_json_list(value: Optional[str]) -> List[Any]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
+    except Exception:
+        return []
+
+def _feedback_survey_response(survey: Any, response_count: int = 0) -> FeedbackSurveyResponse:
+    target = int(getattr(survey, "target_response_count", 0) or 0)
+    response_rate = round(response_count / target * 100.0, 2) if target else 0.0
+    return FeedbackSurveyResponse(
+        survey_id=survey.survey_id,
+        title=survey.title,
+        course_name=getattr(survey, "course_name", None),
+        syllabus_name=getattr(survey, "syllabus_name", None),
+        survey_type=survey.survey_type,
+        status=survey.status,
+        target_response_count=target,
+        response_count=response_count,
+        response_rate=response_rate,
+        description=getattr(survey, "description", None),
+        start_at=getattr(survey, "start_at", None),
+        end_at=getattr(survey, "end_at", None),
+        created_at=survey.created_at,
+        updated_at=survey.updated_at
+    )
+
+def _clamp_rating(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return max(1.0, min(5.0, float(value)))
+    except Exception:
+        return None
+
+def _infer_feedback_sentiment(text: str) -> str:
+    normalized = str(text or "")
+    negative = ["困难", "难", "不清楚", "看不懂", "压力", "太多", "混乱", "缺少", "不会", "卡住", "不合理"]
+    positive = ["清楚", "有帮助", "合理", "喜欢", "收获", "明确", "适合", "提升", "满意"]
+    neg_count = sum(1 for word in negative if word in normalized)
+    pos_count = sum(1 for word in positive if word in normalized)
+    if neg_count > pos_count:
+        return "negative"
+    if pos_count > neg_count:
+        return "positive"
+    return "neutral"
+
+def _extract_feedback_terms(text: str) -> List[str]:
+    text = re.sub(r"[\s，。！？、；：,.!?;:()\[\]{}<>《》\"'“”‘’]+", " ", str(text or "").lower())
+    raw_terms = re.findall(r"[\u4e00-\u9fff]{2,}|[a-zA-Z][a-zA-Z0-9_+-]{2,}", text)
+    stop_terms = {
+        "我们", "觉得", "任务", "作业", "课程", "老师", "学生", "比较", "还是", "这个",
+        "那个", "因为", "所以", "如果", "没有", "需要", "希望", "问题", "内容"
+    }
+    return [term for term in raw_terms if term not in stop_terms]
+
+def _cluster_feedback_texts(responses: List[Any]) -> List[Dict[str, Any]]:
+    theme_keywords = {
+        "任务要求不清": ["要求", "题目", "目标", "说明", "标准", "不清楚", "理解"],
+        "理论基础薄弱": ["理论", "概念", "公式", "原理", "基础", "推导", "知识点"],
+        "实践实现困难": ["代码", "实现", "调试", "实验", "运行", "工程", "工具", "环境"],
+        "分析论证不足": ["分析", "论证", "解释", "对比", "结论", "推理", "数据"],
+        "文档表达困难": ["报告", "文档", "格式", "表达", "写作", "排版", "引用"],
+        "工作量与节奏": ["时间", "工作量", "进度", "压力", "太多", "截止", "节奏"],
+        "评价反馈诉求": ["反馈", "评分", "评价", "分数", "建议", "批改", "标准"]
+    }
+    clusters: Dict[str, Dict[str, Any]] = {}
+    fallback_terms: Dict[str, int] = {}
+
+    for response in responses:
+        parts = [
+            getattr(response, "difficulty_text", "") or "",
+            getattr(response, "feedback_text", "") or "",
+            getattr(response, "task_design_text", "") or ""
+        ]
+        text = " ".join(part for part in parts if part.strip())
+        if not text.strip():
+            continue
+        scores = {
+            theme: sum(1 for kw in keywords if kw.lower() in text.lower())
+            for theme, keywords in theme_keywords.items()
+        }
+        theme, score = max(scores.items(), key=lambda item: item[1])
+        if score <= 0:
+            terms = _extract_feedback_terms(text)
+            for term in terms[:8]:
+                fallback_terms[term] = fallback_terms.get(term, 0) + 1
+            theme = terms[0] if terms else "其他反馈"
+        item = clusters.setdefault(theme, {
+            "theme": theme,
+            "count": 0,
+            "examples": [],
+            "avg_difficulty": 0.0,
+            "difficulty_values": [],
+            "keywords": []
+        })
+        item["count"] += 1
+        item["difficulty_values"].append(getattr(response, "difficulty_level", None))
+        if len(item["examples"]) < 3:
+            item["examples"].append(_truncate_evidence_text(text, 180))
+
+    if not clusters and fallback_terms:
+        for term, count in sorted(fallback_terms.items(), key=lambda item: item[1], reverse=True)[:8]:
+            clusters[term] = {
+                "theme": term,
+                "count": count,
+                "examples": [],
+                "avg_difficulty": 0.0,
+                "difficulty_values": [],
+                "keywords": [term]
+            }
+
+    results = []
+    for item in clusters.values():
+        difficulty_values = [_parse_score_value(v) for v in item.pop("difficulty_values", [])]
+        difficulty_values = [v for v in difficulty_values if v is not None]
+        terms = []
+        for example in item.get("examples", []):
+            terms.extend(_extract_feedback_terms(example))
+        term_counts: Dict[str, int] = {}
+        for term in terms:
+            term_counts[term] = term_counts.get(term, 0) + 1
+        item["keywords"] = [
+            term for term, _ in sorted(term_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]
+        ]
+        item["avg_difficulty"] = _safe_avg(difficulty_values) if difficulty_values else 0.0
+        results.append(item)
+    results.sort(key=lambda item: (item["count"], item.get("avg_difficulty", 0.0)), reverse=True)
+    return results
+
+def _match_feedback_to_weak_abilities(text: str, weakness_ranking: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    terms = set(_extract_feedback_terms(text))
+    text_key = _normalize_dimension_name(text)
+    matches = []
+    for ability in weakness_ranking:
+        ability_name = str(ability.get("ability", "") or "")
+        ability_key = _normalize_dimension_name(ability_name)
+        if not ability_key:
+            continue
+        ability_terms = set(_extract_feedback_terms(ability_name))
+        overlap = len(terms & ability_terms)
+        if ability_key and (ability_key in text_key or text_key in ability_key):
+            overlap += 4
+        for term in terms:
+            if term and term in ability_key:
+                overlap += 1
+        if overlap > 0:
+            matches.append({
+                "ability": ability_name,
+                "match_score": overlap,
+                "mean_score": ability.get("mean_score"),
+                "low_score_rate": ability.get("low_score_rate"),
+                "trend_direction": ability.get("trend_direction")
+            })
+    matches.sort(key=lambda item: item["match_score"], reverse=True)
+    return matches[:3]
+
+def _build_feedback_analytics(survey: Any, responses: List[Any], db_service: DatabaseService) -> Dict[str, Any]:
+    response_count = len(responses)
+    target = int(getattr(survey, "target_response_count", 0) or 0)
+    ratings = {
+        "course": _safe_avg([r.rating_course for r in responses if r.rating_course is not None]),
+        "teacher": _safe_avg([r.rating_teacher for r in responses if r.rating_teacher is not None]),
+        "assignment_design": _safe_avg([r.rating_assignment_design for r in responses if r.rating_assignment_design is not None]),
+        "difficulty": _safe_avg([r.difficulty_level for r in responses if r.difficulty_level is not None]),
+        "workload": _safe_avg([r.workload_level for r in responses if r.workload_level is not None])
+    }
+    sentiment_counts: Dict[str, int] = {"positive": 0, "neutral": 0, "negative": 0}
+    for response in responses:
+        sentiment = getattr(response, "sentiment", None) or "neutral"
+        sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
+    dashboard = _build_course_objectives_dashboard(
+        db_service=db_service,
+        syllabus_name=getattr(survey, "syllabus_name", None),
+        achievement_threshold=60.0,
+        low_score_threshold=60.0
+    )
+    weakness_ranking = dashboard.get("weakness_ranking", []) if isinstance(dashboard, dict) else []
+    links = []
+    for response in responses:
+        text = " ".join([
+            getattr(response, "difficulty_text", "") or "",
+            getattr(response, "feedback_text", "") or "",
+            getattr(response, "task_design_text", "") or ""
+        ]).strip()
+        if not text:
+            continue
+        matches = _match_feedback_to_weak_abilities(text, weakness_ranking)
+        if matches:
+            links.append({
+                "response_id": response.response_id,
+                "student_difficulty": _truncate_evidence_text(text, 220),
+                "matched_weak_abilities": matches
+            })
+    return {
+        "survey": _feedback_survey_response(survey, response_count).model_dump(),
+        "summary": {
+            "response_count": response_count,
+            "target_response_count": target,
+            "response_rate": round(response_count / target * 100.0, 2) if target else 0.0,
+            "ratings": ratings,
+            "sentiment_counts": sentiment_counts
+        },
+        "theme_clusters": _cluster_feedback_texts(responses),
+        "weak_ability_links": links,
+        "system_weakness_ranking": weakness_ranking[:10]
+    }
+
+def _benchmark_response(benchmark: Any, db_service: DatabaseService) -> CalibrationBenchmarkResponse:
+    submission = db_service.db.query(Submission).filter(Submission.id == benchmark.submission_id).first()
+    return CalibrationBenchmarkResponse(
+        benchmark_id=benchmark.benchmark_id,
+        submission_id=submission.submission_id if submission else str(benchmark.submission_id),
+        title=getattr(submission, "title", None) if submission else None,
+        teacher_id=benchmark.teacher_id,
+        teacher_overall_score=benchmark.teacher_overall_score,
+        teacher_dimension_scores=_loads_json_list(benchmark.teacher_dimension_scores),
+        notes=benchmark.notes,
+        created_at=benchmark.created_at,
+        updated_at=benchmark.updated_at
+    )
+
+def _bias_judgement(bias: float, tolerance: float = 5.0) -> str:
+    if bias >= tolerance:
+        return "偏宽"
+    if bias <= -tolerance:
+        return "偏严"
+    return "基本一致"
+
+def _build_calibration_report(
+    benchmark: Any,
+    evaluation: Any,
+    db_service: DatabaseService
+) -> Dict[str, Any]:
+    submission = db_service.db.query(Submission).filter(Submission.id == benchmark.submission_id).first()
+    if not submission:
+        raise HTTPException(status_code=404, detail="标杆样本关联的提交不存在")
+    if evaluation.submission_id != submission.id:
+        raise HTTPException(status_code=400, detail="评估结果与标杆样本不是同一份作业")
+    teacher_dims = _loads_json_list(benchmark.teacher_dimension_scores)
+    teacher_map = {
+        _normalize_dimension_name(str(item.get("dimension", ""))): item
+        for item in teacher_dims
+        if isinstance(item, dict) and item.get("dimension")
+    }
+    ai_scores = db_service.get_dimension_scores_by_evaluation_id(evaluation.evaluation_id)
+    ai_map = {
+        _normalize_dimension_name(str(ds.dimension)): ds
+        for ds in ai_scores
+        if str(getattr(ds, "dimension", "") or "").strip()
+    }
+    dimension_biases = []
+    for teacher_key, teacher_item in teacher_map.items():
+        ai_ds = ai_map.get(teacher_key)
+        if not ai_ds:
+            ai_ds = next((ds for key, ds in ai_map.items() if teacher_key in key or key in teacher_key), None)
+        teacher_score = _parse_score_value(teacher_item.get("score"))
+        ai_score = _parse_score_value(getattr(ai_ds, "score", None)) if ai_ds else None
+        if teacher_score is None or ai_score is None:
+            continue
+        bias = round(ai_score - teacher_score, 2)
+        dimension_biases.append({
+            "dimension": teacher_item.get("dimension"),
+            "teacher_score": teacher_score,
+            "ai_score": ai_score,
+            "bias": bias,
+            "judgement": _bias_judgement(bias),
+            "notes": teacher_item.get("notes")
+        })
+    overall_bias = round(float(evaluation.overall_score) - float(benchmark.teacher_overall_score), 2)
+    notable = [item for item in dimension_biases if item["judgement"] != "基本一致"]
+    if notable:
+        phrases = [f"模型对“{item['dimension']}”{item['judgement']}({item['bias']:+.1f})" for item in notable[:5]]
+        summary = "；".join(phrases)
+    else:
+        summary = "AI 评分与教师标杆整体接近，暂无显著维度偏差。"
+    summary = f"总分偏差 {overall_bias:+.1f}（{_bias_judgement(overall_bias)}）。{summary}"
+    return {
+        "submission_id": submission.submission_id,
+        "teacher_overall_score": benchmark.teacher_overall_score,
+        "ai_overall_score": evaluation.overall_score,
+        "overall_bias": overall_bias,
+        "overall_judgement": _bias_judgement(overall_bias),
+        "dimension_biases": dimension_biases,
+        "summary": summary
+    }
+
 def extract_document_content(file_path: str) -> str:
     """提取文档内容"""
     try:
@@ -1526,6 +2049,15 @@ def _transition_submission_status(db_service: DatabaseService, submission_id: st
     db_service.update_submission_status(submission_id, target_status)
 
 
+def _has_active_evaluation_task_for_submission(submission_id: str) -> bool:
+    active_statuses = {"queued", "running"}
+    with TASK_LOCK:
+        return any(
+            task.get("submission_id") == submission_id and task.get("status") in active_statuses
+            for task in EVALUATION_TASKS.values()
+        )
+
+
 def _prepare_and_validate_submission(
     request: EvaluationRequest,
     db_service: DatabaseService
@@ -1541,7 +2073,14 @@ def _prepare_and_validate_submission(
     _validate_evaluation_window(request)
 
     if submission.status == SubmissionStatus.PROCESSING.value:
-        raise HTTPException(status_code=409, detail="该提交正在评估中，请稍后重试")
+        if _has_active_evaluation_task_for_submission(request.submission_id):
+            raise HTTPException(status_code=409, detail="该提交正在评估中，请稍后重试")
+        recovered_submission = db_service.update_submission_status(
+            request.submission_id,
+            SubmissionStatus.FAILED.value
+        )
+        if recovered_submission:
+            submission = recovered_submission
     if submission.status == SubmissionStatus.COMPLETED.value and not request.force_re_evaluate:
         raise HTTPException(status_code=409, detail="该提交已完成评估，如需重评请设置 force_re_evaluate=true")
 
@@ -3214,6 +3753,7 @@ async def create_evaluation_task(
     with TASK_LOCK:
         EVALUATION_TASKS[task_id] = {
             "task_id": task_id,
+            "submission_id": request.submission_id,
             "status": "queued",
             "progress": 0.0,
             "created_at": created_at,
@@ -3674,6 +4214,202 @@ async def get_course_objectives_dashboard(
         low_score_threshold=max(0.0, min(100.0, low_score_threshold))
     )
 
+@app.post("/feedback/surveys", response_model=FeedbackSurveyResponse)
+async def create_feedback_survey(
+    request: FeedbackSurveyCreate,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    survey = db_service.create_feedback_survey(**request.model_dump())
+    return _feedback_survey_response(survey, 0)
+
+@app.get("/feedback/surveys", response_model=List[FeedbackSurveyResponse])
+async def list_feedback_surveys(
+    skip: int = 0,
+    limit: int = 100,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("student", "teacher", "admin"))
+):
+    _ = auth
+    surveys = db_service.get_feedback_surveys(skip=skip, limit=limit)
+    return [
+        _feedback_survey_response(survey, len(db_service.get_feedback_responses(survey.survey_id)))
+        for survey in surveys
+    ]
+
+@app.put("/feedback/surveys/{survey_id}", response_model=FeedbackSurveyResponse)
+async def update_feedback_survey(
+    survey_id: str,
+    request: FeedbackSurveyUpdate,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    survey = db_service.update_feedback_survey(survey_id, **request.model_dump(exclude_unset=True))
+    if not survey:
+        raise HTTPException(status_code=404, detail="反馈问卷不存在")
+    return _feedback_survey_response(survey, len(db_service.get_feedback_responses(survey.survey_id)))
+
+@app.post("/feedback/surveys/{survey_id}/responses", response_model=FeedbackResponseResult)
+async def submit_feedback_response(
+    survey_id: str,
+    request: FeedbackResponseCreate,
+    db_service: DatabaseService = Depends(get_database_service)
+):
+    survey = db_service.get_feedback_survey_by_id(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="反馈问卷不存在")
+    if survey.status != "open":
+        raise HTTPException(status_code=409, detail="该问卷当前未开放提交")
+    now = datetime.utcnow()
+    if survey.start_at and now < survey.start_at:
+        raise HTTPException(status_code=409, detail="问卷尚未开始")
+    if survey.end_at and now > survey.end_at:
+        raise HTTPException(status_code=409, detail="问卷已结束")
+
+    text_blob = " ".join([
+        request.difficulty_text or "",
+        request.feedback_text or "",
+        request.task_design_text or ""
+    ]).strip()
+    respondent_hash = None
+    if request.respondent_token:
+        respondent_hash = hashlib.sha256(f"{survey_id}:{request.respondent_token}".encode("utf-8")).hexdigest()
+
+    response = db_service.create_feedback_response(
+        survey_id=survey_id,
+        respondent_hash=respondent_hash,
+        rating_course=_clamp_rating(request.rating_course),
+        rating_teacher=_clamp_rating(request.rating_teacher),
+        rating_assignment_design=_clamp_rating(request.rating_assignment_design),
+        difficulty_level=_clamp_rating(request.difficulty_level),
+        workload_level=_clamp_rating(request.workload_level),
+        difficulty_text=request.difficulty_text,
+        feedback_text=request.feedback_text,
+        task_design_text=request.task_design_text,
+        sentiment=_infer_feedback_sentiment(text_blob)
+    )
+    return FeedbackResponseResult(
+        response_id=response.response_id,
+        survey_id=survey_id,
+        submitted_at=response.submitted_at
+    )
+
+@app.get("/feedback/surveys/{survey_id}/analytics")
+async def get_feedback_survey_analytics(
+    survey_id: str,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    survey = db_service.get_feedback_survey_by_id(survey_id)
+    if not survey:
+        raise HTTPException(status_code=404, detail="反馈问卷不存在")
+    return _build_feedback_analytics(survey, db_service.get_feedback_responses(survey_id), db_service)
+
+@app.post("/calibration/benchmarks", response_model=CalibrationBenchmarkResponse)
+async def create_calibration_benchmark(
+    request: CalibrationBenchmarkCreate,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    teacher_scores = [item.model_dump() for item in request.teacher_dimension_scores]
+    try:
+        benchmark = db_service.create_calibration_benchmark(
+            submission_id=request.submission_id,
+            teacher_overall_score=request.teacher_overall_score,
+            teacher_dimension_scores=teacher_scores,
+            teacher_id=auth.get("user_id") or auth.get("role"),
+            notes=request.notes
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return _benchmark_response(benchmark, db_service)
+
+@app.get("/calibration/benchmarks", response_model=List[CalibrationBenchmarkResponse])
+async def list_calibration_benchmarks(
+    skip: int = 0,
+    limit: int = 100,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    return [_benchmark_response(item, db_service) for item in db_service.get_calibration_benchmarks(skip=skip, limit=limit)]
+
+@app.post("/calibration/benchmarks/{benchmark_id}/compare", response_model=CalibrationReportResponse)
+async def compare_calibration_benchmark(
+    benchmark_id: str,
+    request: CalibrationCompareRequest,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    benchmark = db_service.get_calibration_benchmark_by_id(benchmark_id)
+    if not benchmark:
+        raise HTTPException(status_code=404, detail="标杆样本不存在")
+
+    evaluation = None
+    if request.evaluation_id:
+        evaluation = db_service.get_evaluation_result_by_id(request.evaluation_id)
+    else:
+        submission = db_service.db.query(Submission).filter(Submission.id == benchmark.submission_id).first()
+        if submission:
+            evaluation = db_service.get_evaluation_result_by_submission_id(submission.submission_id)
+    if not evaluation:
+        raise HTTPException(status_code=404, detail="未找到可用于校准的 AI 评分结果")
+
+    report_payload = _build_calibration_report(benchmark, evaluation, db_service)
+    report = db_service.create_calibration_report(
+        benchmark_id=benchmark.benchmark_id,
+        evaluation_id=evaluation.evaluation_id,
+        overall_bias=report_payload["overall_bias"],
+        dimension_biases=report_payload["dimension_biases"],
+        summary=report_payload["summary"]
+    )
+    return CalibrationReportResponse(
+        report_id=report.report_id,
+        benchmark_id=benchmark.benchmark_id,
+        evaluation_id=evaluation.evaluation_id,
+        submission_id=report_payload["submission_id"],
+        teacher_overall_score=report_payload["teacher_overall_score"],
+        ai_overall_score=report_payload["ai_overall_score"],
+        overall_bias=report_payload["overall_bias"],
+        overall_judgement=report_payload["overall_judgement"],
+        dimension_biases=report_payload["dimension_biases"],
+        summary=report_payload["summary"],
+        created_at=report.created_at
+    )
+
+@app.get("/calibration/reports", response_model=List[CalibrationReportResponse])
+async def list_calibration_reports(
+    benchmark_id: Optional[str] = None,
+    db_service: DatabaseService = Depends(get_database_service),
+    auth: Dict[str, str] = Depends(_require_roles("teacher", "admin"))
+):
+    _ = auth
+    payloads = []
+    for report in db_service.get_calibration_reports(benchmark_id=benchmark_id):
+        benchmark = db_service.db.query(CalibrationBenchmark).filter(CalibrationBenchmark.id == report.benchmark_id).first()
+        evaluation = db_service.db.query(EvaluationResult).filter(EvaluationResult.id == report.evaluation_id).first()
+        if not benchmark or not evaluation:
+            continue
+        submission = db_service.db.query(Submission).filter(Submission.id == benchmark.submission_id).first()
+        payloads.append(CalibrationReportResponse(
+            report_id=report.report_id,
+            benchmark_id=benchmark.benchmark_id,
+            evaluation_id=evaluation.evaluation_id,
+            submission_id=submission.submission_id if submission else str(benchmark.submission_id),
+            teacher_overall_score=benchmark.teacher_overall_score,
+            ai_overall_score=evaluation.overall_score,
+            overall_bias=report.overall_bias,
+            overall_judgement=_bias_judgement(report.overall_bias),
+            dimension_biases=_loads_json_list(report.dimension_biases),
+            summary=report.summary or "",
+            created_at=report.created_at
+        ))
+    return payloads
+
 @app.get("/students/{student_id}/progress-report", response_model=ProgressReportResponse)
 async def generate_student_progress_report(
     student_id: str,
@@ -3730,6 +4466,8 @@ async def generate_student_progress_report(
             stage_breakdown=payload.get("stage_breakdown"),
             report_sections=payload.get("report_sections"),
             follow_up_points=payload.get("follow_up_points"),
+            student_profile=payload.get("student_profile"),
+            trend_closure_plan=payload.get("trend_closure_plan"),
             overall_score=payload.get("trend_series", {}).get("overall_score", [None])[-1] if payload.get("trend_series", {}).get("overall_score") else None
         )
     except Exception as e:
@@ -3844,6 +4582,8 @@ async def get_progress_report_detail(
         "stage_breakdown": payload.get("stage_breakdown"),
         "report_sections": payload.get("report_sections"),
         "follow_up_points": payload.get("follow_up_points"),
+        "student_profile": payload.get("student_profile"),
+        "trend_closure_plan": payload.get("trend_closure_plan"),
         "dimension_trends": dimension_trends,
         "key_insights": key_insights if key_insights else payload.get("key_insights", []),
         "improvement_areas": improvement_areas if improvement_areas else payload.get("improvement_areas", []),

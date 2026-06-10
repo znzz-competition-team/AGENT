@@ -2,7 +2,7 @@
 大模型评估服务 - 使用AI模型进行评估
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 import openai
 from src.config import get_ai_config
 import json
@@ -48,6 +48,115 @@ class LLMEvaluator:
             logger.error("无法初始化大模型客户端: " + str(e))
             raise
     
+    def _json_candidates(self, raw_content: str) -> List[str]:
+        content = (raw_content or "").strip()
+        candidates: List[str] = []
+        if content:
+            candidates.append(content)
+
+        fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", content, re.S | re.I)
+        if fenced:
+            candidates.append(fenced.group(1).strip())
+
+        start_idx = content.find("{")
+        end_idx = content.rfind("}")
+        if start_idx != -1 and end_idx > start_idx:
+            candidates.append(content[start_idx:end_idx + 1])
+
+        repaired = []
+        for candidate in candidates:
+            cleaned = candidate.strip().lstrip("\ufeff")
+            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            if cleaned not in repaired:
+                repaired.append(cleaned)
+        return repaired
+
+    def _partial_evaluation_from_malformed_json(self, raw_content: str) -> Dict[str, Any]:
+        raw = raw_content or ""
+
+        def _num(pattern: str, default: float = 0.0) -> float:
+            match = re.search(pattern, raw, re.S)
+            if not match:
+                return default
+            try:
+                return float(match.group(1))
+            except Exception:
+                return default
+
+        def _clean_text(value: str) -> str:
+            value = value.replace('\\"', '"').replace("\\n", " ")
+            value = re.sub(r"\s+", " ", value)
+            return value.strip().strip(",").strip()
+
+        overall_score = _num(r'"overall_score"\s*:\s*(-?\d+(?:\.\d+)?)', 0.0)
+        dimension_scores: List[Dict[str, Any]] = []
+
+        chunks = re.split(r'(?="dimension"\s*:)', raw)
+        for chunk in chunks:
+            dim_match = re.search(r'"dimension"\s*:\s*"((?:\\.|[^"\\])*)"', chunk, re.S)
+            score_match = re.search(r'"score"\s*:\s*(-?\d+(?:\.\d+)?)', chunk, re.S)
+            if not dim_match or not score_match:
+                continue
+            confidence_match = re.search(r'"confidence"\s*:\s*(-?\d+(?:\.\d+)?)', chunk, re.S)
+            reasoning_match = re.search(r'"reasoning"\s*:\s*"((?:\\.|[^"\\]){0,800})"', chunk, re.S)
+            evidence_match = re.search(r'(文件\s*[:：].{0,220})', chunk, re.S)
+
+            try:
+                score = float(score_match.group(1))
+            except Exception:
+                score = overall_score
+            try:
+                confidence = float(confidence_match.group(1)) if confidence_match else 0.7
+            except Exception:
+                confidence = 0.7
+
+            evidence = []
+            if evidence_match:
+                evidence = [_clean_text(evidence_match.group(1))]
+
+            dimension_scores.append({
+                "dimension": _clean_text(dim_match.group(1)) or "未知维度",
+                "score": score,
+                "confidence": confidence,
+                "evidence": evidence,
+                "reasoning": _clean_text(reasoning_match.group(1)) if reasoning_match else "模型返回的 JSON 证据字段格式异常，已保留可解析评分并建议人工复核。",
+                "improvement_suggestion": "请补充该维度对应的可定位证据，并在必要时重新评估。"
+            })
+
+        if not dimension_scores:
+            dimension_scores.append({
+                "dimension": "整体表现",
+                "score": overall_score,
+                "confidence": 0.5,
+                "evidence": ["模型返回内容不是合法 JSON，系统已按总分生成兜底维度，请人工复核。"],
+                "reasoning": "模型返回格式异常，无法稳定读取分项评分。",
+                "improvement_suggestion": "建议重新发起评估，或降低证据原文中的引号和反斜杠干扰。"
+            })
+
+        return {
+            "overall_score": overall_score,
+            "dimension_scores": dimension_scores,
+            "ability_scores": [],
+            "strengths": ["模型返回结果格式不完整，系统已根据可解析字段生成兜底评估。"],
+            "areas_for_improvement": ["请人工复核本次评分证据，必要时重新评估。"],
+            "recommendations": ["建议在提示词中要求证据原文使用中文引号，并避免输出反斜杠。"],
+            "summary": "模型返回的 JSON 格式异常，系统已进行保守解析。",
+            "feedback": "模型返回的 JSON 格式异常，系统已进行保守解析。"
+        }
+
+    def _parse_llm_json_response(self, raw_content: str, context: str) -> Dict[str, Any]:
+        first_error: Exception = None
+        for candidate in self._json_candidates(raw_content):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                if first_error is None:
+                    first_error = exc
+
+        logger.error(f"{context} JSON解析失败，尝试兜底解析: {first_error}")
+        logger.error(f"{context} 原始响应内容: {(raw_content or '')[:2000]}")
+        return self._partial_evaluation_from_malformed_json(raw_content)
+
     def evaluate_submission(self, submission_content: str, stage_progress: float, student_info: Dict = None, custom_prompts: Dict = None, syllabus_analysis: Dict = None) -> Dict:
         """
         使用大模型评估提交内容
@@ -78,7 +187,8 @@ class LLMEvaluator:
 2. 实践课总分=50%能力点评分+50%阶段完成度（按进度阶段重点评估）；
 3. 维度评分必须有证据支撑，理由完整，结论客观；
 4. 不得脱离课程大纲能力点与评价标准随意评分；
-5. 输出字段必须完整、可解析、分值范围0-100。"""
+5. 输出字段必须完整、可解析、分值范围0-100；
+6. evidence、reasoning、improvement_suggestion 等文本字段中如需引用原文，必须使用中文引号或单引号，禁止输出未转义的英文双引号和裸反斜杠。"""
 
         system_prompt = custom_prompts.get("system_prompt") if custom_prompts and custom_prompts.get("system_prompt") else default_system_prompt
 
@@ -118,7 +228,7 @@ class LLMEvaluator:
         logger.info(f"响应内容前500字符: {raw_content[:500]}")
         
         try:
-            evaluation_result = json.loads(raw_content)
+            evaluation_result = self._parse_llm_json_response(raw_content, "课程作业评估")
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败: {str(e)}")
             logger.error(f"原始响应内容: {raw_content}")
@@ -238,7 +348,7 @@ class LLMEvaluator:
         logger.info(f"响应长度: {len(raw_content)}")
         
         try:
-            evaluation_result = json.loads(raw_content)
+            evaluation_result = self._parse_llm_json_response(raw_content, "确定性评价")
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败: {str(e)}")
             start_idx = raw_content.find('{')
@@ -927,6 +1037,7 @@ class LLMEvaluator:
 10. **实践课必须给出 phase_completion_score 并围绕当前阶段重点评估**
 11. **dimension_scores 必须覆盖所有能力点且不得为空**
 12. **evidence 格式必须便于教师核验**：推荐格式为 `文件: xxx | 位置: 页码/段落/表格行 | 原文片段: ...`；每个能力点至少给出1条可定位证据，无法定位时必须写明“未在提交材料中找到可定位证据”
+13. **JSON 安全要求**：所有字符串内部禁止直接使用英文双引号 `"` 和裸反斜杠 `\`；引用原文时请改用中文引号“”或单引号' '，避免导致 JSON 解析失败
 """
         
         return prompt

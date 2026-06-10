@@ -58,6 +58,7 @@ class Submission(Base):
     student = relationship("Student", back_populates="submissions")
     media_files = relationship("MediaFile", back_populates="submission")
     evaluation_result = relationship("EvaluationResult", back_populates="submission", uselist=False)
+    calibration_benchmarks = relationship("CalibrationBenchmark", back_populates="submission")
 
 class RubricVersion(Base):
     __tablename__ = "rubric_versions"
@@ -96,6 +97,7 @@ class EvaluationResult(Base):
     submission = relationship("Submission", back_populates="evaluation_result")
     dimension_scores = relationship("DimensionScore", back_populates="evaluation_result")
     review_audits = relationship("EvaluationReviewAudit", back_populates="evaluation_result")
+    calibration_reports = relationship("CalibrationReport", back_populates="evaluation_result")
 
 class DimensionScore(Base):
     __tablename__ = "dimension_scores"
@@ -152,3 +154,74 @@ class HandwritingRecord(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     
     student = relationship("Student", back_populates="handwriting_records")
+
+class CourseFeedbackSurvey(Base):
+    __tablename__ = "course_feedback_surveys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    survey_id = Column(String(50), unique=True, index=True, nullable=False)
+    title = Column(String(200), nullable=False)
+    course_name = Column(String(200), nullable=True)
+    syllabus_name = Column(String(255), nullable=True)
+    survey_type = Column(String(30), default="midterm")
+    status = Column(String(20), default="draft")
+    target_response_count = Column(Integer, default=0)
+    description = Column(Text, nullable=True)
+    start_at = Column(DateTime, nullable=True)
+    end_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    responses = relationship("CourseFeedbackResponse", back_populates="survey")
+
+class CourseFeedbackResponse(Base):
+    __tablename__ = "course_feedback_responses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    response_id = Column(String(50), unique=True, index=True, nullable=False)
+    survey_id = Column(Integer, ForeignKey("course_feedback_surveys.id"), nullable=False)
+    respondent_hash = Column(String(64), nullable=True)
+    rating_course = Column(Float, nullable=True)
+    rating_teacher = Column(Float, nullable=True)
+    rating_assignment_design = Column(Float, nullable=True)
+    difficulty_level = Column(Float, nullable=True)
+    workload_level = Column(Float, nullable=True)
+    difficulty_text = Column(Text, nullable=True)
+    feedback_text = Column(Text, nullable=True)
+    task_design_text = Column(Text, nullable=True)
+    linked_ability_points = Column(Text, nullable=True)
+    sentiment = Column(String(20), nullable=True)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+
+    survey = relationship("CourseFeedbackSurvey", back_populates="responses")
+
+class CalibrationBenchmark(Base):
+    __tablename__ = "calibration_benchmarks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    benchmark_id = Column(String(50), unique=True, index=True, nullable=False)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
+    teacher_id = Column(String(100), nullable=True)
+    teacher_overall_score = Column(Float, nullable=False)
+    teacher_dimension_scores = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    submission = relationship("Submission", back_populates="calibration_benchmarks")
+    reports = relationship("CalibrationReport", back_populates="benchmark")
+
+class CalibrationReport(Base):
+    __tablename__ = "calibration_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(String(50), unique=True, index=True, nullable=False)
+    benchmark_id = Column(Integer, ForeignKey("calibration_benchmarks.id"), nullable=False)
+    evaluation_id = Column(Integer, ForeignKey("evaluation_results.id"), nullable=False)
+    overall_bias = Column(Float, nullable=False)
+    dimension_biases = Column(Text, nullable=True)
+    summary = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    benchmark = relationship("CalibrationBenchmark", back_populates="reports")
+    evaluation_result = relationship("EvaluationResult", back_populates="calibration_reports")
