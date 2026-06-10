@@ -1,9 +1,13 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from .models import Student, Submission, MediaFile, EvaluationResult, DimensionScore, HandwritingRecord, ProgressReport
+from .models import (
+    Student, Submission, MediaFile, EvaluationResult, DimensionScore,
+    HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+)
 from datetime import datetime
 import uuid
+import json
 
 class DatabaseService:
     def __init__(self, db: Session):
@@ -47,20 +51,24 @@ class DatabaseService:
         student = self.get_student_by_id(student_id)
         if student:
             # 先删除与该学生关联的所有相关记录
-            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore
+            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore, ProgressReport, EvaluationReviewAudit
             
             # 1. 删除与学生关联的手写识别记录
             self.db.query(HandwritingRecord).filter(HandwritingRecord.student_id == student.id).delete()
             
-            # 2. 删除与学生关联的评估结果及其维度评分
+            # 2. 删除与学生关联的进度报告
+            self.db.query(ProgressReport).filter(ProgressReport.student_id == student.id).delete()
+            
+            # 3. 删除与学生关联的评估结果及其维度评分
             evaluation_results = self.db.query(EvaluationResult).filter(EvaluationResult.student_id == student.id).all()
             for evaluation_result in evaluation_results:
                 # 删除维度评分
                 self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation_result.id).delete()
+                self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation_result.id).delete()
                 # 删除评估结果
                 self.db.delete(evaluation_result)
             
-            # 3. 删除与学生关联的提交记录及其相关内容
+            # 4. 删除与学生关联的提交记录及其相关内容
             submissions = self.db.query(Submission).filter(Submission.student_id == student.id).all()
             for submission in submissions:
                 # 删除与提交关联的媒体文件
@@ -69,7 +77,7 @@ class DatabaseService:
                 # 删除提交记录
                 self.db.delete(submission)
             
-            # 4. 再删除学生
+            # 5. 最后删除学生
             self.db.delete(student)
             self.db.commit()
             return True
@@ -77,7 +85,8 @@ class DatabaseService:
     
     # Submission operations
     def create_submission(self, title: str, description: Optional[str] = None, student_id: Optional[str] = None,
-                         submission_type: str = "file", text_content: Optional[str] = None) -> Submission:
+                         submission_type: str = "file", submission_purpose: str = "normal", 
+                         text_content: Optional[str] = None, syllabus_name: Optional[str] = None) -> Submission:
         student_id_int = None
         if student_id:
             student = self.get_student_by_id(student_id)
@@ -91,7 +100,9 @@ class DatabaseService:
             title=title,
             description=description,
             submission_type=submission_type,
-            text_content=text_content
+            submission_purpose=submission_purpose,
+            text_content=text_content,
+            syllabus_name=syllabus_name
         )
         self.db.add(submission)
         self.db.commit()
@@ -119,6 +130,39 @@ class DatabaseService:
     def get_all_submissions(self, skip: int = 0, limit: int = 100) -> List[Submission]:
         """获取所有提交记录"""
         return self.db.query(Submission).offset(skip).limit(limit).all()
+    
+    def delete_submission(self, submission_id: str) -> bool:
+        """删除提交记录及其相关的媒体文件和评估结果"""
+        submission = self.get_submission_by_id(submission_id)
+        if not submission:
+            return False
+        
+        # 1. 删除与提交关联的评估结果及其维度评分
+        evaluation_results = self.db.query(EvaluationResult).filter(EvaluationResult.submission_id == submission.id).all()
+        for evaluation_result in evaluation_results:
+            # 删除维度评分
+            self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation_result.id).delete()
+            self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation_result.id).delete()
+            # 删除评估结果
+            self.db.delete(evaluation_result)
+        
+        # 2. 删除与提交关联的媒体文件
+        media_files = self.db.query(MediaFile).filter(MediaFile.submission_id == submission.id).all()
+        for media_file in media_files:
+            # 删除文件
+            import os
+            if os.path.exists(media_file.file_path):
+                try:
+                    os.remove(media_file.file_path)
+                except:
+                    pass
+            # 删除数据库记录
+            self.db.delete(media_file)
+        
+        # 3. 删除提交记录
+        self.db.delete(submission)
+        self.db.commit()
+        return True
     
     # MediaFile operations
     def create_media_file(self, submission_id: str, file_path: str, file_name: str, media_type: str,
@@ -159,20 +203,32 @@ class DatabaseService:
         return media_file
     
     def delete_media_file(self, file_id: int) -> bool:
+        """删除媒体文件"""
+        import logging
+        import os
+        logger = logging.getLogger(__name__)
         media_file = self.get_media_file_by_id(file_id)
-        if media_file:
-            # 删除文件
-            import os
+        if not media_file:
+            logger.error(f"文件ID {file_id} 不存在")
+            return False
+        
+        # 删除文件
+        file_deleted = False
+        try:
             if os.path.exists(media_file.file_path):
-                try:
-                    os.remove(media_file.file_path)
-                except:
-                    pass
-            # 删除数据库记录
-            self.db.delete(media_file)
-            self.db.commit()
-            return True
-        return False
+                os.remove(media_file.file_path)
+                file_deleted = True
+                logger.info(f"成功删除文件: {media_file.file_path}")
+            else:
+                logger.warning(f"文件不存在: {media_file.file_path}")
+        except Exception as e:
+            logger.error(f"删除文件失败: {str(e)}", exc_info=True)
+        
+        # 无论文件是否删除成功，都删除数据库记录
+        self.db.delete(media_file)
+        self.db.commit()
+        logger.info(f"成功删除数据库中的媒体文件记录: {file_id}")
+        return True
     
     # EvaluationResult operations
     def create_evaluation_result(self, submission_id: str, overall_score: float, 
@@ -180,7 +236,10 @@ class DatabaseService:
                                 areas_for_improvement: Optional[str] = None, 
                                 recommendations: Optional[str] = None, 
                                 evaluator_agent: str = "comprehensive_evaluator",
-                                stage: Optional[str] = None) -> EvaluationResult:
+                                stage: Optional[str] = None,
+                                stage_progress: Optional[float] = None,
+                                rubric_version_id: Optional[str] = None,
+                                review_status: str = "ai_draft") -> EvaluationResult:
         submission = self.get_submission_by_id(submission_id)
         if not submission:
             raise ValueError(f"Submission with ID {submission_id} not found")
@@ -210,8 +269,11 @@ class DatabaseService:
             strengths=strengths_str,
             areas_for_improvement=areas_for_improvement_str,
             recommendations=recommendations_str,
-            evaluator_agent=evaluator_agent
-            # 暂时不使用 stage 参数，因为数据库表中没有这个列
+            evaluator_agent=evaluator_agent,
+            stage=stage,
+            stage_progress=stage_progress,
+            rubric_version_id=rubric_version_id,
+            review_status=review_status
         )
         self.db.add(evaluation_result)
         self.db.commit()
@@ -252,11 +314,153 @@ class DatabaseService:
         
         # 删除相关的维度评分
         self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation.id).delete()
+        self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation.id).delete()
         
         # 删除评估结果
         self.db.delete(evaluation)
         self.db.commit()
         return True
+    
+    def update_evaluation_result(self, evaluation_id: str, **kwargs) -> Optional[EvaluationResult]:
+        """更新评估记录"""
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            return None
+        
+        # 处理dimension_scores字段
+        if 'dimension_scores' in kwargs:
+            # 删除现有的维度评分
+            self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation.id).delete()
+            
+            # 添加新的维度评分
+            for ds in kwargs['dimension_scores']:
+                if isinstance(ds, dict) and 'dimension' in ds and 'score' in ds:
+                    self.create_dimension_score(
+                        evaluation_id=evaluation_id,
+                        dimension=ds['dimension'],
+                        score=ds['score'],
+                        confidence=0.9,  # 默认置信度
+                        reasoning=ds.get('reasoning', '')
+                    )
+            
+            # 从kwargs中移除dimension_scores，避免后续处理
+            del kwargs['dimension_scores']
+        
+        for key, value in kwargs.items():
+            # 处理特殊字段
+            if key in ['strengths', 'areas_for_improvement', 'recommendations']:
+                if isinstance(value, list):
+                    # 将列表转换为字符串
+                    setattr(evaluation, key, ", ".join(value) if value else None)
+                else:
+                    setattr(evaluation, key, value)
+            elif key == 'evaluated_at':
+                # 处理评估时间
+                if isinstance(value, str):
+                    try:
+                        # 尝试解析时间字符串
+                        evaluated_at = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+                        setattr(evaluation, key, evaluated_at)
+                    except ValueError:
+                        # 如果解析失败，保持原有值
+                        pass
+            else:
+                setattr(evaluation, key, value)
+        
+        self.db.commit()
+        self.db.refresh(evaluation)
+        return evaluation
+
+    # RubricVersion operations
+    def get_rubric_version_by_hash(self, content_hash: str) -> Optional[RubricVersion]:
+        return self.db.query(RubricVersion).filter(RubricVersion.content_hash == content_hash).first()
+
+    def get_rubric_version_by_id(self, rubric_version_id: str) -> Optional[RubricVersion]:
+        return self.db.query(RubricVersion).filter(RubricVersion.rubric_version_id == rubric_version_id).first()
+
+    def create_rubric_version(
+        self,
+        content_hash: str,
+        snapshot: Dict[str, Any],
+        syllabus_name: Optional[str] = None,
+        course_type: Optional[str] = None
+    ) -> RubricVersion:
+        rubric_version = RubricVersion(
+            rubric_version_id=f"RUBRIC_{uuid.uuid4().hex[:10].upper()}",
+            syllabus_name=syllabus_name,
+            course_type=course_type,
+            content_hash=content_hash,
+            snapshot_json=json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
+        )
+        self.db.add(rubric_version)
+        self.db.commit()
+        self.db.refresh(rubric_version)
+        return rubric_version
+
+    # Evaluation review operations
+    def create_evaluation_review_audit(
+        self,
+        evaluation_id: str,
+        action: str,
+        actor_id: Optional[str] = None,
+        actor_role: Optional[str] = None,
+        reason: Optional[str] = None,
+        before_snapshot: Optional[Dict[str, Any]] = None,
+        after_snapshot: Optional[Dict[str, Any]] = None
+    ) -> EvaluationReviewAudit:
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            raise ValueError(f"Evaluation result with ID {evaluation_id} not found")
+
+        audit = EvaluationReviewAudit(
+            audit_id=f"AUDIT_{uuid.uuid4().hex[:10].upper()}",
+            evaluation_id=evaluation.id,
+            action=action,
+            actor_id=actor_id,
+            actor_role=actor_role,
+            reason=reason,
+            before_snapshot=json.dumps(before_snapshot, ensure_ascii=False, sort_keys=True) if before_snapshot is not None else None,
+            after_snapshot=json.dumps(after_snapshot, ensure_ascii=False, sort_keys=True) if after_snapshot is not None else None
+        )
+        self.db.add(audit)
+        self.db.commit()
+        self.db.refresh(audit)
+        return audit
+
+    def get_evaluation_review_audits(self, evaluation_id: str) -> List[EvaluationReviewAudit]:
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            return []
+        return (
+            self.db.query(EvaluationReviewAudit)
+            .filter(EvaluationReviewAudit.evaluation_id == evaluation.id)
+            .order_by(EvaluationReviewAudit.created_at.asc())
+            .all()
+        )
+
+    def update_evaluation_review_state(
+        self,
+        evaluation_id: str,
+        review_status: str,
+        reviewed_by: Optional[str] = None,
+        review_notes: Optional[str] = None
+    ) -> Optional[EvaluationResult]:
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            return None
+
+        evaluation.review_status = review_status
+        if reviewed_by is not None:
+            evaluation.reviewed_by = reviewed_by
+        if review_notes is not None:
+            evaluation.review_notes = review_notes
+        if review_status == "teacher_confirmed":
+            evaluation.confirmed_at = datetime.utcnow()
+        if review_status == "published":
+            evaluation.published_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(evaluation)
+        return evaluation
     
     # ProgressReport operations
     def create_progress_report(self, student_id: str, report: str, total_evaluations: int, 
@@ -298,6 +502,31 @@ class DatabaseService:
     def get_progress_report_by_id(self, report_id: str) -> Optional[ProgressReport]:
         """根据报告ID获取进度报告"""
         return self.db.query(ProgressReport).filter(ProgressReport.report_id == report_id).first()
+    
+    def update_progress_report(self, report_id: str, **kwargs) -> Optional[ProgressReport]:
+        """更新进度报告"""
+        report = self.get_progress_report_by_id(report_id)
+        if report:
+            for key, value in kwargs.items():
+                if key == 'time_range' or key == 'key_insights' or key == 'improvement_areas':
+                    import json
+                    setattr(report, key, json.dumps(value, ensure_ascii=False))
+                else:
+                    setattr(report, key, value)
+            self.db.commit()
+            self.db.refresh(report)
+        return report
+    
+    def delete_progress_report(self, report_id: str) -> bool:
+        """删除进度报告"""
+        report = self.get_progress_report_by_id(report_id)
+        if not report:
+            return False
+        
+        # 删除进度报告
+        self.db.delete(report)
+        self.db.commit()
+        return True
     
     # DimensionScore operations
     def create_dimension_score(self, evaluation_id: str, dimension: str, score: float, 

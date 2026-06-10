@@ -1,4 +1,5 @@
 import os
+import numpy
 
 db_file = "student_profiler_new.db"
 

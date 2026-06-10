@@ -44,14 +44,31 @@ class Submission(Base):
     title = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
     submission_type = Column(String(20), default="file")  # file, text
+    submission_purpose = Column(String(20), default="normal")  # normal, graduation
     text_content = Column(Text, nullable=True)  # 文字提交内容
-    status = Column(String(20), default="pending")  # pending, processing, completed, failed
+    status = Column(
+        String(20),
+        default="pending"
+    )  # drafted, open, pending, processing, completed, failed, closed, archived
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+    course_type = Column(String(50), default="理论课")
+    syllabus_name = Column(String(255), nullable=True)  # 关联课程大纲分析文件名（如 xxx.json）
+
     student = relationship("Student", back_populates="submissions")
     media_files = relationship("MediaFile", back_populates="submission")
     evaluation_result = relationship("EvaluationResult", back_populates="submission", uselist=False)
+
+class RubricVersion(Base):
+    __tablename__ = "rubric_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rubric_version_id = Column(String(50), unique=True, index=True, nullable=False)
+    syllabus_name = Column(String(255), nullable=True)
+    course_type = Column(String(50), nullable=True)
+    content_hash = Column(String(64), index=True, nullable=False)
+    snapshot_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class EvaluationResult(Base):
     __tablename__ = "evaluation_results"
@@ -65,12 +82,20 @@ class EvaluationResult(Base):
     areas_for_improvement = Column(Text, nullable=True)
     recommendations = Column(Text, nullable=True)
     evaluator_agent = Column(String(100), nullable=False)
-    # stage = Column(String(20), nullable=True)  # initial, mid, final 暂时注释掉，因为数据库表中没有这个列
+    stage = Column(String(100), nullable=True)
+    stage_progress = Column(Float, nullable=True)
+    rubric_version_id = Column(String(50), nullable=True)
+    review_status = Column(String(30), default="ai_draft")
+    reviewed_by = Column(String(100), nullable=True)
+    review_notes = Column(Text, nullable=True)
+    confirmed_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
     evaluated_at = Column(DateTime, default=datetime.utcnow)
     
     student = relationship("Student", back_populates="evaluation_results")
     submission = relationship("Submission", back_populates="evaluation_result")
     dimension_scores = relationship("DimensionScore", back_populates="evaluation_result")
+    review_audits = relationship("EvaluationReviewAudit", back_populates="evaluation_result")
 
 class DimensionScore(Base):
     __tablename__ = "dimension_scores"
@@ -84,6 +109,22 @@ class DimensionScore(Base):
     reasoning = Column(Text, nullable=True)
     
     evaluation_result = relationship("EvaluationResult", back_populates="dimension_scores")
+
+class EvaluationReviewAudit(Base):
+    __tablename__ = "evaluation_review_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    audit_id = Column(String(50), unique=True, index=True, nullable=False)
+    evaluation_id = Column(Integer, ForeignKey("evaluation_results.id"), nullable=False)
+    action = Column(String(50), nullable=False)
+    actor_id = Column(String(100), nullable=True)
+    actor_role = Column(String(30), nullable=True)
+    reason = Column(Text, nullable=True)
+    before_snapshot = Column(Text, nullable=True)
+    after_snapshot = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    evaluation_result = relationship("EvaluationResult", back_populates="review_audits")
 
 class ProgressReport(Base):
     __tablename__ = "progress_reports"

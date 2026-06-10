@@ -1,24 +1,13 @@
-# ========================
-# 针对该项目的特定忽略
-# ========================
-# 数据库文件 (由于你仓库里有 student_profiler.db 等文件，如果是动态生成的数据通常不建议提交)
 *.db
+*.db-journal
 *.sqlite3
-
-# 日志文件 (如 api_debug.log, backend.log)
 *.log
-
-# 输出数据目录 (避免多媒体处理过程中的生成文件被提交)
 data/output/*
 !data/output/.gitkeep
+uploads/
 
-# 临时备份文件 (如 README.md~)
 *~
 
-# ========================
-# Python 标准忽略
-# ========================
-# 字节码文件
 __pycache__/
 *.py[cod]
 *$py.class
@@ -34,17 +23,13 @@ env/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# 环境变量配置
+
 .env.local
 
-# pytest 缓存
+
 .pytest_cache/
 .coverage
 htmlcov/
-
-# ========================
-# 编辑器与系统文件
-# ========================
 .idea/
 .vscode/
 *.swp
