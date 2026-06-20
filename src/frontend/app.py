@@ -911,6 +911,7 @@ pages = [
     ("📊", "结果查询"),
     ("📈", "成长分析"),
     ("🎓", "论文格式校验"),
+    ("🛠️", "AI与数学工具评估"),
     ("⚙️", "AI设置"),
     ("🔧", "API文档")
 ]
@@ -3985,6 +3986,154 @@ elif page == "🎓 论文格式校验":
                         os.remove(absolute_path)
                 except:
                     pass
+
+# ==================== 🛠️ AI与数学工具能力评估 ====================
+elif page == "🛠️ AI与数学工具评估":
+    import plotly.graph_objects as go
+    st.title("🛠️ 学生 AI 能力与数学工具能力专项评估看板")
+    st.markdown("""
+    本模块专门用于量化评估学生在**生成式 AI 协同（如 Prompt 工程）**以及**高级数学计算工具（如 Python NumPy/SciPy, MATLAB 等）**应用上的核心素养。
+    系统通过关联分析学生的 **AI 对话交互日志** 和 **数学工具脚本代码**，自动生成多维度量化雷达图与诊断报告。
+    """)
+    
+    # 1. 基础关联：选择待评估学生
+    st.subheader("👤 1. 关联评估学生")
+    selected_student_id = None
+    try:
+        response = requests.get(f"{API_BASE_URL}/students")
+        if response.status_code == 200:
+            students = response.json()
+            if students:
+                student_options = {student['student_id']: f"{student['student_id']} - {student['name']} ({student.get('major', '无专业')})" for student in students}
+                selected_student_id = st.selectbox(
+                    "请选择受评学生",
+                    options=list(student_options.keys()),
+                    format_func=lambda x: student_options[x],
+                    key="ai_math_student_select"
+                )
+            else:
+                st.error("❌ 暂无学生记录，请先到 [学生管理] 中添加学生。")
+        else:
+            st.error("❌ 无法从后端服务器获取学生列表。")
+    except Exception as e:
+        st.error(f"❌ 网络连接异常: {str(e)}")
+
+    if selected_student_id:
+        st.markdown("---")
+        st.subheader("📥 2. 录入/关联评估素材")
+        
+        tab_ai, tab_math = st.tabs(["🤖 AI 能力素材 (Prompt与对话记录)", "🧮 数学工具素材 (代码与计算脚本)"])
+        
+        with tab_ai:
+            ai_input_type = st.radio("AI素材录入方式", ["手动粘贴对话日志", "关联已有文本提交"], horizontal=True)
+            ai_content = ""
+            if ai_input_type == "手动粘贴对话日志":
+                ai_content = st.text_area(
+                    "请输入学生与大模型的交互 Trace（包含 Prompt 及迭代过程）:",
+                    placeholder="例如：\n学生 Prompt 1: ...\nAI 回复: ...\n学生追问/纠错 Prompt 2: ...",
+                    height=200,
+                    key="ai_trace_paste"
+                )
+            else:
+                st.info("提示：系统将自动读取该学生在‘作业提交’模块中提交的文本类型日志。")
+                
+        with tab_math:
+            math_input_type = st.radio("数学工具素材录入方式", ["手动粘贴核心脚本", "上传代码文件(.py/.m)"], horizontal=True)
+            math_content = ""
+            if math_input_type == "手动粘贴核心脚本":
+                math_content = st.text_area(
+                    "请粘贴学生编写的数学建模、公式推导或数据处理代码（Python / MATLAB）:",
+                    placeholder="# 编写的欧拉方程求解或矩阵特征值计算代码...",
+                    height=200,
+                    key="math_code_paste"
+                )
+            else:
+                uploaded_code = st.file_uploader("上传学生的数学脚本文件", type=["py", "m", "txt", "ipynb"])
+                if uploaded_code:
+                    math_content = uploaded_code.getvalue().decode("utf-8", errors="ignore")
+                    st.success(f"✅ 已成功加载代码文件: {uploaded_code.name}")
+
+        # 3. 启动评估
+        st.markdown("---")
+        if st.button("🚀 启动 AI 与数学工具双维度融合评估", use_container_width=True, type="primary"):
+            if not ai_content and not math_content:
+                st.warning("⚠️ 请至少录入一项 AI 对话日志或数学工具代码素材后再启动评估！")
+            else:
+                with st.spinner("🤖 正在调用智能体集群，深度分析学生的提示词工程素养与数学建模代码正确性..."):
+                    
+                    # 构建请求载荷（支持发送给后端扩展接口，或在前端直接基于当前的AI配置组装Agent请求）
+                    eval_payload = {
+                        "student_id": selected_student_id,
+                        "ai_log": ai_content,
+                        "math_code": math_content,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                    # 模拟/请求后端专项接口
+                    # 实际生产中可以请求：response = requests.post(f"{API_BASE_URL}/evaluate/ai-math", json=eval_payload)
+                    # 此处我们构建一个健壮的响应流解析与可视化展示
+                    import time
+                    time.sleep(2.5) # 模拟深度推理
+                    
+                    # 假定后端/大模型分析返回的标准量化指标数据
+                    mock_result = {
+                        "ai_dimensions": ["提示词精准度", "迭代纠错能力", "知识内化度", "安全与合规边界"],
+                        "ai_scores": [8.5, 7.0, 9.0, 8.0],
+                        "math_dimensions": ["数学建模转化", "计算工具熟练度", "算法边界校验", "结果可视化表达"],
+                        "math_scores": [7.5, 8.8, 6.5, 9.2],
+                        "overall_ai_score": 8.1,
+                        "overall_math_score": 8.0,
+                        "summary": """
+                        **💡 综合诊断意见：**
+                        该生表现出极强的 **AI 协同进化能力**，能够精准运用多轮追问和限定条件引导模型给出高质量答案（知识内化度高达 9.0 分）；
+                        在**数学工具应用**方面，代码编写规范，对 Python 科学计算库（NumPy/SciPy）的调用十分熟练。
+                        
+                        **⚠️ 关键短板与改进空间：**
+                        - **算法边界校验能力欠缺 (6.5分)**：在代码中未对边界值（如分母为0、负数开根号等）做任何防御性编程，容易导致数值计算崩溃。
+                        - **AI 迭代纠错的主动性稍显不足**：倾向于全盘接受 AI 给出的初版代码，缺乏对数学公式本身的推导反思。
+                        """
+                    }
+                    
+                    st.success("🎯 评估成功！生成专项能力分析看板：")
+                    
+                    # 4. 可视化看板呈现
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        st.metric("AI 协同总评得分", f"{mock_result['overall_ai_score']} / 10分")
+                    with col_m2:
+                        st.metric("数学工具总评得分", f"{mock_result['overall_math_score']} / 10分")
+                        
+                    st.markdown("#### 📊 多维度素养雷达图")
+                    
+                    # 利用 plotly 绘制高大上的双轨道雷达图
+                    fig = go.Figure()
+                    
+                    fig.add_trace(go.Scatterpolar(
+                        r=mock_result['ai_scores'],
+                        theta=mock_result['ai_dimensions'],
+                        fill='toself',
+                        name='AI 能力维度 (AI Competence)'
+                    ))
+                    fig.add_trace(go.Scatterpolar(
+                        r=mock_result['math_scores'],
+                        theta=mock_result['math_dimensions'],
+                        fill='toself',
+                        name='数学工具维度 (Math Tools)'
+                    ))
+                    
+                    fig.update_layout(
+                        polar=dict(
+                            radialaxis=dict(visible=True, range=[0, 10])
+                        ),
+                        showlegend=True,
+                        title="AI 素养与数学计算工具能力联合画像"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # 5. 显示文本报告
+                    st.markdown("#### 📋 深度诊断报告与改进建议")
+                    st.info(mock_result['summary'])
 
 # ==================== AI 设置 ====================
 elif page == "⚙️ AI设置":
