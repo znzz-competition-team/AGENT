@@ -91,7 +91,13 @@ COURSEWORK_USER_PROMPT_TEMPLATE = """# 角色定位
         "completion_rate": 0.75,
         "completion_details": "详细说明大纲任务的完成情况，哪些完成了，哪些没完成，完成质量如何（至少150字）"
     }},
-    "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分"
+    "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分",
+    "assignment_completion_evaluation": "作业完成情况文本评价（至少180字），需按完成度、完成质量、缺口原因、对后续学习的影响展开，并引用提交中的具体证据",
+    "teaching_improvement_measures": [
+        "给教师的教学改进措施1（必须具体到课堂讲解、任务设计、过程检查或反馈方式）",
+        "给教师的教学改进措施2（必须说明针对哪些未完成/低质量任务进行补救）",
+        "给教师的教学改进措施3（必须给出下一次作业或课堂活动的可验证检查点）"
+    ]
 }}
 ```
 
@@ -105,4 +111,5 @@ COURSEWORK_USER_PROMPT_TEMPLATE = """# 角色定位
 6. **分数分布要合理**，不要让所有学生都得高分
 7. **不需要改进建议**，只需要客观评价
 8. **必须评估大纲任务完成情况**，说明哪些完成了，哪些没完成
+9. **必须输出 assignment_completion_evaluation 与 teaching_improvement_measures**，前者给出详细作业完成文本评价，后者告诉教师下一步教学改进措施
 """

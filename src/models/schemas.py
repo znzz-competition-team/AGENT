@@ -197,6 +197,10 @@ class EvaluationResponse(BaseModel):
     strengths: List[str]
     areas_for_improvement: List[str]
     recommendations: List[str]
+    task_completion: Optional[Dict[str, Any]] = None
+    assignment_completion_evaluation: Optional[str] = None
+    teaching_improvement_measures: Optional[List[str]] = None
+    overall_evaluation: Optional[str] = None
     evaluated_at: datetime
     evaluator_agent: str
     stage: Optional[str] = None
@@ -261,6 +265,8 @@ class ProgressReportResponse(BaseModel):
     report_sections: Optional[Dict[str, str]] = None
     follow_up_points: Optional[List[str]] = None
     student_profile: Optional[Dict[str, Any]] = None
+    assignment_completion_review: Optional[Dict[str, Any]] = None
+    teaching_improvement_measures: Optional[List[str]] = None
     trend_closure_plan: Optional[Dict[str, Any]] = None
 
 class FeedbackSurveyCreate(BaseModel):

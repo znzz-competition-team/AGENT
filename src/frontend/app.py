@@ -491,11 +491,47 @@ def render_student_profile(profile: dict, key_prefix: str = "profile"):
     tags = profile.get("tags", [])
     if isinstance(tags, list) and tags:
         st.markdown(" ".join([f"`{tag}`" for tag in tags]))
+    text_evaluation = str(profile.get("text_evaluation", "") or "").strip()
+    if text_evaluation:
+        st.markdown("**画像文本评价：**")
+        st.write(text_evaluation)
+    teacher_focus = profile.get("teacher_focus", [])
+    if isinstance(teacher_focus, list) and teacher_focus:
+        with st.expander("教师关注点"):
+            for item in teacher_focus:
+                st.markdown(f"- {item}")
     for label, key in [("优势能力点", "strengths"), ("风险能力点", "risks")]:
         items = profile.get(key, [])
         if isinstance(items, list) and items:
             with st.expander(label):
                 st.dataframe(pd.DataFrame(items), use_container_width=True)
+
+def render_assignment_completion_review(review: dict, key_prefix: str = "assignment_completion"):
+    if not isinstance(review, dict) or not review:
+        return
+    st.subheader("作业完成情况评价")
+    cols = st.columns(4)
+    cols[0].metric("评价项", review.get("component_name", "作业完成度"))
+    cols[1].metric("最新得分", f"{float(review.get('latest_completion_score', 0.0) or 0.0):.1f}")
+    cols[2].metric("完成等级", review.get("completion_level", "N/A"))
+    cols[3].metric("变化", f"{float(review.get('completion_delta', 0.0) or 0.0):+.1f}")
+
+    summary = str(review.get("summary", "") or "").strip()
+    if summary:
+        st.markdown("**完成情况文本评价：**")
+        st.write(summary)
+
+    measures = review.get("teacher_improvement_measures", [])
+    if isinstance(measures, list) and measures:
+        st.markdown("**教师教学改进措施：**")
+        for item in measures:
+            st.markdown(f"- {item}")
+
+    checkpoints = review.get("next_assignment_checkpoints", [])
+    if isinstance(checkpoints, list) and checkpoints:
+        with st.expander("下一次作业检查点"):
+            for item in checkpoints:
+                st.markdown(f"- {item}")
 
 def render_trend_closure_plan(plan: dict, key_prefix: str = "closure"):
     if not isinstance(plan, dict) or not plan:
@@ -528,6 +564,10 @@ def render_policy_progress_report(report_data: dict, key_prefix: str = "policy")
     ka_scores = trend_series.get("knowledge_application_component", [])
     pc_scores = trend_series.get("phase_completion_component", [])
     render_student_profile(report_data.get("student_profile", {}), key_prefix=f"{key_prefix}_profile")
+    render_assignment_completion_review(
+        report_data.get("assignment_completion_review", {}),
+        key_prefix=f"{key_prefix}_completion"
+    )
 
     def _trend_x_numeric(ts: dict) -> list:
         """优先使用后端提供的数值横坐标，避免相同进度百分比在图中叠成竖线。"""
@@ -2808,6 +2848,15 @@ elif page == "🤖 评估管理":
                                             st.markdown(f"- ❌ {task}")
                                     if task_completion.get('completion_details'):
                                         st.markdown(f"**完成详情：** {task_completion.get('completion_details')}")
+                                assignment_completion_evaluation = evaluation_result.get('assignment_completion_evaluation', '')
+                                if assignment_completion_evaluation:
+                                    st.subheader("🧾 作业完成情况文本评价")
+                                    st.markdown(assignment_completion_evaluation)
+                                teaching_measures = evaluation_result.get('teaching_improvement_measures', [])
+                                if isinstance(teaching_measures, list) and teaching_measures:
+                                    st.subheader("🛠️ 教师教学改进措施")
+                                    for measure in teaching_measures:
+                                        st.markdown(f"- {measure}")
                                 
                                 # 总体评价
                                 overall_eval = evaluation_result.get('overall_evaluation', '')

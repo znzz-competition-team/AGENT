@@ -1012,6 +1012,12 @@ class LLMEvaluator:
         "completion_details": "详细说明大纲任务的完成情况，哪些完成了，哪些没完成，完成质量如何（至少150字）"
     }},
     "overall_evaluation": "总体评价（至少200字），综合分析学生的作业质量，给出客观的评价，说明为什么给出这个总分",
+    "assignment_completion_evaluation": "作业完成情况文本评价（至少180字），需按完成度、完成质量、缺口原因、对后续学习的影响展开，并引用提交中的具体证据",
+    "teaching_improvement_measures": [
+        "给教师的教学改进措施1（必须具体到课堂讲解、任务设计、过程检查或反馈方式）",
+        "给教师的教学改进措施2（必须说明针对哪些未完成/低质量任务进行补救）",
+        "给教师的教学改进措施3（必须给出下一次作业或课堂活动的可验证检查点）"
+    ],
     "knowledge_understanding_score": 75,
     "knowledge_application_score": 72,
     "phase_completion_score": 78,
@@ -1037,7 +1043,8 @@ class LLMEvaluator:
 10. **实践课必须给出 phase_completion_score 并围绕当前阶段重点评估**
 11. **dimension_scores 必须覆盖所有能力点且不得为空**
 12. **evidence 格式必须便于教师核验**：推荐格式为 `文件: xxx | 位置: 页码/段落/表格行 | 原文片段: ...`；每个能力点至少给出1条可定位证据，无法定位时必须写明“未在提交材料中找到可定位证据”
-13. **JSON 安全要求**：所有字符串内部禁止直接使用英文双引号 `"` 和裸反斜杠 `\`；引用原文时请改用中文引号“”或单引号' '，避免导致 JSON 解析失败
+13. **必须输出 assignment_completion_evaluation 与 teaching_improvement_measures**：前者面向教师概括作业完成情况，后者给出可执行教学改进措施，不得只写“加强指导”这类空泛表述
+14. **JSON 安全要求**：所有字符串内部禁止直接使用英文双引号 `"` 和裸反斜杠 `\`；引用原文时请改用中文引号“”或单引号' '，避免导致 JSON 解析失败
 """
         
         return prompt
@@ -1101,6 +1108,8 @@ class LLMEvaluator:
                 "completion_details": ""
             }),
             "overall_evaluation": result.get("overall_evaluation", ""),
+            "assignment_completion_evaluation": result.get("assignment_completion_evaluation", ""),
+            "teaching_improvement_measures": result.get("teaching_improvement_measures", []),
             # 兼容旧格式
             "areas_for_improvement": result.get("weaknesses", result.get("areas_for_improvement", [])),
             "recommendations": result.get("recommendations", [])
@@ -1234,8 +1243,51 @@ class LLMEvaluator:
         normalized["dimension_scores"] = normalized_dimension_scores
         normalized["ability_scores"] = normalized_ability_scores
         
-        # 确保strengths、areas_for_improvement和recommendations是列表
-        for field in ["strengths", "areas_for_improvement", "recommendations"]:
+        task_completion = normalized.get("task_completion")
+        if not isinstance(task_completion, dict):
+            task_completion = {}
+        completed_tasks = task_completion.get("completed_tasks", [])
+        incomplete_tasks = task_completion.get("incomplete_tasks", [])
+        if not isinstance(completed_tasks, list):
+            completed_tasks = [str(completed_tasks)] if completed_tasks else []
+        if not isinstance(incomplete_tasks, list):
+            incomplete_tasks = [str(incomplete_tasks)] if incomplete_tasks else []
+        completion_rate = task_completion.get("completion_rate", 0.0)
+        try:
+            completion_rate_float = float(completion_rate)
+        except Exception:
+            completion_rate_float = 0.0
+        if completion_rate_float > 1:
+            completion_rate_float = completion_rate_float / 100.0
+        completion_rate_float = min(1.0, max(0.0, completion_rate_float))
+        task_completion["completed_tasks"] = completed_tasks
+        task_completion["incomplete_tasks"] = incomplete_tasks
+        task_completion["completion_rate"] = completion_rate_float
+        task_completion["completion_details"] = str(task_completion.get("completion_details", "") or "")
+        normalized["task_completion"] = task_completion
+
+        if not str(normalized.get("assignment_completion_evaluation", "") or "").strip():
+            completed_text = "、".join(completed_tasks[:3]) if completed_tasks else "暂无明确已完成任务"
+            incomplete_text = "、".join(incomplete_tasks[:3]) if incomplete_tasks else "暂无明确未完成任务"
+            normalized["assignment_completion_evaluation"] = (
+                f"作业完成率约为{completion_rate_float * 100:.0f}%。已完成部分主要包括{completed_text}；"
+                f"仍需补足的部分包括{incomplete_text}。{task_completion['completion_details'] or '建议教师结合原始提交材料复核完成质量、证据完整性与任务覆盖范围。'}"
+            )
+
+        teaching_measures = normalized.get("teaching_improvement_measures", [])
+        if not isinstance(teaching_measures, list):
+            teaching_measures = [str(teaching_measures)] if teaching_measures else []
+        if not teaching_measures:
+            focus = "、".join(incomplete_tasks[:2]) if incomplete_tasks else "证据链薄弱和完成质量不足的任务"
+            teaching_measures = [
+                f"针对{focus}安排一次短时补讲或示例拆解，明确最低完成标准、常见错误和优秀样例差异。",
+                "下一次作业增加过程性检查点，要求学生提交任务清单、关键证据位置和自我复核说明。",
+                "反馈时按能力点逐项标注“已达成/部分达成/未达成”，并给出可在一周内完成的修订任务。"
+            ]
+        normalized["teaching_improvement_measures"] = [str(item) for item in teaching_measures if str(item).strip()]
+
+        # 确保strengths、areas_for_improvement、recommendations和教学措施是列表
+        for field in ["strengths", "areas_for_improvement", "recommendations", "teaching_improvement_measures"]:
             if not isinstance(normalized[field], list):
                 if normalized[field]:
                     normalized[field] = [str(normalized[field])]

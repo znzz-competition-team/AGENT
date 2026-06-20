@@ -821,6 +821,140 @@ def _get_submission_file_names(db_service: DatabaseService, submission_id: int) 
     return [str(file.file_name or "").strip() for file in files if str(file.file_name or "").strip()]
 
 
+def _score_level_label(score: float) -> str:
+    score = _clamp_score(score)
+    if score >= 90:
+        return "优秀"
+    if score >= 80:
+        return "良好"
+    if score >= 70:
+        return "基本达成"
+    if score >= 60:
+        return "低位达成"
+    return "达成风险"
+
+
+def _latest_series_score(item: Dict[str, Any]) -> float:
+    for score in reversed(item.get("scores", []) or []):
+        if score is not None:
+            return _clamp_score(score)
+    return _clamp_score(item.get("mean_score", 0.0) or 0.0)
+
+
+def _build_profile_text_evaluation(
+    student_id: str,
+    latest_overall: float,
+    overall_delta: float,
+    overall_volatility: float,
+    tags: List[str],
+    strengths: List[Dict[str, Any]],
+    risks: List[Dict[str, Any]],
+    course_type: str
+) -> str:
+    strength_text = "、".join(
+        [
+            f"{item.get('ability', '未知能力点')}（均分{float(item.get('mean_score', 0.0) or 0.0):.1f}）"
+            for item in strengths[:2]
+        ]
+    ) or "暂无稳定优势能力点"
+    risk_text = "、".join(
+        [
+            f"{item.get('ability', '未知能力点')}（均分{float(item.get('mean_score', 0.0) or 0.0):.1f}，变化{float(item.get('delta', 0.0) or 0.0):+.1f}）"
+            for item in risks[:2]
+        ]
+    ) or "暂无明显风险能力点"
+    trend_comment = (
+        "呈现持续改善迹象" if overall_delta >= 3 else
+        "出现回落风险，需要及时干预" if overall_delta <= -3 else
+        "整体处于相对稳定区间"
+    )
+    volatility_comment = (
+        "但阶段波动较大，建议教师关注任务切换或评分证据缺口。"
+        if overall_volatility >= 8 else
+        "且表现较稳定，可在保持现有节奏的同时提高任务挑战度。"
+        if overall_volatility <= 3 else
+        "波动处于中等水平，后续应通过固定证据模板提升可比性。"
+    )
+    return (
+        f"学生 {student_id} 在当前{course_type}评价中最新总分为 {latest_overall:.1f} 分，"
+        f"处于“{_score_level_label(latest_overall)}”水平，画像标签为“{'、'.join(tags)}”。"
+        f"从纵向变化看，总分变化 {overall_delta:+.1f} 分，{trend_comment}，{volatility_comment}"
+        f"主要优势集中在 {strength_text}，说明这些能力点可作为后续任务的支撑；"
+        f"需要重点跟踪的风险项为 {risk_text}。建议教师在下一轮作业中把风险能力点拆成可提交、可核验的小任务，"
+        "并要求学生补充原文证据、过程记录和修订说明，形成“评价-反馈-再提交”的闭环。"
+    )
+
+
+def _build_assignment_completion_review(
+    points: List[Dict[str, Any]],
+    trend_diagnostics: Dict[str, Any],
+    ability_dimension_series: List[Dict[str, Any]],
+    course_type: str
+) -> Dict[str, Any]:
+    if not points:
+        return {}
+
+    is_practice = "实践" in course_type
+    latest = points[-1]
+    component_key = "phase_completion_component" if is_practice else "ability_component"
+    component_name = "阶段完成度" if is_practice else "作业能力达成度"
+    latest_completion = _clamp_score(latest.get(component_key, latest.get("overall_score", 0.0)) or 0.0)
+    completion_delta = float(trend_diagnostics.get("policy_delta" if is_practice else "ability_delta", 0.0) or 0.0)
+    completion_volatility = float(trend_diagnostics.get("policy_volatility" if is_practice else "ability_volatility", 0.0) or 0.0)
+
+    weak_dimensions = sorted(
+        ability_dimension_series,
+        key=lambda item: (_latest_series_score(item), float(item.get("delta", 0.0) or 0.0))
+    )[:3]
+    weak_text = "、".join(
+        [
+            f"{item.get('dimension', '未知能力点')}（最新{_latest_series_score(item):.1f}分）"
+            for item in weak_dimensions
+        ]
+    ) or "暂无明确薄弱能力点"
+
+    quality_comment = (
+        "完成质量较高，说明学生能够较完整地覆盖任务要求并形成稳定产出。"
+        if latest_completion >= 85 else
+        "完成质量基本可接受，但任务覆盖、证据链或结果解释仍有提升空间。"
+        if latest_completion >= 70 else
+        "完成质量偏低，可能存在任务遗漏、过程证据不足或核心要求理解不充分。"
+        if latest_completion >= 60 else
+        "完成情况存在明显风险，建议优先安排补做、面谈或阶段性重评。"
+    )
+    trend_comment = (
+        f"{component_name}较首次评估变化 {completion_delta:+.1f} 分，"
+        f"波动度 {completion_volatility:.2f}。"
+    )
+
+    teaching_measures = [
+        f"围绕{weak_text}设计一次针对性讲评，把高分样例、低分样例和评分证据逐项对照，帮助学生理解任务完成标准。",
+        "将下一次作业拆为“任务清单、关键证据、结果解释、反思修订”四个提交项，降低学生只交结果、不交过程的风险。",
+        f"对{component_name}低于70分或连续回落的学生设置补交窗口，要求补充文件位置、原文片段和修订说明后再按同一Rubric复评。",
+        "课堂上增加5到10分钟共性问题反馈，优先处理高频未完成任务，并用小测或快速检查确认学生是否掌握改进要点。"
+    ]
+
+    return {
+        "component_name": component_name,
+        "latest_completion_score": latest_completion,
+        "completion_level": _score_level_label(latest_completion),
+        "completion_delta": round(completion_delta, 2),
+        "completion_volatility": round(completion_volatility, 2),
+        "summary": (
+            f"最新{component_name}为 {latest_completion:.1f} 分，处于“{_score_level_label(latest_completion)}”水平。"
+            f"{quality_comment}{trend_comment}"
+            f"当前作业完成短板主要关联 {weak_text}。"
+        ),
+        "teacher_improvement_measures": teaching_measures,
+        "next_assignment_checkpoints": [
+            "是否覆盖大纲要求的全部任务项",
+            "是否提供可定位证据：文件名、页码/段落/表格位置、原文片段",
+            "是否解释方法选择、结果含义和局限",
+            "是否根据教师反馈提交修订记录"
+        ]
+    }
+
+
 def _build_student_profile_payload(
     student_id: str,
     points: List[Dict[str, Any]],
@@ -928,6 +1062,24 @@ def _build_student_profile_payload(
         for item in ability_dimension_series
     ]
 
+    text_evaluation = _build_profile_text_evaluation(
+        student_id=student_id,
+        latest_overall=latest_overall,
+        overall_delta=overall_delta,
+        overall_volatility=overall_volatility,
+        tags=tags,
+        strengths=strengths,
+        risks=risks,
+        course_type=course_type
+    )
+    teacher_focus = [
+        f"保持优势能力点：{item.get('ability', '未知能力点')}，在后续任务中要求学生继续提供可定位证据。"
+        for item in strengths[:2]
+    ] + [
+        f"重点干预风险能力点：{item.get('ability', '未知能力点')}，通过小任务、补证和复评验证改进。"
+        for item in risks[:2]
+    ]
+
     return {
         "student_id": student_id,
         "profile_basis": "课程作业文件、文本提交、能力点评分、可定位证据和纵向趋势",
@@ -937,6 +1089,8 @@ def _build_student_profile_payload(
         "overall_delta": overall_delta,
         "overall_volatility": overall_volatility,
         "tags": tags,
+        "text_evaluation": text_evaluation,
+        "teacher_focus": teacher_focus,
         "strengths": strengths,
         "risks": risks,
         "mastery_summary": mastery_summary,
@@ -1281,6 +1435,14 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         "改进领域三：评价一致性强化。统一评分依据、证据格式与复盘口径，确保不同阶段评价具备可比性与可追踪性。"
     ]
 
+    assignment_completion_review = _build_assignment_completion_review(
+        points=points_for_trend,
+        trend_diagnostics=trend_diagnostics,
+        ability_dimension_series=ability_dimension_series,
+        course_type=course_type
+    )
+    teaching_improvement_measures = assignment_completion_review.get("teacher_improvement_measures", [])
+
     report_sections = {
         "evaluation_basis": (
             f"本报告基于学生 {student_id} 的 {len(points)} 次课程作业评估记录，"
@@ -1301,6 +1463,7 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
             "在初期阶段更受能力点基础与任务理解影响，中后期则更依赖细则关键项的达成质量。"
             "因此需要把阶段目标与评分证据进行一致化管理，以提升进步曲线的可持续性。"
         ),
+        "assignment_completion": assignment_completion_review.get("summary", ""),
         "risk_analysis": (
             "当前主要风险包括：其一，若波动度长期偏高，趋势结论可能受单次评估噪声放大；"
             "其二，若能力点分项与细则关键项出现背离，可能导致“总分提升但核心能力未同步增强”的结构性风险；"
@@ -1321,10 +1484,12 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         f"### 二、分析方法\n{report_sections['methodology']}\n\n"
         f"### 三、趋势分析\n{report_sections['trend_analysis']}\n\n"
         f"### 四、阶段发现\n{report_sections['stage_findings']}\n\n"
-        f"### 五、风险分析\n{report_sections['risk_analysis']}\n\n"
-        f"### 六、后续关注点\n{report_sections['follow_up_focus']}\n\n"
-        f"### 七、改进领域\n{report_sections['improvement_areas']}\n\n"
-        f"### 八、改进路径\n{report_sections['improvement_path']}\n"
+        f"### 五、作业完成情况评价\n{report_sections['assignment_completion']}\n\n"
+        f"### 六、风险分析\n{report_sections['risk_analysis']}\n\n"
+        f"### 七、后续关注点\n{report_sections['follow_up_focus']}\n\n"
+        f"### 八、教学改进措施\n" + "；".join(teaching_improvement_measures) + "\n\n"
+        f"### 九、改进领域\n{report_sections['improvement_areas']}\n\n"
+        f"### 十、改进路径\n{report_sections['improvement_path']}\n"
     )
 
     student_profile = _build_student_profile_payload(
@@ -1356,6 +1521,8 @@ def _build_policy_progress_payload(student_id: str, evaluations: List[Any], db_s
         "follow_up_points": follow_up_points,
         "improvement_areas": improvement_areas,
         "student_profile": student_profile,
+        "assignment_completion_review": assignment_completion_review,
+        "teaching_improvement_measures": teaching_improvement_measures,
         "trend_closure_plan": trend_closure_plan,
         "report": report
     }
@@ -2253,6 +2420,10 @@ def _evaluate_submission_core(request: EvaluationRequest, db_service: DatabaseSe
             strengths=response_strengths,
             areas_for_improvement=response_areas_for_improvement,
             recommendations=response_recommendations,
+            task_completion=evaluation_result.get("task_completion"),
+            assignment_completion_evaluation=evaluation_result.get("assignment_completion_evaluation"),
+            teaching_improvement_measures=evaluation_result.get("teaching_improvement_measures"),
+            overall_evaluation=evaluation_result.get("overall_evaluation"),
             dimension_scores=dimension_scores_response,
             knowledge_understanding_score=evaluation_result.get("knowledge_understanding_score"),
             knowledge_application_score=evaluation_result.get("knowledge_application_score"),
@@ -4467,6 +4638,8 @@ async def generate_student_progress_report(
             report_sections=payload.get("report_sections"),
             follow_up_points=payload.get("follow_up_points"),
             student_profile=payload.get("student_profile"),
+            assignment_completion_review=payload.get("assignment_completion_review"),
+            teaching_improvement_measures=payload.get("teaching_improvement_measures"),
             trend_closure_plan=payload.get("trend_closure_plan"),
             overall_score=payload.get("trend_series", {}).get("overall_score", [None])[-1] if payload.get("trend_series", {}).get("overall_score") else None
         )
@@ -4583,6 +4756,8 @@ async def get_progress_report_detail(
         "report_sections": payload.get("report_sections"),
         "follow_up_points": payload.get("follow_up_points"),
         "student_profile": payload.get("student_profile"),
+        "assignment_completion_review": payload.get("assignment_completion_review"),
+        "teaching_improvement_measures": payload.get("teaching_improvement_measures"),
         "trend_closure_plan": payload.get("trend_closure_plan"),
         "dimension_trends": dimension_trends,
         "key_insights": key_insights if key_insights else payload.get("key_insights", []),
