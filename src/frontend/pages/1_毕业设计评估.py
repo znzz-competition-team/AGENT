@@ -257,6 +257,15 @@ def _generate_summary_text(result, method, student_info):
         lines.append(f"当前评分: {overall}分 ({grade})")
         lines.append(f"可提升空间: +{roadmap.get('total_improvable_points', 0)}分")
         lines.append(f"潜在评分: {roadmap.get('potential_score', 0)}分")
+    elif method == 'agent':
+        evaluation = result.get('evaluation', {})
+        overall = evaluation.get('overall_assessment', {})
+        lines.append(f"评分: {overall.get('score', 'N/A')}分 ({overall.get('grade', '')})")
+        research_ctx = result.get('research_context', {})
+        lines.append(f"搜索到相关论文: {research_ctx.get('papers_found', 0)}篇")
+        understanding = result.get('understanding', {})
+        if understanding.get('research_problem', {}).get('core_question'):
+            lines.append(f"核心研究问题: {understanding['research_problem']['core_question']}")
     else:
         overall = result.get('overall_score', 0)
         grade = result.get('grade_level', '')
@@ -1479,6 +1488,265 @@ def _display_llm_result(result, student_info):
         st.json(result)
 
 
+def _display_agent_result(result, student_info):
+    understanding = result.get('understanding', {})
+    evaluation = result.get('evaluation', {})
+    suggestions = result.get('suggestions', {})
+    detailed_report = result.get('detailed_report', {})
+    research_ctx = result.get('research_context', {})
+    kb_stats = result.get('knowledge_base_stats', {})
+
+    overall = evaluation.get('overall_assessment', {})
+    score = overall.get('score', 'N/A')
+    grade = overall.get('grade', '')
+
+    st.subheader(f"📊 总体评分: {score}分 ({grade})")
+
+    if research_ctx:
+        with st.expander("🔍 搜寻到的研究现状", expanded=True):
+            papers_found = research_ctx.get('papers_found', 0)
+            key_topics = research_ctx.get('key_topics', [])
+            st.write(f"从学术数据库搜索到 **{papers_found}** 篇相关论文")
+            if key_topics:
+                st.write("**搜索主题**: " + ", ".join(key_topics[:6]))
+
+            context_doc = research_ctx.get('context_document', '')
+            if context_doc:
+                st.markdown("---")
+                st.markdown(context_doc)
+
+            related_papers = research_ctx.get('related_papers', [])
+            if related_papers:
+                st.markdown("---")
+                st.markdown("### 📄 搜寻到的相关论文详情")
+                for i, paper in enumerate(related_papers):
+                    title = paper.get('title', '未知标题')
+                    authors = paper.get('authors', '')
+                    year = paper.get('year', '未知')
+                    citations = paper.get('citation_count', 0)
+                    venue = paper.get('venue', '')
+                    abstract = paper.get('abstract', '')
+                    source = paper.get('source', '')
+
+                    with st.expander(f"{i+1}. {title} ({year})", expanded=False):
+                        if authors:
+                            st.write(f"**作者**: {authors}")
+                        if venue:
+                            st.write(f"**期刊/会议**: {venue}")
+                        st.write(f"**引用数**: {citations}")
+                        st.write(f"**数据来源**: {source}")
+                        if abstract:
+                            st.markdown(f"**摘要**: {abstract}")
+
+            landscape = research_ctx.get('research_landscape', {})
+            if landscape:
+                top_cited = landscape.get('top_cited', [])
+                if top_cited:
+                    st.markdown("---")
+                    st.markdown("### 🏆 高引用论文排名")
+                    for i, p in enumerate(top_cited[:10]):
+                        st.write(f"{i+1}. **{p.get('title', '')}** ({p.get('year', '')}) — 引用{p.get('citations', 0)}次, {p.get('venue', '')}")
+
+    if kb_stats:
+        with st.expander("📚 知识库统计", expanded=False):
+            st.json(kb_stats)
+
+    research_scope = result.get('research_scope', {})
+    if research_scope:
+        with st.expander("🔒 论文研究范围锁定", expanded=True):
+            scope = research_scope.get('explicit_research_scope', {})
+            if scope:
+                st.markdown("#### 论文明确声明的研究范围")
+                if scope.get('research_object'):
+                    st.write(f"**研究对象**: {scope['research_object']}")
+                if scope.get('research_problem'):
+                    st.write(f"**研究问题**: {scope['research_problem']}")
+                if scope.get('research_method'):
+                    st.write(f"**研究方法**: {scope['research_method']}")
+                if scope.get('research_conditions'):
+                    st.write(f"**研究条件**: {scope['research_conditions']}")
+                if scope.get('research_goal'):
+                    st.write(f"**研究目标**: {scope['research_goal']}")
+
+            boundaries = research_scope.get('scope_boundaries', {})
+            if boundaries:
+                in_scope = boundaries.get('what_is_in_scope', [])
+                out_scope = boundaries.get('what_is_out_of_scope', [])
+                if in_scope:
+                    st.markdown("#### ✅ 研究范围内")
+                    for item in in_scope:
+                        st.write(f"  ✓ {item}")
+                if out_scope:
+                    st.markdown("#### ❌ 研究范围外（评估时不会建议研究这些内容）")
+                    for item in out_scope:
+                        st.write(f"  ✗ {item}")
+
+            scope_statement = research_scope.get('scope_statement', '')
+            if scope_statement:
+                st.info(f"**范围声明**: {scope_statement}")
+            scope_warning = research_scope.get('scope_warning', '')
+            if scope_warning:
+                st.warning(f"**范围警告**: {scope_warning}")
+
+    if understanding:
+        with st.expander("🧠 智能体对论文的理解", expanded=True):
+            problem = understanding.get('research_problem', {})
+            if problem:
+                st.markdown("#### 研究问题")
+                st.write(f"**核心问题**: {problem.get('core_question', '')}")
+                st.write(f"**领域重要性**: {problem.get('importance_in_field', '')}")
+                st.write(f"**问题新颖性**: {problem.get('problem_novelty', '')}")
+
+            methods = understanding.get('technical_methods', [])
+            if methods:
+                st.markdown("#### 技术方法")
+                for i, m in enumerate(methods):
+                    st.write(f"**方法{i+1}**: {m.get('name', '')}")
+                    st.write(f"  核心思想: {m.get('core_idea', '')}")
+                    st.write(f"  创新点: {m.get('innovation_point', '')}")
+
+            logic = understanding.get('logic_chain', {})
+            if logic:
+                st.markdown("#### 逻辑链条")
+                st.write(f"问题→方法: {logic.get('problem_to_method', '')}")
+                st.write(f"方法→实验: {logic.get('method_to_experiment', '')}")
+                st.write(f"实验→结论: {logic.get('experiment_to_conclusion', '')}")
+                gaps = logic.get('logic_gaps', '')
+                if gaps:
+                    st.warning(f"逻辑跳跃: {gaps}")
+
+            positioning = understanding.get('academic_positioning', {})
+            if positioning:
+                st.markdown("#### 学术定位")
+                st.write(f"**研究 landscape 位置**: {positioning.get('position_in_landscape', '')}")
+                st.write(f"**贡献类型**: {positioning.get('contribution_type', '')}")
+
+    if evaluation:
+        with st.expander("📋 智能体评估结果", expanded=True):
+            st.markdown(f"#### 总体评价")
+            st.write(overall.get('summary', ''))
+
+            focus = evaluation.get('evaluation_focus', '')
+            if focus:
+                st.info(f"**评估重点（智能体自主决定）**: {focus}")
+
+            strengths = evaluation.get('strengths', [])
+            if strengths:
+                st.markdown("#### ✅ 优势")
+                for s in strengths:
+                    st.write(f"**{s.get('aspect', '')}**: {s.get('detail', '')[:500]}")
+                    if s.get('significance'):
+                        st.caption(f"学术意义: {s['significance']}")
+
+            weaknesses = evaluation.get('weaknesses', [])
+            if weaknesses:
+                st.markdown("#### ❌ 不足")
+                for w in weaknesses:
+                    severity = w.get('severity', '中等')
+                    icon = "🔴" if severity == "严重" else "🟡" if severity == "中等" else "🟢"
+                    st.write(f"{icon} **{w.get('aspect', '')}** ({severity})")
+                    st.write(f"  {w.get('detail', '')[:500]}")
+
+            meth_eval = evaluation.get('methodology_evaluation', {})
+            if meth_eval:
+                st.markdown("#### 🔬 方法论评估")
+                for key, label in [
+                    ('rigor', '严谨性'), ('appropriateness', '适当性'),
+                    ('innovation_authenticity', '创新性真实性'), ('comparison_with_sota', '与SOTA对比')
+                ]:
+                    val = meth_eval.get(key, '')
+                    if val:
+                        st.write(f"**{label}**: {val[:400]}")
+
+            exp_eval = evaluation.get('experiment_evaluation', {})
+            if exp_eval:
+                st.markdown("#### 🧪 实验评估")
+                for key, label in [
+                    ('design_quality', '设计质量'), ('baseline_fairness', '基线公平性'),
+                    ('result_depth', '结果深度'), ('reproducibility', '可复现性')
+                ]:
+                    val = exp_eval.get(key, '')
+                    if val:
+                        st.write(f"**{label}**: {val[:400]}")
+
+            logic_eval = evaluation.get('logic_evaluation', {})
+            if logic_eval:
+                st.markdown("#### 🔗 逻辑评估")
+                for key, label in [
+                    ('chain_completeness', '链条完整性'), ('reasoning_rigor', '推理严密性')
+                ]:
+                    val = logic_eval.get(key, '')
+                    if val:
+                        st.write(f"**{label}**: {val[:400]}")
+
+            contrib = evaluation.get('academic_contribution', {})
+            if contrib:
+                st.markdown("#### 🏆 学术贡献")
+                st.write(f"**贡献类型**: {contrib.get('contribution_type', '')}")
+                st.write(f"**贡献程度**: {contrib.get('contribution_degree', '')[:400]}")
+
+    if suggestions:
+        with st.expander("💡 详细修改建议", expanded=True):
+            critical = suggestions.get('critical_suggestions', [])
+            if critical:
+                st.markdown("#### 🔴 必须修改")
+                for i, s in enumerate(critical):
+                    st.markdown(f"**{i+1}. {s.get('aspect', '')}**")
+                    st.write(f"问题: {s.get('problem', '')}")
+                    st.write(f"修改方案: {s.get('solution', '')[:500]}")
+                    if s.get('before_example'):
+                        st.code(f"修改前: {s['before_example'][:200]}", language=None)
+                    if s.get('after_example'):
+                        st.code(f"修改后: {s['after_example'][:200]}", language=None)
+
+            recommended = suggestions.get('recommended_suggestions', [])
+            if recommended:
+                st.markdown("#### 🟡 建议修改")
+                for i, s in enumerate(recommended):
+                    st.markdown(f"**{i+1}. {s.get('aspect', '')}**")
+                    st.write(f"问题: {s.get('problem', '')}")
+                    st.write(f"修改方案: {s.get('solution', '')[:400]}")
+
+            research_enh = suggestions.get('research_enhancement', {})
+            if research_enh:
+                st.markdown("#### 📚 研究提升建议")
+                for key, label in [
+                    ('literature_gap', '文献补充'), ('methodology_enhancement', '方法论加强'),
+                    ('experiment_enhancement', '实验补充'), ('sota_comparison', 'SOTA对比')
+                ]:
+                    val = research_enh.get(key, '')
+                    if val:
+                        st.write(f"**{label}**: {val[:400]}")
+
+            roadmap = suggestions.get('priority_roadmap', '')
+            if roadmap:
+                st.markdown("#### 🗺️ 修改优先级路线图")
+                st.write(roadmap)
+
+    if detailed_report:
+        with st.expander("📄 万字级详细评估报告", expanded=False):
+            for key, label in [
+                ('executive_summary', '执行摘要'),
+                ('research_context_analysis', '研究背景分析'),
+                ('methodology_deep_dive', '方法论深度分析'),
+                ('experiment_deep_dive', '实验深度分析'),
+                ('logic_chain_analysis', '逻辑链分析'),
+                ('innovation_assessment', '创新性评估'),
+                ('detailed_strengths', '详细优势分析'),
+                ('detailed_weaknesses', '详细不足分析'),
+                ('modification_guide', '修改指导'),
+                ('academic_improvement_roadmap', '学术提升路线图'),
+                ('conclusion', '总结性评价'),
+            ]:
+                content = detailed_report.get(key, '')
+                if content:
+                    st.markdown(f"### {label}")
+                    st.write(content)
+
+    elapsed = result.get('elapsed_seconds', 0)
+    st.caption(f"评估耗时: {elapsed}秒 | 评估方法: 智能体评估（研究现状搜索+自主推理）")
+
+
 def _display_deep_result(result, student_info):
     diagnosis = result.get('diagnosis', {})
     roadmap = result.get('modification_roadmap', {})
@@ -2075,10 +2343,11 @@ evaluation_method = st.radio(
         ("LLM确定性评分（结果一致，可复现）", "rule_engine"),
         ("分段评估（智能分段，适合长篇论文）", "sectioned"),
         ("增强评估（引用验证+多模型+提示词优化）", "enhanced"),
-        ("深度评估（多Pass分解+Self-Refine+修改路线图）", "deep")
+        ("深度评估（多Pass分解+Self-Refine+修改路线图）", "deep"),
+        ("🧠 智能体评估（搜寻研究现状+自主推理+万字级详细报告）", "agent")
     ],
     format_func=lambda x: x[0],
-    help="确定性评分确保相同输入产生相同输出；分段评估适合长篇论文；增强评估整合引用网络验证、多模型共识和提示词自动优化；深度评估通过多Pass分解、自我迭代优化和差异化修改路线图，提供远超直接输入网页的详细评估报告"
+    help="确定性评分确保相同输入产生相同输出；分段评估适合长篇论文；增强评估整合引用网络验证、多模型共识和提示词自动优化；深度评估通过多Pass分解和自我迭代提供详细报告；智能体评估搜寻研究现状作为前后文，大模型自主推理评估，生成万字级详细报告"
 )
 
 method_value = evaluation_method[1]
@@ -2091,6 +2360,8 @@ elif method_value == "enhanced":
     st.info("💡 增强评估特点：\n- 📚 引用网络验证：通过Semantic Scholar/CrossRef API验证参考文献真实性和新颖度\n- 🤖 多模型共识：支持多个LLM交叉评审，降低单一模型偏差\n- 🔧 提示词优化：TextGrad自举模式自动优化评估提示词\n- 📊 偏置校正：基于统计学方法校正LLM评审偏差")
 elif method_value == "deep":
     st.info("💡 深度评估特点：\n- 🔄 多Pass分解：结构识别→逐章深度评估→衔接检测→承诺追踪→综合诊断，每个Pass聚焦一个维度\n- 🔁 Self-Refine迭代：生成→批评→修订，三轮迭代提升评估深度和准确性\n- 🗺️ 修改路线图：量化每个问题的影响分数，按优先级排序，提供修改前后对比示例\n- ⏱️ 评估时间约5-10分钟，但报告质量远超直接输入网页")
+elif method_value == "agent":
+    st.info("💡 智能体评估特点：\n- 🔍 搜寻研究现状：自动从Semantic Scholar/CrossRef搜索相关论文，构建研究前后文\n- 🧠 大模型自主推理：不是固定工作流，而是让大模型自主决定评估重点和策略\n- 📊 研究背景对比：将论文置于学术背景下评价，对比最先进方法\n- 📝 万字级详细报告：包含理解、评估、修改建议、展开报告四个层次\n- ⏱️ 评估时间约10-20分钟，输出极其详细的评价和修改建议")
 
 if method_value == "enhanced":
     with st.expander("🔬 增强评估配置", expanded=True):
@@ -2252,11 +2523,21 @@ try:
                             
                             with st.spinner("正在读取文件内容..."):
                                 all_content = []
+                                first_file_path = None
                                 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
                                 
                                 for f in files:
                                     file_path = f.get('file_path', '')
                                     file_name = f.get('file_name', '未知文件')
+                                    
+                                    if not first_file_path and file_path:
+                                        if not os.path.isabs(file_path):
+                                            file_path_abs = os.path.join(project_root, file_path)
+                                        else:
+                                            file_path_abs = file_path
+                                        file_ext = os.path.splitext(file_path)[1].lower() if file_path else ''
+                                        if file_ext in ['.pdf', '.docx', '.doc'] and os.path.exists(file_path_abs):
+                                            first_file_path = file_path_abs
                                     
                                     if file_path and not os.path.isabs(file_path):
                                         file_path = os.path.join(project_root, file_path)
@@ -2314,6 +2595,7 @@ try:
                             if all_content:
                                 submission_content = "\n\n".join(all_content)
                                 st.session_state['submission_content'] = submission_content
+                                st.session_state['first_file_path'] = first_file_path
                                 st.success(f"✅ 已读取论文内容 ({len(submission_content)} 字符)")
                                 
                                 with st.spinner("正在分析论文摘要和类型..."):
@@ -2523,19 +2805,6 @@ except Exception as e:
 st.markdown("---")
 st.markdown("### ⚙️ 评估选项")
 
-col_opt1, col_opt2 = st.columns(2)
-with col_opt1:
-    use_cache = st.checkbox(
-        "使用缓存结果", 
-        value=True, 
-        help="启用后，相同论文内容将返回缓存的评估结果，确保100%一致性；禁用后每次重新评估，分数可能有1-3分波动"
-    )
-with col_opt2:
-    if use_cache:
-        st.info("🔒 缓存模式：相同内容100%返回相同结果")
-    else:
-        st.warning("🔄 实时模式：每次重新评估，分数可能有1-3分波动")
-
 st.markdown("---")
 
 with st.expander("⚖️ 融合评价设置", expanded=False):
@@ -2721,7 +2990,7 @@ with st.expander("⚖️ 融合评价设置", expanded=False):
 
 st.markdown("---")
 
-col_debug1, col_debug2 = st.columns(2)
+col_debug1, col_debug2, col_debug3 = st.columns(3)
 with col_debug1:
     if st.button("🔍 调试PDF提取", use_container_width=True):
         if not submission_content:
@@ -2789,6 +3058,294 @@ with col_debug2:
                 )
                 
                 st.info(f"总字符数: {len(submission_content)}")
+
+with col_debug3:
+    if st.button("🧠 可视化知识库", use_container_width=True):
+        first_file_path = st.session_state.get("first_file_path")
+        if not first_file_path:
+            st.error("❌ 请先选择毕业设计论文（需要PDF或Word文件）")
+        else:
+            st.session_state['show_kb_viz'] = True
+
+if st.session_state.get('show_kb_viz') and not st.session_state.get('kb_viz_data'):
+    first_file_path = st.session_state.get("first_file_path")
+    if first_file_path:
+        st.session_state['kb_viz_loading'] = True
+        with st.spinner("正在构建知识库并生成可视化数据（跳过视觉分析以加速）..."):
+            try:
+                viz_response = requests.post(
+                    f"{API_BASE_URL}/visualize_knowledge_base",
+                    json={"file_path": first_file_path, "content": "", "skip_visual": True},
+                    timeout=120
+                )
+                if viz_response.status_code == 200:
+                    viz_data = viz_response.json()
+                    st.session_state['kb_viz_data'] = viz_data
+                else:
+                    try:
+                        err_detail = viz_response.json().get('detail', '未知错误')
+                    except:
+                        err_detail = f"HTTP {viz_response.status_code}"
+                    st.error(f"❌ 知识库可视化失败: {err_detail}")
+                    st.session_state['show_kb_viz'] = False
+            except Exception as e:
+                st.error(f"❌ 知识库可视化请求失败: {str(e)}")
+                st.session_state['show_kb_viz'] = False
+        st.session_state['kb_viz_loading'] = False
+
+    if st.session_state.get('kb_viz_data'):
+        viz_data = st.session_state['kb_viz_data']
+        stats = viz_data.get('stats', {})
+
+        st.markdown("---")
+        st.header("🧠 知识库可视化")
+
+        if st.button("✖️ 关闭知识库可视化", use_container_width=True):
+            st.session_state['show_kb_viz'] = False
+            st.session_state.pop('kb_viz_data', None)
+            st.rerun()
+
+        col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns(5)
+        with col_s1:
+            st.metric("章节", stats.get("sections_count", 0))
+        with col_s2:
+            st.metric("表格", stats.get("tables_count", 0))
+        with col_s3:
+            st.metric("图片", stats.get("figures_count", 0))
+        with col_s4:
+            st.metric("公式", stats.get("formulas_count", 0))
+        with col_s5:
+            st.metric("分块", stats.get("chunks_count", 0))
+
+        col_s6, col_s7, col_s8 = st.columns(3)
+        with col_s6:
+            st.metric("文件类型", viz_data.get("file_type", "unknown"))
+        with col_s7:
+            st.metric("内容长度", f"{viz_data.get('content_length', 0):,} 字符")
+        with col_s8:
+            semantic_status = "✅ 已构建" if viz_data.get("has_semantic_index") else "⚪ 未构建"
+            st.metric("语义索引", semantic_status)
+
+        tab_sections, tab_tables, tab_figures, tab_terms, tab_chain, tab_chunks = st.tabs([
+            "📑 章节结构", "📊 表格数据", "🖼️ 图片与公式", "🔑 关键术语", "🔗 研究链条", "📦 分块分布"
+        ])
+
+        with tab_sections:
+            sections = viz_data.get("sections", [])
+            if sections:
+                type_icons = {
+                    "abstract": "📋", "abstract_en": "📋", "introduction": "📖",
+                    "literature_review": "📚", "methodology": "🔧", "implementation": "⚙️",
+                    "experiment": "🧪", "conclusion": "📝", "references": "📖",
+                    "acknowledgment": "🙏", "appendix": "📎", "other": "📄",
+                    "auto_chunk": "📦", "preamble": "📄"
+                }
+                type_names = {
+                    "abstract": "摘要", "abstract_en": "英文摘要", "introduction": "绪论",
+                    "literature_review": "文献综述", "methodology": "方法论", "implementation": "实现",
+                    "experiment": "实验", "conclusion": "结论", "references": "参考文献",
+                    "acknowledgment": "致谢", "appendix": "附录", "other": "其他",
+                    "auto_chunk": "自动分块", "preamble": "前言"
+                }
+
+                st.markdown("### 📑 论文章节结构树")
+                for i, sec in enumerate(sections):
+                    sec_type = sec.get("type", "other")
+                    icon = type_icons.get(sec_type, "📄")
+                    type_name = type_names.get(sec_type, sec_type)
+                    content_len = sec.get("content_length", 0)
+                    title = sec.get("title", "")
+
+                    bar_len = min(int(content_len / 500), 40)
+                    bar = "█" * bar_len + "░" * (40 - bar_len)
+
+                    with st.expander(f"{icon} {title} ({type_name}) — {content_len:,}字符"):
+                        st.markdown(f"**类型**: {type_name} | **字符数**: {content_len:,}")
+                        st.markdown(f"**内容占比**: {bar} ({content_len / max(viz_data.get('content_length', 1), 1) * 100:.1f}%)")
+            else:
+                st.info("未检测到章节结构")
+
+        with tab_tables:
+            tables_structured = viz_data.get("tables_structured", [])
+            visual_tables = viz_data.get("visual_tables", [])
+
+            if tables_structured:
+                st.markdown("### 📊 结构化提取的表格")
+                for i, t in enumerate(tables_structured):
+                    with st.expander(f"📋 {t.get('table_number', f'表格{i+1}')} — {t.get('caption', '无标题')} ({t.get('row_count', 0)}行)"):
+                        st.markdown(f"**摘要**: {t.get('summary', '')}")
+                        text_repr = t.get("text_representation", "")
+                        if text_repr:
+                            st.code(text_repr, language=None)
+
+            if visual_tables:
+                st.markdown("### 👁️ 视觉识别的表格")
+                for i, vt in enumerate(visual_tables):
+                    with st.expander(f"👁️ {vt.get('table_number', f'视觉表格{i+1}')} — {vt.get('caption', '无标题')} (第{vt.get('page', 0)}页)"):
+                        st.markdown(f"**描述**: {vt.get('description', '')}")
+                        text_repr = vt.get("text_representation", "")
+                        if text_repr:
+                            st.code(text_repr, language=None)
+
+            if not tables_structured and not visual_tables:
+                st.info("未检测到表格数据")
+
+        with tab_figures:
+            figures = viz_data.get("figures", [])
+            visual_figures = viz_data.get("visual_figures", [])
+            formulas = viz_data.get("formulas", [])
+            visual_formulas = viz_data.get("visual_formulas", [])
+            algorithms = viz_data.get("algorithms", [])
+
+            col_fig, col_form = st.columns(2)
+
+            with col_fig:
+                st.markdown("### 🖼️ 图片引用")
+                if figures:
+                    for fig in figures:
+                        st.markdown(f"- **{fig.get('label', '')}** {fig.get('caption', '')}")
+                else:
+                    st.info("未检测到图片引用")
+
+                if visual_figures:
+                    st.markdown("---")
+                    st.markdown("### 👁️ 视觉识别的图片")
+                    for vf in visual_figures:
+                        with st.expander(f"👁️ {vf.get('figure_number', '')} — {vf.get('caption', '')} (第{vf.get('page', 0)}页)"):
+                            st.markdown(f"**类型**: {vf.get('type', '')}")
+                            st.markdown(f"**描述**: {vf.get('description', '')}")
+                            if vf.get("key_findings"):
+                                st.markdown(f"**关键发现**: {vf['key_findings']}")
+
+            with col_form:
+                st.markdown("### 📐 公式引用")
+                if formulas:
+                    for f in formulas:
+                        st.markdown(f"- **{f.get('label', '')}** — 上下文: {f.get('context', '')[:100]}")
+                else:
+                    st.info("未检测到公式引用")
+
+                if visual_formulas:
+                    st.markdown("---")
+                    st.markdown("### 👁️ 视觉识别的公式")
+                    for vf in visual_formulas:
+                        st.markdown(f"- **LaTeX**: `{vf.get('latex', '')}` — {vf.get('description', '')} (第{vf.get('page', 0)}页)")
+
+                if algorithms:
+                    st.markdown("---")
+                    st.markdown("### 💻 算法引用")
+                    for a in algorithms:
+                        st.markdown(f"- **{a.get('label', '')}** — 上下文: {a.get('context', '')[:100]}")
+
+        with tab_terms:
+            key_terms = viz_data.get("key_terms", [])
+            if key_terms:
+                st.markdown("### 🔑 关键技术术语频次")
+                max_count = max(t.get("count", 0) for t in key_terms) if key_terms else 1
+
+                for i, kt in enumerate(key_terms[:25]):
+                    term = kt.get("term", "")
+                    count = kt.get("count", 0)
+                    bar_len = int(count / max_count * 30)
+                    bar = "█" * bar_len
+                    st.markdown(f"**{term}** — {count}次 {bar}")
+
+                st.markdown("---")
+                st.markdown("### 📊 术语频次分布图")
+                term_names = [t.get("term", "") for t in key_terms[:15]]
+                term_counts = [t.get("count", 0) for t in key_terms[:15]]
+                chart_data = {"术语": term_names, "频次": term_counts}
+                st.bar_chart(chart_data, x="术语", y="频次")
+            else:
+                st.info("未提取到关键技术术语")
+
+        with tab_chain:
+            research_chain = viz_data.get("research_chain", {})
+            if research_chain and any(research_chain.values()):
+                st.markdown("### 🔗 论文研究链条")
+
+                chain_items = [
+                    ("❓ 研究问题", research_chain.get("problem", "")),
+                    ("🔧 研究方法", research_chain.get("method", "")),
+                    ("🧪 实验验证", research_chain.get("experiment", "")),
+                    ("📝 主要结论", research_chain.get("conclusion", "")),
+                ]
+
+                for label, value in chain_items:
+                    if value:
+                        st.markdown(f"**{label}**: {value}")
+                    else:
+                        st.markdown(f"**{label}**: _未识别_")
+
+                logic_flow = research_chain.get("logic_flow", [])
+                if logic_flow:
+                    st.markdown("---")
+                    st.markdown("### 📈 逻辑流程")
+                    for i, step in enumerate(logic_flow):
+                        sec_title = step.get("section", "")
+                        sec_type = step.get("type", "")
+                        summary = step.get("summary", "")[:150]
+                        type_names_chain = {
+                            "introduction": "绪论", "methodology": "方法论",
+                            "experiment": "实验", "conclusion": "结论"
+                        }
+                        type_label = type_names_chain.get(sec_type, sec_type)
+                        st.markdown(f"**→ {sec_title}** ({type_label})")
+                        st.markdown(f"  _{summary}_")
+                        if i < len(logic_flow) - 1:
+                            st.markdown("  ⬇️")
+                else:
+                    st.info("未识别到逻辑流程")
+            else:
+                st.info("未识别到研究链条")
+
+        with tab_chunks:
+            chunk_dist = viz_data.get("chunk_distribution", {})
+            by_type = chunk_dist.get("by_type", {})
+            by_section = chunk_dist.get("by_section", {})
+
+            col_chunk1, col_chunk2 = st.columns(2)
+
+            with col_chunk1:
+                st.markdown("### 📦 按分块类型分布")
+                if by_type:
+                    type_labels_cn = {
+                        "section": "章节整体", "section_chunk": "章节分片",
+                        "table": "表格", "figure_reference": "图片引用",
+                        "formula_reference": "公式引用", "visual_table": "视觉表格",
+                        "visual_figure": "视觉图片", "visual_formula": "视觉公式",
+                    }
+                    for ct, count in sorted(by_type.items(), key=lambda x: x[1], reverse=True):
+                        label = type_labels_cn.get(ct, ct)
+                        bar_len = min(int(count / max(max(by_type.values()), 1) * 25), 25)
+                        bar = "█" * bar_len
+                        st.markdown(f"**{label}** ({ct}): {count} {bar}")
+
+                    chart_type_data = {
+                        "类型": [type_labels_cn.get(k, k) for k in by_type.keys()],
+                        "数量": list(by_type.values())
+                    }
+                    st.bar_chart(chart_type_data, x="类型", y="数量")
+                else:
+                    st.info("无分块数据")
+
+            with col_chunk2:
+                st.markdown("### 📑 按章节分布")
+                if by_section:
+                    for sec, count in sorted(by_section.items(), key=lambda x: x[1], reverse=True):
+                        bar_len = min(int(count / max(max(by_section.values()), 1) * 25), 25)
+                        bar = "█" * bar_len
+                        st.markdown(f"**{sec}**: {count}块 {bar}")
+
+                    chart_sec_data = {
+                        "章节": list(by_section.keys()),
+                        "分块数": list(by_section.values())
+                    }
+                    st.bar_chart(chart_sec_data, x="章节", y="分块数")
+                else:
+                    st.info("无分块数据")
+
+        st.markdown("---")
 
 if st.button("🚀 开始毕业设计评估", use_container_width=True, type="primary"):
     if not submission_content:
@@ -3430,7 +3987,10 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                 except Exception as e:
                     st.error(f"❌ 增强评估失败: {str(e)}")
         elif method_value == "deep":
-            with st.spinner("正在进行深度评估（多Pass分解+Self-Refine迭代+修改路线图，可能需要5-10分钟）..."):
+            pdf_path = st.session_state.get("first_file_path")
+            if pdf_path:
+                st.info("📚 深度评估将自动构建本地知识库（结构化+语义双索引），以识别表格、公式、图片并理解论文研究思路。")
+            with st.spinner("正在进行深度评估（知识库构建+多Pass分解+Self-Refine迭代+修改路线图，可能需要8-15分钟）..."):
                 try:
                     response = requests.post(
                         f"{API_BASE_URL}/evaluate_deep",
@@ -3439,8 +3999,9 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                             "indicators": extracted_guidance,
                             "student_info": student_info,
                             "dimension_weights": current_dimension_weights,
+                            "file_path": pdf_path,
                         },
-                        timeout=900
+                        timeout=1200
                     )
 
                     if response.status_code == 200:
@@ -3467,6 +4028,48 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                         st.error(f"❌ 深度评估失败: {error_detail}")
                 except Exception as e:
                     st.error(f"❌ 深度评估失败: {str(e)}")
+        elif method_value == "agent":
+            pdf_path = st.session_state.get("first_file_path")
+            if pdf_path:
+                st.info("📚 智能体评估将自动搜寻研究现状、构建知识库，并让大模型自主推理评估。")
+            with st.spinner("正在进行智能体评估（搜寻研究现状+自主推理评估+万字级详细报告，可能需要10-20分钟）..."):
+                try:
+                    response = requests.post(
+                        f"{API_BASE_URL}/evaluate_agent",
+                        json={
+                            "submission_content": submission_content,
+                            "indicators": extracted_guidance,
+                            "student_info": student_info,
+                            "dimension_weights": current_dimension_weights,
+                            "file_path": pdf_path,
+                        },
+                        timeout=1500
+                    )
+
+                    if response.status_code == 200:
+                        result = response.json()
+
+                        st.session_state['last_eval_result'] = result
+                        st.session_state['last_eval_method'] = 'agent'
+                        st.session_state['last_eval_student_info'] = student_info
+                        _save_to_history(result, 'agent', student_info)
+
+                        st.success("✅ 智能体评估完成！")
+                        st.markdown("---")
+                        st.header("🧠 智能体评估报告")
+
+                        _display_agent_result(result, student_info)
+
+                        st.info("💡 评估结果已自动保存，可在页面底部「上次评估结果」区域查看、保存或导出。")
+
+                    else:
+                        try:
+                            error_detail = response.json().get('detail', '未知错误')
+                        except:
+                            error_detail = f"HTTP {response.status_code}"
+                        st.error(f"❌ 智能体评估失败: {error_detail}")
+                except Exception as e:
+                    st.error(f"❌ 智能体评估失败: {str(e)}")
         elif method_value == "rule_engine":
             with st.spinner("正在进行LLM确定性评分（这可能需要1-2分钟）..."):
                 try:
@@ -3476,7 +4079,6 @@ if st.button("🚀 开始毕业设计评估", use_container_width=True, type="pr
                             "submission_content": submission_content,
                             "indicators": extracted_guidance,
                             "student_info": student_info,
-                            "use_cache": use_cache,
                             "dimension_weights": current_dimension_weights,
                             "coefficient_config": current_coefficient_config,
                             "use_custom_coefficients": current_use_custom_coefficients
@@ -4275,7 +4877,7 @@ if 'history_view' in st.session_state and st.session_state['history_view']:
     _hv_student_info = _hv.get('student_info', {})
     _hv_timestamp = _hv.get('summary', {}).get('timestamp', '')
 
-    method_label = {"enhanced": "增强评估", "rule_engine": "确定性评分", "sectioned": "分段评估", "llm": "LLM评估", "deep": "深度评估"}.get(_hv_method, _hv_method)
+    method_label = {"enhanced": "增强评估", "rule_engine": "确定性评分", "sectioned": "分段评估", "llm": "LLM评估", "deep": "深度评估", "agent": "智能体评估"}.get(_hv_method, _hv_method)
 
     st.subheader("📂 历史评估记录详情")
     st.info(f"📋 评估方式: {method_label} | 学生: {_hv_student_info.get('student_name', _hv_student_info.get('name', 'N/A'))} ({_hv_student_info.get('student_id', 'N/A')}) | 时间: {_hv_timestamp[:19] if _hv_timestamp else 'N/A'}")
@@ -4290,6 +4892,8 @@ if 'history_view' in st.session_state and st.session_state['history_view']:
         _display_llm_result(_hv_result, _hv_student_info)
     elif _hv_method == 'deep':
         _display_deep_result(_hv_result, _hv_student_info)
+    elif _hv_method == 'agent':
+        _display_agent_result(_hv_result, _hv_student_info)
 
     st.markdown("---")
     st.subheader("💾 保存与导出")

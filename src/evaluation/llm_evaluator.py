@@ -2,7 +2,7 @@
 大模型评估服务 - 使用AI模型进行评估
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 import openai
 from src.config import get_ai_config
 import json
@@ -48,6 +48,115 @@ class LLMEvaluator:
             logger.error("无法初始化大模型客户端: " + str(e))
             raise
     
+    def _json_candidates(self, raw_content: str) -> List[str]:
+        content = (raw_content or "").strip()
+        candidates: List[str] = []
+        if content:
+            candidates.append(content)
+
+        fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", content, re.S | re.I)
+        if fenced:
+            candidates.append(fenced.group(1).strip())
+
+        start_idx = content.find("{")
+        end_idx = content.rfind("}")
+        if start_idx != -1 and end_idx > start_idx:
+            candidates.append(content[start_idx:end_idx + 1])
+
+        repaired = []
+        for candidate in candidates:
+            cleaned = candidate.strip().lstrip("\ufeff")
+            cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
+            if cleaned not in repaired:
+                repaired.append(cleaned)
+        return repaired
+
+    def _partial_evaluation_from_malformed_json(self, raw_content: str) -> Dict[str, Any]:
+        raw = raw_content or ""
+
+        def _num(pattern: str, default: float = 0.0) -> float:
+            match = re.search(pattern, raw, re.S)
+            if not match:
+                return default
+            try:
+                return float(match.group(1))
+            except Exception:
+                return default
+
+        def _clean_text(value: str) -> str:
+            value = value.replace('\\"', '"').replace("\\n", " ")
+            value = re.sub(r"\s+", " ", value)
+            return value.strip().strip(",").strip()
+
+        overall_score = _num(r'"overall_score"\s*:\s*(-?\d+(?:\.\d+)?)', 0.0)
+        dimension_scores: List[Dict[str, Any]] = []
+
+        chunks = re.split(r'(?="dimension"\s*:)', raw)
+        for chunk in chunks:
+            dim_match = re.search(r'"dimension"\s*:\s*"((?:\\.|[^"\\])*)"', chunk, re.S)
+            score_match = re.search(r'"score"\s*:\s*(-?\d+(?:\.\d+)?)', chunk, re.S)
+            if not dim_match or not score_match:
+                continue
+            confidence_match = re.search(r'"confidence"\s*:\s*(-?\d+(?:\.\d+)?)', chunk, re.S)
+            reasoning_match = re.search(r'"reasoning"\s*:\s*"((?:\\.|[^"\\]){0,800})"', chunk, re.S)
+            evidence_match = re.search(r'(文件\s*[:：].{0,220})', chunk, re.S)
+
+            try:
+                score = float(score_match.group(1))
+            except Exception:
+                score = overall_score
+            try:
+                confidence = float(confidence_match.group(1)) if confidence_match else 0.7
+            except Exception:
+                confidence = 0.7
+
+            evidence = []
+            if evidence_match:
+                evidence = [_clean_text(evidence_match.group(1))]
+
+            dimension_scores.append({
+                "dimension": _clean_text(dim_match.group(1)) or "未知维度",
+                "score": score,
+                "confidence": confidence,
+                "evidence": evidence,
+                "reasoning": _clean_text(reasoning_match.group(1)) if reasoning_match else "模型返回的 JSON 证据字段格式异常，已保留可解析评分并建议人工复核。",
+                "improvement_suggestion": "请补充该维度对应的可定位证据，并在必要时重新评估。"
+            })
+
+        if not dimension_scores:
+            dimension_scores.append({
+                "dimension": "整体表现",
+                "score": overall_score,
+                "confidence": 0.5,
+                "evidence": ["模型返回内容不是合法 JSON，系统已按总分生成兜底维度，请人工复核。"],
+                "reasoning": "模型返回格式异常，无法稳定读取分项评分。",
+                "improvement_suggestion": "建议重新发起评估，或降低证据原文中的引号和反斜杠干扰。"
+            })
+
+        return {
+            "overall_score": overall_score,
+            "dimension_scores": dimension_scores,
+            "ability_scores": [],
+            "strengths": ["模型返回结果格式不完整，系统已根据可解析字段生成兜底评估。"],
+            "areas_for_improvement": ["请人工复核本次评分证据，必要时重新评估。"],
+            "recommendations": ["建议在提示词中要求证据原文使用中文引号，并避免输出反斜杠。"],
+            "summary": "模型返回的 JSON 格式异常，系统已进行保守解析。",
+            "feedback": "模型返回的 JSON 格式异常，系统已进行保守解析。"
+        }
+
+    def _parse_llm_json_response(self, raw_content: str, context: str) -> Dict[str, Any]:
+        first_error: Exception = None
+        for candidate in self._json_candidates(raw_content):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                if first_error is None:
+                    first_error = exc
+
+        logger.error(f"{context} JSON解析失败，尝试兜底解析: {first_error}")
+        logger.error(f"{context} 原始响应内容: {(raw_content or '')[:2000]}")
+        return self._partial_evaluation_from_malformed_json(raw_content)
+
     def evaluate_submission(self, submission_content: str, stage_progress: float, student_info: Dict = None, custom_prompts: Dict = None, syllabus_analysis: Dict = None) -> Dict:
         """
         使用大模型评估提交内容
@@ -78,7 +187,8 @@ class LLMEvaluator:
 2. 实践课总分=50%能力点评分+50%阶段完成度（按进度阶段重点评估）；
 3. 维度评分必须有证据支撑，理由完整，结论客观；
 4. 不得脱离课程大纲能力点与评价标准随意评分；
-5. 输出字段必须完整、可解析、分值范围0-100。"""
+5. 输出字段必须完整、可解析、分值范围0-100；
+6. evidence、reasoning、improvement_suggestion 等文本字段中如需引用原文，必须使用中文引号或单引号，禁止输出未转义的英文双引号和裸反斜杠。"""
 
         system_prompt = custom_prompts.get("system_prompt") if custom_prompts and custom_prompts.get("system_prompt") else default_system_prompt
 
@@ -118,7 +228,7 @@ class LLMEvaluator:
         logger.info(f"响应内容前500字符: {raw_content[:500]}")
         
         try:
-            evaluation_result = json.loads(raw_content)
+            evaluation_result = self._parse_llm_json_response(raw_content, "课程作业评估")
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败: {str(e)}")
             logger.error(f"原始响应内容: {raw_content}")
@@ -238,7 +348,7 @@ class LLMEvaluator:
         logger.info(f"响应长度: {len(raw_content)}")
         
         try:
-            evaluation_result = json.loads(raw_content)
+            evaluation_result = self._parse_llm_json_response(raw_content, "确定性评价")
         except json.JSONDecodeError as e:
             logger.error(f"JSON解析失败: {str(e)}")
             start_idx = raw_content.find('{')
@@ -927,6 +1037,7 @@ class LLMEvaluator:
 10. **实践课必须给出 phase_completion_score 并围绕当前阶段重点评估**
 11. **dimension_scores 必须覆盖所有能力点且不得为空**
 12. **evidence 格式必须便于教师核验**：推荐格式为 `文件: xxx | 位置: 页码/段落/表格行 | 原文片段: ...`；每个能力点至少给出1条可定位证据，无法定位时必须写明“未在提交材料中找到可定位证据”
+13. **JSON 安全要求**：所有字符串内部禁止直接使用英文双引号 `"` 和裸反斜杠 `\`；引用原文时请改用中文引号“”或单引号' '，避免导致 JSON 解析失败
 """
         
         return prompt
@@ -1170,4 +1281,480 @@ class LLMEvaluator:
 
 
 # 全局评估器实例
+
+    # ========== Migrated graduation-thesis indicator/institutional evaluation methods ==========
+    def evaluate_with_indicators(
+        self,
+        submission_content: str,
+        indicators: Dict,
+        student_info: Dict = None,
+        use_enhanced_prompt: bool = True
+    ) -> Dict:
+        """
+        根据评价指标使用大模型进行评分
+        
+        Args:
+            submission_content: 提交内容（论文内容）
+            indicators: 评价指标字典
+            student_info: 学生信息
+            use_enhanced_prompt: 是否使用增强版提示词
+            
+        Returns:
+            评分结果字典
+        """
+        self.ai_config = get_ai_config()
+        self.client = self._initialize_client(self.ai_config)
+        
+        if not self.client:
+            raise Exception("大模型客户端未初始化，请检查API配置")
+        
+        indicators_str = json.dumps(indicators, ensure_ascii=False, indent=2)
+        
+        student_info_str = ""
+        if student_info:
+            student_info_str = f"""
+学生信息：
+- 学号：{student_info.get('student_id', '未知')}
+- 姓名：{student_info.get('name', '未知')}
+- 题目：{student_info.get('title', '未知')}
+"""
+        
+        if use_enhanced_prompt:
+            from src.prompts.thesis_prompts import ENHANCED_THESIS_SYSTEM_PROMPT, FEW_SHOT_EXAMPLES, SELF_VERIFICATION_PROMPT, VERIFICATION_OUTPUT_FORMAT
+            
+            system_prompt = ENHANCED_THESIS_SYSTEM_PROMPT
+            
+            user_prompt = f"""请根据以下评价指标，对学生的毕业设计论文进行专业评审。
+
+{student_info_str}
+
+## 评价指标
+
+{indicators_str}
+
+## 论文内容
+
+{submission_content[:15000]}
+
+{FEW_SHOT_EXAMPLES}
+
+## 评审要求
+
+### 第一步：逐项分析
+对每个指标，请按以下格式进行分析：
+1. **标准理解**：这个指标要求什么？
+2. **证据定位**：论文中哪些内容与该指标相关？
+3. **质量评估**：这些内容的质量如何？有什么优点和不足？
+4. **对比分析**：与优秀论文相比，差距在哪里？
+
+### 第二步：评分
+根据分析结果，给出0-100分的评分，并说明理由。
+
+### 第三步：改进建议
+针对每个不足之处，给出具体的改进建议。
+
+{SELF_VERIFICATION_PROMPT}
+
+{VERIFICATION_OUTPUT_FORMAT}
+
+## 输出格式
+请严格按照以下JSON格式返回：
+{{
+    "analysis_process": [
+        {{
+            "indicator_id": "指标编号",
+            "indicator_name": "指标名称",
+            "standard_understanding": "对评价标准的理解",
+            "evidence_found": "论文中的相关内容（引用原文）",
+            "quality_assessment": "质量评估（优点和不足）",
+            "comparison_with_excellent": "与优秀标准的对比"
+        }}
+    ],
+    "overall_score": 加权总分（保留1位小数）,
+    "grade_level": "总体等级（优秀/良好/中等/及格/不及格）",
+    "overall_comment": "总体评价（200-300字，需引用论文内容）",
+    "dimension_scores": [
+        {{
+            "indicator_id": "指标编号",
+            "indicator_name": "指标名称",
+            "score": 分数（0-100）,
+            "grade_level": "等级（优秀/良好/中等/及格/不及格）",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "支撑证据（原文引用）",
+            "improvement_suggestions": ["具体改进建议"]
+        }}
+    ],
+    "strengths": ["优势1（附证据）", "优势2（附证据）"],
+    "weaknesses": ["不足1（附证据）", "不足2（附证据）"],
+    "comparison_with_excellent_thesis": "与优秀论文的主要差距分析",
+    "self_verification": {{
+        "evidence_consistency": true/false,
+        "evidence_consistency_note": "说明",
+        "score_rationality": true/false,
+        "score_rationality_note": "说明",
+        "grade_consistency": true/false,
+        "grade_consistency_note": "说明",
+        "overall_consistent": true/false,
+        "verification_passed": true/false
+    }}
+}}"""
+        else:
+            system_prompt = """你是一位资深的教育评估专家，专门负责毕业设计评价工作。
+你的职责是严格按照给定的评价指标，客观、公正地评价学生的毕业设计论文。
+
+【核心原则 - 绝对禁止幻觉】
+1. 你只能基于学生提交的内容做出判断，绝不能凭想象或推测
+2. 声称"缺少"某内容时，必须先确认该内容确实不在提交的文本中
+3. 声称"仅"有某内容时，必须确认没有遗漏文本中的其他内容
+4. 每个评分必须有学生提交内容中的具体证据支撑
+5. 如果文本中提到了表格编号（如表4.1）、图编号（如图3.2）、算法编号（如算法1），就认为它们存在
+6. 附录中的内容同样有效
+7. 不要质疑论文的研究设计方向，除非论文自身承诺了更多
+8. 不要声称摘要与正文不一致，除非你能指出具体的不一致之处
+
+重要规则：
+1. **严格按标准评分**：必须严格按照提示词中给出的评价指标进行评分
+2. **一致性原则**：相同质量的作品必须得到相近的分数
+3. **证据支撑**：每个评分必须有学生提交内容中的具体证据支撑
+4. **等级对应**：根据学生表现确定等级，然后给出对应分数
+5. **客观公正**：评分需基于论文实际内容，避免主观臆断
+
+请以专业、客观、严谨的态度进行评价，确保评价结果的一致性和可靠性。"""
+
+            user_prompt = f"""请根据以下评价指标，对学生的毕业设计论文进行评分。
+
+{student_info_str}
+
+## 评价指标
+
+{indicators_str}
+
+## 论文内容
+
+{submission_content[:12000]}
+
+## 评分要求
+
+1. 对每个评价指标进行评分（0-100分）
+2. 提供评分理由（为什么给这个分数）
+3. 引用论文中的具体内容作为证据
+4. 计算加权总分
+
+请严格按照以下JSON格式返回评分结果：
+{{
+    "overall_score": 加权总分（保留1位小数）,
+    "grade_level": "总体等级（优秀/良好/中等/及格/不及格）",
+    "overall_comment": "总体评价（100-200字）",
+    "dimension_scores": [
+        {{
+            "indicator_id": "指标编号",
+            "indicator_name": "指标名称",
+            "score": 分数（0-100）,
+            "grade_level": "等级（优秀/良好/中等/及格/不及格）",
+            "score_reason": "评分理由（100-200字）",
+            "evidence": "论文中的具体证据",
+            "improvement_suggestions": ["改进建议1", "改进建议2"]
+        }}
+    ]
+}}"""
+
+        response = self.client.chat.completions.create(
+            model=self.ai_config["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=6000,
+            response_format={"type": "json_object"}
+        )
+        
+        raw_content = response.choices[0].message.content
+        
+        logger.info("=== 评价指标评分原始响应 ===")
+        logger.info(f"响应长度: {len(raw_content)}")
+        
+        try:
+            result = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {str(e)}")
+            start_idx = raw_content.find('{')
+            end_idx = raw_content.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_str = raw_content[start_idx:end_idx]
+                result = json.loads(json_str)
+            else:
+                raise Exception(f"解析大模型返回结果失败: {str(e)}")
+        
+        result["evaluation_method"] = "llm_indicators"
+        result["is_deterministic"] = True
+        
+        return result
+    
+    def evaluate_institutional_dimensions(
+        self,
+        submission_content: str,
+        dimension_weights: dict = None,
+        use_enhanced_prompt: bool = True
+    ) -> Dict:
+        """
+        评估校方固有评价体系维度（创新度、研究分析深度、文章结构、研究方法与实验）
+        
+        Args:
+            submission_content: 提交内容
+            dimension_weights: 维度权重配置，如 {"innovation": 25, "research_depth": 25, ...}
+            use_enhanced_prompt: 是否使用增强版提示词
+            
+        Returns:
+            固有评价体系评分结果
+        """
+        from src.prompts.thesis_prompts import INSTITUTIONAL_SYSTEM_PROMPT, build_institutional_user_prompt, ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT, FEW_SHOT_EXAMPLES, SELF_VERIFICATION_PROMPT, VERIFICATION_OUTPUT_FORMAT
+        
+        self.ai_config = get_ai_config()
+        self.client = self._initialize_client(self.ai_config)
+        
+        if not self.client:
+            raise Exception("大模型客户端未初始化，请检查API配置")
+        
+        system_prompt = ENHANCED_INSTITUTIONAL_SYSTEM_PROMPT if use_enhanced_prompt else INSTITUTIONAL_SYSTEM_PROMPT
+        
+        user_prompt = build_institutional_user_prompt(
+            content=submission_content[:18000],
+            dimension_weights=dimension_weights
+        )
+        
+        if use_enhanced_prompt:
+            user_prompt = f"""请对以下毕业设计论文进行校方固有评价体系维度评分。
+
+## 论文内容
+
+{submission_content[:18000]}
+
+{FEW_SHOT_EXAMPLES}
+
+## 评审思维链
+
+在评分前，请按以下步骤思考：
+
+### 创新度评估
+1. 论文提出了什么新东西？（新方法/新模型/新应用/新发现）
+2. 这个"新"是真正的创新还是简单的组合？
+3. 创新是否有价值？解决了什么实际问题？
+4. 与现有工作相比，改进有多大？
+
+### 研究深度评估
+1. 文献综述是否覆盖了主要相关工作？
+2. 是否真正理解并分析了文献，而非简单罗列？
+3. 现状分析是否有深度，能否归纳出关键问题？
+4. 引用的文献是否新颖、权威？
+
+### 文章结构评估
+1. 章节安排是否符合学术规范？
+2. 各章节之间是否有逻辑关联？
+3. 论证是否连贯，有无跳跃或矛盾？
+4. 语言表达是否规范、清晰？
+
+### 方法与实验评估
+1. 研究方法是否适合研究问题？
+2. 方法描述是否详细、可复现？
+3. 实验设计是否科学、完整？
+4. 数据分析是否严谨、有说服力？
+
+{SELF_VERIFICATION_PROMPT}
+
+{VERIFICATION_OUTPUT_FORMAT}
+
+## 输出格式
+请严格按照以下JSON格式返回：
+{{
+    "institutional_scores": [
+        {{
+            "dimension_id": "innovation",
+            "dimension_name": "创新度",
+            "score": 分数（0-100）,
+            "grade_level": "等级（优秀/良好/中等/及格/不及格）",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "innovation_type": "创新类型（原创性/组合式/改进型）",
+                "innovation_value": "创新价值说明",
+                "comparison_with_existing": "与现有工作的对比"
+            }}
+        }},
+        {{
+            "dimension_id": "research_depth",
+            "dimension_name": "研究分析深度",
+            "score": 分数（0-100）,
+            "grade_level": "等级",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "literature_coverage": "文献覆盖情况",
+                "analysis_depth": "分析深度评价",
+                "problem_identification": "问题归纳能力"
+            }}
+        }},
+        {{
+            "dimension_id": "structure",
+            "dimension_name": "文章结构",
+            "score": 分数（0-100）,
+            "grade_level": "等级",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "chapter_arrangement": "章节安排评价",
+                "logic_coherence": "逻辑连贯性评价",
+                "expression_quality": "表达规范性评价"
+            }}
+        }},
+        {{
+            "dimension_id": "method_experiment",
+            "dimension_name": "研究方法与实验",
+            "score": 分数（0-100）,
+            "grade_level": "等级",
+            "score_reason": "评分理由（必须引用论文具体内容）",
+            "evidence": "论文中的具体证据",
+            "analysis_details": {{
+                "method_appropriateness": "方法适合性评价",
+                "method_detail": "方法详细度评价",
+                "experiment_design": "实验设计评价"
+            }}
+        }}
+    ],
+    "overall_institutional_score": 加权总分（保留1位小数）,
+    "overall_institutional_grade": "总体等级",
+    "comparison_with_excellent_thesis": "与优秀论文的主要差距分析",
+    "self_verification": {{
+        "evidence_consistency": true/false,
+        "evidence_consistency_note": "说明",
+        "score_rationality": true/false,
+        "score_rationality_note": "说明",
+        "grade_consistency": true/false,
+        "grade_consistency_note": "说明",
+        "overall_consistent": true/false,
+        "verification_passed": true/false
+    }}
+}}"""
+        
+        response = self.client.chat.completions.create(
+            model=self.ai_config["model"],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            max_tokens=5000,
+            response_format={"type": "json_object"}
+        )
+        
+        raw_content = response.choices[0].message.content
+        
+        try:
+            result = json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {str(e)}")
+            start_idx = raw_content.find('{')
+            end_idx = raw_content.rfind('}') + 1
+            if start_idx != -1 and end_idx != -1:
+                json_str = raw_content[start_idx:end_idx]
+                result = json.loads(json_str)
+            else:
+                raise Exception(f"解析固有评价体系结果失败: {str(e)}")
+        
+        if dimension_weights:
+            total_weight = sum(dimension_weights.values())
+            if total_weight > 0:
+                weighted_score = 0
+                for score_item in result.get("institutional_scores", []):
+                    dim_id = score_item.get("dimension_id", "")
+                    dim_score = score_item.get("score", 0)
+                    weight = dimension_weights.get(dim_id, 25)
+                    weighted_score += dim_score * (weight / total_weight)
+                result["weighted_overall_score"] = round(weighted_score, 1)
+        
+        return result
+    
+    def calculate_fusion_score(
+        self,
+        rule_engine_score: float,
+        institutional_result: Dict,
+        coefficient_config: Dict = None
+    ) -> Dict:
+        """
+        计算融合评分
+        
+        Args:
+            rule_engine_score: 规则引擎评分
+            institutional_result: 固有评价体系评分结果
+            coefficient_config: 融合系数配置，如 {"excellent": 1.15, "good": 1.05, ...}
+            
+        Returns:
+            融合结果字典
+        """
+        default_config = {
+            "excellent": 1.15,
+            "good": 1.05,
+            "medium": 0.98,
+            "pass": 0.90,
+            "fail": 0.78
+        }
+        
+        config = coefficient_config if coefficient_config else default_config
+        
+        institutional_scores = institutional_result.get("institutional_scores", [])
+        
+        dimension_coefficients = {}
+        total_coefficient = 0
+        count = 0
+        
+        for score_item in institutional_scores:
+            dim_id = score_item.get("dimension_id", "")
+            dim_score = score_item.get("score", 0)
+            dim_grade = score_item.get("grade_level", "")
+            
+            if dim_score >= 90:
+                coef = config.get("excellent", default_config["excellent"])
+            elif dim_score >= 80:
+                coef = config.get("good", default_config["good"])
+            elif dim_score >= 70:
+                coef = config.get("medium", default_config["medium"])
+            elif dim_score >= 60:
+                coef = config.get("pass", default_config["pass"])
+            else:
+                coef = config.get("fail", default_config["fail"])
+            
+            dimension_coefficients[dim_id] = {
+                "coefficient": round(coef, 4),
+                "score": dim_score,
+                "grade_level": dim_grade
+            }
+            
+            total_coefficient += coef
+            count += 1
+        
+        if count > 0:
+            avg_coefficient = total_coefficient / count
+        else:
+            avg_coefficient = 1.0
+        
+        adjustment = rule_engine_score * (avg_coefficient - 1)
+        fusion_score = rule_engine_score + adjustment
+        
+        fusion_score = max(0, min(100, fusion_score))
+        
+        return {
+            "original_score": round(rule_engine_score, 1),
+            "fusion_coefficient": round(avg_coefficient, 4),
+            "adjustment": round(adjustment, 1),
+            "fusion_score": round(fusion_score, 1),
+            "dimension_coefficients": dimension_coefficients,
+            "coefficient_config_used": config
+        }
+
+
+
+
+# 全局评估器实例
+    # ========== End migrated graduation-thesis evaluation methods ==========
+
 llm_evaluator = LLMEvaluator()

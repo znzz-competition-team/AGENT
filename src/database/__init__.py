@@ -15,6 +15,10 @@ __all__ = [
     "ProgressReport",
     "RubricVersion",
     "EvaluationReviewAudit",
+    "CourseFeedbackSurvey",
+    "CourseFeedbackResponse",
+    "CalibrationBenchmark",
+    "CalibrationReport",
     "DatabaseService"
 ]
 
@@ -25,11 +29,13 @@ def __getattr__(name):
         return locals()[name]
     elif name in [
         'Student', 'Submission', 'MediaFile', 'EvaluationResult', 'DimensionScore',
-        'HandwritingRecord', 'ProgressReport', 'RubricVersion', 'EvaluationReviewAudit'
+        'HandwritingRecord', 'ProgressReport', 'RubricVersion', 'EvaluationReviewAudit',
+        'CourseFeedbackSurvey', 'CourseFeedbackResponse', 'CalibrationBenchmark', 'CalibrationReport'
     ]:
         from .models import (
             Student, Submission, MediaFile, EvaluationResult, DimensionScore,
-            HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+            HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit,
+            CourseFeedbackSurvey, CourseFeedbackResponse, CalibrationBenchmark, CalibrationReport
         )
         return locals()[name]
     elif name == 'DatabaseService':

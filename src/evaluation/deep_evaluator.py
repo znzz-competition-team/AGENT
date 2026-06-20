@@ -81,6 +81,7 @@ class DeepEvaluator:
         student_info: Dict = None,
         indicators: Dict = None,
         dimension_weights: Dict = None,
+        file_path: str = None,
     ) -> Dict:
         logger.info("=" * 60)
         logger.info("开始深度评估流程（多Pass分解 + Self-Refine + 修改路线图）")
@@ -90,22 +91,58 @@ class DeepEvaluator:
         student_info = student_info or {}
         indicators = indicators or {}
 
+        knowledge_base = None
+        kb_context = ""
+        visual_context = ""
+        if file_path:
+            try:
+                from src.evaluation.thesis_knowledge_base import ThesisKnowledgeBase
+                knowledge_base = ThesisKnowledgeBase()
+                kb_stats = knowledge_base.build_from_file(file_path, content)
+                logger.info(f"知识库构建完成: {kb_stats}")
+                kb_context = knowledge_base.get_full_evaluation_context()
+                visual_context = knowledge_base.visual_index.get("tables", []) or knowledge_base.visual_index.get("figures", []) or knowledge_base.visual_index.get("formulas", [])
+                if isinstance(visual_context, list):
+                    visual_context = ""
+                logger.info(f"知识库上下文{len(kb_context)}字符")
+            except Exception as e:
+                logger.warning(f"知识库构建失败（不影响主流程）: {str(e)}")
+                knowledge_base = None
+                kb_context = ""
+                try:
+                    from src.evaluation.thesis_vision_analyzer import ThesisVisionAnalyzer
+                    vision_analyzer = ThesisVisionAnalyzer()
+                    visual_context = vision_analyzer.get_visual_context_for_evaluation(file_path)
+                    logger.info(f"视觉分析完成（回退方案），生成上下文{len(visual_context)}字符")
+                except Exception as e2:
+                    logger.warning(f"视觉分析也失败: {str(e2)}")
+                    visual_context = ""
+
+        pass0_comprehension = self._pass0_thesis_comprehension(content, visual_context, knowledge_base)
+        logger.info(f"Pass0完成: 论文结构化理解")
+
         pass1_structure = self._pass1_structure_identification(content)
         logger.info(f"Pass1完成: 识别到{pass1_structure.get('total_sections', 0)}个章节")
 
-        pass2_sections = self._pass2_section_deep_eval(content, pass1_structure)
+        pass2_sections = self._pass2_section_deep_eval(content, pass1_structure, knowledge_base)
         logger.info(f"Pass2完成: 评估了{len(pass2_sections)}个章节")
 
         pass3_promise = self._pass3_promise_tracking(content, pass1_structure, pass2_sections)
         logger.info(f"Pass3完成: 追踪了{len(pass3_promise.get('fulfillment_status', []))}个承诺")
 
+        content_existence_map = self._pre_verify_content_existence(content, pass1_structure)
+        logger.info(f"预验证完成: 确认{len(content_existence_map.get('confirmed_terms', []))}个术语在全文中存在")
+
         pass4_diagnosis = self._pass4_comprehensive_diagnosis(
-            content, pass1_structure, pass2_sections, pass3_promise
+            content, pass1_structure, pass2_sections, pass3_promise, content_existence_map, pass0_comprehension, visual_context, kb_context
         )
         logger.info("Pass4完成: 综合诊断")
 
-        pass5_verified = self._pass5_fact_verification(pass4_diagnosis, content)
+        pass5_verified = self._pass5_fact_verification(pass4_diagnosis, content, content_existence_map)
         logger.info("Pass5完成: 事实核查验证")
+
+        pass6_citation_format = self._pass6_citation_format_check(content)
+        logger.info("Pass6完成: 引用格式检查")
 
         refined_result = self._self_refine(pass5_verified, content, pass2_sections)
         logger.info("Self-Refine迭代完成")
@@ -116,24 +153,145 @@ class DeepEvaluator:
         elapsed = time.time() - start_time
         logger.info(f"深度评估总耗时: {elapsed:.1f}秒")
 
+        kb_stats = knowledge_base.get_stats() if knowledge_base else {}
         return {
             "evaluation_method": "deep_evaluation",
+            "thesis_comprehension": pass0_comprehension,
             "thesis_structure": pass1_structure,
             "section_evaluations": pass2_sections,
             "promise_tracking": pass3_promise,
             "diagnosis": refined_result,
             "modification_roadmap": roadmap,
             "fact_verification": pass5_verified.get("_verification_summary", {}),
+            "citation_format_check": pass6_citation_format,
             "elapsed_seconds": round(elapsed, 1),
             "student_info": student_info,
+            "visual_context_length": len(visual_context) if visual_context else 0,
+            "knowledge_base_stats": kb_stats,
         }
+
+    # ================================================================
+    # Pass 0: 论文结构化理解
+    # ================================================================
+    def _pass0_thesis_comprehension(self, content: str, visual_context: str = "", knowledge_base=None) -> Dict:
+        self._ensure_client()
+
+        content_preview = content[:30000]
+
+        kb_section = ""
+        if knowledge_base:
+            research_chain = knowledge_base.get_research_chain_context()
+            tables_ctx = knowledge_base.get_all_tables_context()
+            figures_ctx = knowledge_base.get_all_figures_context()
+            formulas_ctx = knowledge_base.get_all_formulas_context()
+            key_terms = knowledge_base.structured_index.get("key_terms", [])
+
+            if research_chain:
+                kb_section += f"\n{research_chain}\n"
+            if tables_ctx:
+                kb_section += f"\n## 论文中的表格数据（从PDF结构化提取）\n{tables_ctx[:3000]}\n"
+            if figures_ctx:
+                kb_section += f"\n## 论文中的图表信息\n{figures_ctx[:2000]}\n"
+            if formulas_ctx:
+                kb_section += f"\n## 论文中的公式信息\n{formulas_ctx[:2000]}\n"
+            if key_terms:
+                terms_str = ", ".join([f"{t['term']}({t['count']}次)" for t in key_terms[:15]])
+                kb_section += f"\n## 关键技术术语\n{terms_str}\n"
+
+        visual_section = ""
+        if visual_context:
+            visual_section = f"""
+## 视觉分析结果（基于论文页面图像识别，补充文本提取无法获取的表格/公式/图片信息）
+{visual_context}
+"""
+
+        system_prompt = """你是一位资深的学术研究方法论专家。你的任务是对一篇学术论文进行深度的结构化理解，而非评估。
+
+你的目标是理解论文的研究思路和工作内容，包括：
+1. 研究问题是什么？为什么这个问题重要？
+2. 作者采用了什么研究路线？为什么选择这条路线？
+3. 核心技术方法是什么？如何解决问题的？
+4. 实验设计是怎样的？验证了什么？
+5. 主要发现和贡献是什么？
+6. 研究的逻辑链条是什么？（问题→方法→实验→结论）
+
+【核心原则】
+1. 你是在理解论文，不是在评价论文
+2. 尽可能从论文作者的角度理解其研究意图
+3. 如果某些内容在提供的文本中找不到，说明"文本中未涉及"，不要推测
+4. 如果文本被截断（出现"..."），对截断部分不做判断
+5. 【关键】下方提供了从PDF中结构化提取的表格数据、图表信息、公式信息和关键技术术语。这些信息来自PDF解析，是可靠的。请利用这些信息理解论文的实际研究内容，而非仅看表面文字
+6. 表格中的数据反映了论文的实际实验结果或方法对比，请据此理解论文的研究深度
+7. 公式反映了论文的核心技术方法，请据此理解论文的技术路线
+
+请输出JSON格式结果。"""
+
+        visual_section = ""
+        if visual_context:
+            visual_section = f"""
+## 视觉分析结果（基于论文页面图像识别，补充文本提取无法获取的表格/公式/图片信息）
+{visual_context}
+"""
+
+        user_prompt = f"""请对以下论文进行结构化理解：
+
+## 论文内容
+{content_preview}
+{kb_section}
+{visual_section}
+请输出如下JSON格式：
+{{
+    "research_problem": {{
+        "core_question": "核心研究问题",
+        "importance": "为什么这个问题重要",
+        "problem_scope": "问题范围和边界"
+    }},
+    "research_route": {{
+        "overall_strategy": "整体研究策略和路线",
+        "why_this_route": "为什么选择这条研究路线",
+        "key_decisions": ["关键研究决策1", "关键研究决策2"]
+    }},
+    "technical_methods": [
+        {{
+            "name": "方法名称",
+            "purpose": "解决什么问题",
+            "key_idea": "核心思想",
+            "implementation_summary": "实现概述"
+        }}
+    ],
+    "experimental_design": {{
+        "overall_setup": "实验整体设计",
+        "datasets": "使用的数据集/场景",
+        "baselines": "对比基线方法",
+        "metrics": "评估指标",
+        "validation_approach": "验证方式"
+    }},
+    "key_findings": [
+        {{
+            "finding": "主要发现",
+            "evidence": "支撑证据",
+            "significance": "意义"
+        }}
+    ],
+    "logic_chain": {{
+        "problem_to_method": "从问题到方法的逻辑",
+        "method_to_experiment": "从方法到实验的逻辑",
+        "experiment_to_conclusion": "从实验到结论的逻辑",
+        "logic_gaps": ["逻辑链条中可能存在的跳跃或不足"]
+    }},
+    "thesis_contribution_summary": "用2-3句话概括论文的核心贡献",
+    "research_workflow": "论文的研究工作流程（问题提出→文献调研→方法设计→实现→实验→分析→结论）"
+}}"""
+
+        raw = self._call_llm(system_prompt, user_prompt, temperature=0.2, max_tokens=8000)
+        return self._safe_json_parse(raw)
 
     # ================================================================
     # Pass 1: 论文结构识别与承诺提取
     # ================================================================
     def _pass1_structure_identification(self, content: str) -> Dict:
         self._ensure_client()
-        content_preview = content[:15000]
+        content_preview = content[:25000]
 
         chapter_headers = []
         import re
@@ -147,6 +305,7 @@ class DeepEvaluator:
 2. 章节识别必须基于原文中实际出现的标题
 3. 承诺提取必须基于原文中明确表述的内容
 4. 如果论文中有表格编号（如表4.1）、图编号（如图3.2）、算法编号（如算法1），记录它们的存在
+5. 必须识别论文中所有图表和图例，包括表格编号、图编号、算法编号，以及图注/表注的内容
 
 请仔细分析并输出JSON格式结果。"""
 
@@ -180,7 +339,15 @@ class DeepEvaluator:
             "estimated_content": "该章节大致内容描述"
         }}
     ],
-    "structure_analysis": "论文整体结构分析说明"
+    "structure_analysis": "论文整体结构分析说明",
+    "figures_and_tables": [
+        {{
+            "type": "图/表/算法",
+            "number": "编号如3.2",
+            "caption": "图注/表注内容",
+            "location": "所在章节"
+        }}
+    ]
 }}"""
 
         raw = self._call_llm(system_prompt, user_prompt, max_tokens=8000)
@@ -189,7 +356,7 @@ class DeepEvaluator:
     # ================================================================
     # Pass 2: 逐章深度评估（每章单独调用，带前后文上下文）
     # ================================================================
-    def _pass2_section_deep_eval(self, content: str, structure: Dict) -> List[Dict]:
+    def _pass2_section_deep_eval(self, content: str, structure: Dict, knowledge_base=None) -> List[Dict]:
         self._ensure_client()
         sections = structure.get('sections', [])
         if not sections:
@@ -207,16 +374,20 @@ class DeepEvaluator:
             if i > 0:
                 prev_sec = sections[i - 1]
                 prev_content = self._extract_section_content(content, prev_sec, sections, i - 1)
-                prev_context = prev_content[:800] if prev_content else ""
+                prev_context = prev_content[:1500] if prev_content else ""
 
             next_context = ""
             if i < len(sections) - 1:
                 next_sec = sections[i + 1]
                 next_content = self._extract_section_content(content, next_sec, sections, i + 1)
-                next_context = next_content[:800] if next_content else ""
+                next_context = next_content[:1500] if next_content else ""
+
+            kb_section_context = ""
+            if knowledge_base:
+                kb_section_context = knowledge_base.get_context_for_query(sec_title, top_k=3)
 
             eval_result = self._evaluate_single_section(
-                sec_title, sec_type, sec_type_name, section_content, prev_context, next_context, i, len(sections)
+                sec_title, sec_type, sec_type_name, section_content, prev_context, next_context, i, len(sections), kb_section_context
             )
             results.append(eval_result)
             logger.info(f"  章节{i+1}/{len(sections)}: {sec_title} - {eval_result.get('section_score', 0)}分")
@@ -238,12 +409,12 @@ class DeepEvaluator:
                 end_idx = candidate
 
         extracted = content[start_idx:end_idx].strip()
-        if len(extracted) > 8000:
-            extracted = extracted[:4000] + "\n...\n" + extracted[-3000:]
+        if len(extracted) > 16000:
+            extracted = extracted[:8000] + "\n...\n" + extracted[-6000:]
         return extracted
 
     def _evaluate_single_section(
-        self, title, sec_type, sec_type_name, content, prev_context, next_context, idx, total
+        self, title, sec_type, sec_type_name, content, prev_context, next_context, idx, total, kb_section_context=""
     ) -> Dict:
         system_prompt = """你是一位极其严格的学术论文审稿专家。你正在对论文的每个章节进行深度评估。
 
@@ -252,10 +423,17 @@ class DeepEvaluator:
 2. 声称"缺少"某内容时，必须先确认该内容确实不在提供的文本中
 3. 声称"仅"有某内容时，必须确认没有遗漏文本中的其他内容
 4. 每个判断必须引用原文中的具体文字作为证据
-5. 如果文本被截断，不要对截断部分的内容做出判断
+5. 如果文本被截断（出现"..."），不要对截断部分的内容做出判断
 6. 不要假设论文没有包含某些内容——如果文本中提到了表格、图表、算法，就认为它们存在
 7. 注意：表格和图片可能以文字描述、引用编号（如表4.1、图3.2）的形式出现，这些都表明它们存在
 8. 附录中的表格和图片同样有效，不应声称缺失
+
+【评估重点 - 聚焦学术实质】
+评估应聚焦于学术质量和研究深度，而非表面文字错误：
+- 高优先级：方法论严谨性、实验设计合理性、逻辑推理严密性、数据分析深度、创新性真实性
+- 中优先级：文献综述全面性、技术路线合理性、研究问题定义清晰度
+- 低优先级（仅记录不影响评分）：文字笔误、格式细节、标点问题
+- 你已获得论文的结构化理解（研究问题、技术方法、实验设计等），请基于这些理解评估章节内容，而非仅看表面文字
 
 评估要求：
 1. 每个评分必须有论文原文中的具体证据支撑
@@ -263,6 +441,7 @@ class DeepEvaluator:
 3. 改进建议必须具体可操作，不能泛泛而谈
 4. 必须考虑该章节与前后章节的逻辑关系
 5. 不要对论文的研究设计方向提出质疑（如"为什么只研究一种粉尘"），除非论文自身声称研究了多种但实际只做了
+6. 评估章节中图表和图例的质量，包括图注是否完整、图例是否清晰、表格是否规范
 
 请输出JSON格式的评估结果。"""
 
@@ -272,6 +451,10 @@ class DeepEvaluator:
         if next_context:
             context_info += f"\n## 下一章节内容片段（供衔接参考）\n{next_context[:600]}\n"
 
+        kb_info = ""
+        if kb_section_context:
+            kb_info = f"\n## 知识库检索到的相关上下文（来自论文其他部分的表格/公式/图片信息）\n{kb_section_context[:2000]}\n"
+
         user_prompt = f"""请对以下章节进行深度评估：
 
 ## 当前章节: {title}（{sec_type_name}，第{idx+1}/{total}章）
@@ -279,6 +462,7 @@ class DeepEvaluator:
 ## 章节内容
 {content}
 {context_info}
+{kb_info}
 
 请输出如下JSON格式：
 {{
@@ -312,7 +496,8 @@ class DeepEvaluator:
         "score": 0-100,
         "comment": "表达规范性评价",
         "language_issues": ["语言问题1"],
-        "format_issues": ["格式问题1"]
+        "format_issues": ["格式问题1"],
+        "figure_table_issues": ["图表问题1"]
     }},
     "key_points": ["该章节的关键论点1", "关键论点2"],
     "improvement_suggestions": [
@@ -328,7 +513,7 @@ class DeepEvaluator:
     "detailed_score_reason": "详细的评分推理过程"
 }}"""
 
-        raw = self._call_llm(system_prompt, user_prompt, max_tokens=6000)
+        raw = self._call_llm(system_prompt, user_prompt, max_tokens=8000)
         return self._safe_json_parse(raw)
 
     # ================================================================
@@ -366,7 +551,7 @@ class DeepEvaluator:
             for i, p in enumerate(promises)
         ])
 
-        content_for_check = content[:20000]
+        content_for_check = content[:30000]
 
         user_prompt = f"""请追踪以下承诺的兑现情况：
 
@@ -423,11 +608,81 @@ class DeepEvaluator:
         result = self._safe_json_parse(raw)
         return result.get('key_promises', [])
 
+    def _pre_verify_content_existence(self, content: str, structure: Dict) -> Dict:
+        import re
+
+        result = {
+            "confirmed_terms": [],
+            "confirmed_figures": [],
+            "confirmed_tables": [],
+            "confirmed_algorithms": [],
+            "term_locations": {},
+        }
+
+        abstract_sections = [s for s in structure.get('sections', []) if s.get('section_type') in ('abstract',)]
+        intro_sections = [s for s in structure.get('sections', []) if s.get('section_type') in ('introduction',)]
+        key_sections = abstract_sections + intro_sections
+
+        key_content = ""
+        for sec in key_sections:
+            idx = structure.get('sections', []).index(sec)
+            extracted = self._extract_section_content(content, sec, structure.get('sections', []), idx)
+            key_content += extracted + "\n"
+
+        if not key_content:
+            key_content = content[:5000]
+
+        technical_patterns = [
+            r'(?:应用|采用|使用|基于|利用|提出|设计|实现|构建|开发|研究|分析|求解|预测|仿真|模拟)[，,]?\s*([^\s，,。；;]{2,30}(?:方程|模型|方法|算法|网络|框架|系统|技术|理论|策略|方案|体系|平台|装置|设备|结构|机理|机制|原理|准则|标准|规范))',
+            r'(?:物理信息神经网络|PINN|深度学习|机器学习|神经网络|卷积网络|循环网络|Transformer|注意力机制|随机森林|支持向量机|贝叶斯|遗传算法|强化学习|迁移学习|联邦学习|知识蒸馏|图神经网络|生成对抗|自编码器|LSTM|GRU|CNN|RNN|GAN|VAE|扩散模型)',
+            r'(?:Navier-Stokes|N-S|波动方程|热传导方程|拉普拉斯方程|泊松方程|欧拉方程|麦克斯韦方程|薛定谔方程|扩散方程|对流方程|输运方程)',
+            r'(?:有限元|有限差分|有限体积|谱方法|边界元|无网格|格子Boltzmann|SPH|DEM|CFD|DNS|LES|RANS)',
+        ]
+
+        found_terms = set()
+        for pattern in technical_patterns:
+            for m in re.finditer(pattern, key_content):
+                term = m.group(0) if m.lastindex is None else m.group(m.lastindex)
+                if len(term) >= 2:
+                    found_terms.add(term)
+
+        for term in found_terms:
+            escaped = re.escape(term)
+            occurrences = [m.start() for m in re.finditer(escaped, content)]
+            if occurrences:
+                result["confirmed_terms"].append(term)
+                result["term_locations"][term] = {
+                    "count": len(occurrences),
+                    "first_offset": occurrences[0],
+                    "in_abstract": bool(re.search(escaped, key_content)),
+                    "in_body": len(occurrences) > (len([m for m in re.finditer(escaped, key_content)]) if key_content else 0),
+                }
+
+        fig_pattern = r'图\s*(\d+[\.\-]\d+|\d+)'
+        for m in re.finditer(fig_pattern, content):
+            fig_num = m.group(1)
+            if fig_num not in result["confirmed_figures"]:
+                result["confirmed_figures"].append(fig_num)
+
+        tab_pattern = r'表\s*(\d+[\.\-]\d+|\d+)'
+        for m in re.finditer(tab_pattern, content):
+            tab_num = m.group(1)
+            if tab_num not in result["confirmed_tables"]:
+                result["confirmed_tables"].append(tab_num)
+
+        algo_pattern = r'算法\s*(\d+[\.\-]\d+|\d+)'
+        for m in re.finditer(algo_pattern, content):
+            algo_num = m.group(1)
+            if algo_num not in result["confirmed_algorithms"]:
+                result["confirmed_algorithms"].append(algo_num)
+
+        return result
+
     # ================================================================
     # Pass 4: 综合诊断
     # ================================================================
     def _pass4_comprehensive_diagnosis(
-        self, content, structure, section_evals, promise_tracking
+        self, content, structure, section_evals, promise_tracking, content_existence_map=None, comprehension=None, visual_context="", kb_context=""
     ) -> Dict:
         self._ensure_client()
 
@@ -467,14 +722,74 @@ class DeepEvaluator:
 6. 如果论文中提到了表格编号（如表4.1）、图编号（如图3.2）、算法编号（如算法1），就认为它们存在
 7. 不要声称摘要与正文不一致，除非你能指出具体的不一致之处并引用原文
 8. 附录中的内容同样有效
+9. 【关键】下方提供的"已确认存在内容清单"中的术语/图表/算法，已在论文全文中通过文本搜索确认存在，你绝对不能声称它们不存在或缺失
+10. 【关键】下方提供了"论文结构化理解"，这是对论文研究思路和工作内容的深度分析。你的评估必须基于对论文研究内容的理解，而非仅看表面文字。评估应聚焦于：研究方法是否严谨、实验设计是否合理、逻辑推理是否严密、创新性是否真实等学术实质问题。
 
-你的任务：
-1. 综合所有Pass的发现，给出整体评分和等级
-2. 量化每个问题对分数的影响
-3. 识别最关键的问题
-4. 给出总体评价
+【评估重点 - 聚焦学术实质】
+你的评估必须聚焦于论文的学术质量和研究深度，而非表面文字错误。请按以下优先级评估：
+
+**高优先级问题（严重影响论文质量）：**
+1. 研究方法论是否严谨：实验设计是否合理、对比基线是否充分、变量控制是否得当
+2. 创新性是否真实：声称的创新是否真正有别于已有工作，还是只是简单套用
+3. 实验验证是否充分：是否有充分的实验/仿真验证，结果是否可复现，对比实验是否公平
+4. 逻辑推理是否严密：从数据到结论的推理链是否有跳跃，因果关系是否成立
+5. 数据分析是否深入：是否只是罗列数据，还是进行了深入分析和合理解释
+
+**中优先级问题：**
+6. 文献综述是否全面：是否遗漏了关键的相关工作
+7. 研究问题定义是否清晰：问题边界是否明确
+8. 技术路线是否合理：所选方法是否适合解决研究问题
+
+**低优先级问题（仅记录，不影响评分）：**
+9. 文字笔误、格式不统一、标点错误等表面问题
+10. 图表标注细节问题
 
 请输出JSON格式结果。"""
+
+        existence_info = ""
+        if content_existence_map:
+            confirmed_terms = content_existence_map.get("confirmed_terms", [])
+            confirmed_figures = content_existence_map.get("confirmed_figures", [])
+            confirmed_tables = content_existence_map.get("confirmed_tables", [])
+            confirmed_algorithms = content_existence_map.get("confirmed_algorithms", [])
+
+            if confirmed_terms:
+                existence_info += "\n### 已确认在全文中存在的关键技术术语（绝对不能声称缺失）\n"
+                for term in confirmed_terms:
+                    loc = content_existence_map.get("term_locations", {}).get(term, {})
+                    count = loc.get("count", 0)
+                    in_body = loc.get("in_body", False)
+                    existence_info += f"- **{term}** (出现{count}次"
+                    if in_body:
+                        existence_info += "，摘要与正文均有"
+                    existence_info += ")\n"
+
+            if confirmed_figures:
+                existence_info += f"\n### 已确认存在的图编号: {', '.join(['图' + f for f in confirmed_figures])}\n"
+            if confirmed_tables:
+                existence_info += f"\n### 已确认存在的表编号: {', '.join(['表' + t for t in confirmed_tables])}\n"
+            if confirmed_algorithms:
+                existence_info += f"\n### 已确认存在的算法编号: {', '.join(['算法' + a for a in confirmed_algorithms])}\n"
+
+        comprehension_info = ""
+        if comprehension:
+            comp_json = json.dumps(comprehension, ensure_ascii=False, indent=2)[:3000]
+            comprehension_info = f"""
+## 论文结构化理解（Pass0生成，帮助你理解论文的研究思路）
+{comp_json}
+"""
+
+        if visual_context:
+            comprehension_info += f"""
+## 视觉分析结果（基于论文页面图像识别）
+{visual_context[:3000]}
+"""
+
+        if kb_context:
+            comprehension_info += f"""
+## 本地知识库上下文（从PDF结构化提取的表格/公式/图片/研究链条信息）
+{kb_context[:5000]}
+"""
 
         user_prompt = f"""请基于以下多Pass评估结果，进行综合诊断：
 
@@ -487,17 +802,18 @@ class DeepEvaluator:
 ## 承诺兑现追踪摘要
 兑现率: {promise_tracking.get('overall_fulfillment_rate', 'N/A')}
 {promise_summary}
-
+{existence_info}
+{comprehension_info}
 请输出如下JSON格式：
 {{
     "overall_score": 0-100的整数,
     "grade_level": "优秀/良好/中等/及格/不及格",
-    "overall_comment": "总体评价（200字以上，包含核心发现和总体判断）",
+    "overall_comment": "总体评价（200字以上，聚焦学术质量、研究深度、创新性，而非表面文字问题）",
     "strengths": ["优势1", "优势2", "优势3"],
     "weaknesses": ["不足1", "不足2", "不足3"],
     "quantified_issues": [
         {{
-            "issue": "问题描述",
+            "issue": "问题描述（聚焦学术实质问题）",
             "location": "问题所在位置",
             "severity": "严重/中等/轻微",
             "score_impact": 估计影响的分数（正整数）,
@@ -513,7 +829,7 @@ class DeepEvaluator:
     ],
     "improvement_suggestions": [
         {{
-            "aspect": "改进方面",
+            "aspect": "改进方面（优先方法论、实验设计、逻辑推理等学术问题）",
             "current_issue": "当前具体问题",
             "suggestion": "具体修改方案",
             "priority": "高/中/低",
@@ -522,10 +838,10 @@ class DeepEvaluator:
         }}
     ],
     "detailed_analysis": {{
-        "innovation_analysis": "创新性分析（100字以上）",
-        "depth_analysis": "研究深度分析（100字以上）",
-        "structure_analysis": "结构完整性分析（100字以上）",
-        "methodology_analysis": "方法论分析（100字以上）"
+        "innovation_analysis": "创新性分析（100字以上：创新点是否真实、是否有别于已有工作、创新程度如何）",
+        "depth_analysis": "研究深度分析（100字以上：分析是否深入、实验是否充分、结论是否有数据支撑）",
+        "structure_analysis": "结构完整性分析（100字以上：论证链条是否完整、各章节逻辑关系是否紧密）",
+        "methodology_analysis": "方法论分析（100字以上：方法选择是否合理、实验设计是否严谨、对比基线是否充分）"
     }}
 }}"""
 
@@ -535,7 +851,85 @@ class DeepEvaluator:
     # ================================================================
     # Pass 5: 事实核查验证 - 检查评估中的判断是否与原文一致
     # ================================================================
-    def _pass5_fact_verification(self, diagnosis: Dict, content: str) -> Dict:
+    def _pass5_fact_verification(self, diagnosis: Dict, content: str, content_existence_map: Dict = None) -> Dict:
+        import re
+
+        auto_corrected = []
+        if content_existence_map:
+            confirmed_terms = content_existence_map.get("confirmed_terms", [])
+            confirmed_figures = content_existence_map.get("confirmed_figures", [])
+            confirmed_tables = content_existence_map.get("confirmed_tables", [])
+            confirmed_algorithms = content_existence_map.get("confirmed_algorithms", [])
+
+            for term in confirmed_terms:
+                for i, w in enumerate(diagnosis.get('weaknesses', [])):
+                    if term in w and ('缺少' in w or '未' in w or '缺失' in w or '没有' in w or '不存在' in w):
+                        auto_corrected.append({
+                            "claim": w,
+                            "is_accurate": False,
+                            "reason": f"术语'{term}'已在全文中通过文本搜索确认存在（出现{content_existence_map.get('term_locations', {}).get(term, {}).get('count', '?')}次），该判断不准确",
+                            "correction": f"术语'{term}'在论文中确实存在"
+                        })
+
+            for fig_num in confirmed_figures:
+                fig_label = f"图{fig_num}"
+                for i, w in enumerate(diagnosis.get('weaknesses', [])):
+                    if fig_label in w and ('缺少' in w or '未' in w or '缺失' in w or '没有' in w):
+                        auto_corrected.append({
+                            "claim": w,
+                            "is_accurate": False,
+                            "reason": f"{fig_label}已在全文中确认存在，该判断不准确",
+                            "correction": f"{fig_label}在论文中确实存在"
+                        })
+
+            for tab_num in confirmed_tables:
+                tab_label = f"表{tab_num}"
+                for i, w in enumerate(diagnosis.get('weaknesses', [])):
+                    if tab_label in w and ('缺少' in w or '未' in w or '缺失' in w or '没有' in w or '仅有编号' in w):
+                        auto_corrected.append({
+                            "claim": w,
+                            "is_accurate": False,
+                            "reason": f"{tab_label}已在全文中确认存在，该判断不准确",
+                            "correction": f"{tab_label}在论文中确实存在"
+                        })
+
+            for i, qi in enumerate(diagnosis.get('quantified_issues', [])):
+                issue_text = qi.get('issue', '')
+                for term in confirmed_terms:
+                    if term in issue_text and ('缺少' in issue_text or '未' in issue_text or '缺失' in issue_text or '没有' in issue_text or '不存在' in issue_text):
+                        already = any(ac['claim'] == issue_text for ac in auto_corrected)
+                        if not already:
+                            auto_corrected.append({
+                                "claim": issue_text,
+                                "is_accurate": False,
+                                "reason": f"术语'{term}'已在全文中确认存在，该判断不准确",
+                                "correction": f"术语'{term}'在论文中确实存在"
+                            })
+
+                for fig_num in confirmed_figures:
+                    fig_label = f"图{fig_num}"
+                    if fig_label in issue_text and ('缺少' in issue_text or '未' in issue_text or '缺失' in issue_text):
+                        already = any(ac['claim'] == issue_text for ac in auto_corrected)
+                        if not already:
+                            auto_corrected.append({
+                                "claim": issue_text,
+                                "is_accurate": False,
+                                "reason": f"{fig_label}已在全文中确认存在，该判断不准确",
+                                "correction": f"{fig_label}在论文中确实存在"
+                            })
+
+                for tab_num in confirmed_tables:
+                    tab_label = f"表{tab_num}"
+                    if tab_label in issue_text and ('缺少' in issue_text or '未' in issue_text or '缺失' in issue_text or '仅有编号' in issue_text):
+                        already = any(ac['claim'] == issue_text for ac in auto_corrected)
+                        if not already:
+                            auto_corrected.append({
+                                "claim": issue_text,
+                                "is_accurate": False,
+                                "reason": f"{tab_label}已在全文中确认存在，该判断不准确",
+                                "correction": f"{tab_label}在论文中确实存在"
+                            })
+
         self._ensure_client()
 
         issues_to_verify = []
@@ -567,7 +961,7 @@ class DeepEvaluator:
             if item.get('evidence'):
                 claims_text += f"\n  声称的证据: {item['evidence']}"
 
-        content_for_verify = content[:25000]
+        content_for_verify = content[:35000]
 
         system_prompt = """你是一位严格的事实核查专家。你的任务是检查一份论文评估报告中的每个判断是否与论文原文一致。
 
@@ -609,6 +1003,15 @@ class DeepEvaluator:
 
         verification_results = verification.get('verification_results', [])
         inaccurate_claims = [v for v in verification_results if not v.get('is_accurate', True)]
+
+        for ac in auto_corrected:
+            already_in_llm = any(
+                v.get('claim', '') == ac['claim'] and not v.get('is_accurate', True)
+                for v in verification_results
+            )
+            if not already_in_llm:
+                verification_results.append(ac)
+                inaccurate_claims.append(ac)
 
         corrected_diagnosis = copy.deepcopy(diagnosis)
 
@@ -661,6 +1064,20 @@ class DeepEvaluator:
         return corrected_diagnosis
 
     # ================================================================
+    # Pass 6: 引用格式检查
+    # ================================================================
+    def _pass6_citation_format_check(self, content: str) -> Dict:
+        logger.info("Pass6: 引用格式检查...")
+        try:
+            from src.evaluation.citation_novelty_verifier import NoveltyVerifier
+            verifier = NoveltyVerifier()
+            result = verifier.check_citation_format(content)
+            return result
+        except Exception as e:
+            logger.error(f"引用格式检查失败: {str(e)}")
+            return {"error": str(e)}
+
+    # ================================================================
     # Self-Refine: 生成 → 批评 → 修订
     # ================================================================
     def _self_refine(self, diagnosis: Dict, content: str, section_evals: List[Dict]) -> Dict:
@@ -698,7 +1115,7 @@ class DeepEvaluator:
 请输出JSON格式。"""
 
         diag_str = json.dumps(diagnosis, ensure_ascii=False, indent=2)[:8000]
-        content_preview = content[:5000]
+        content_preview = content[:10000]
 
         user_prompt = f"""请对以下评估报告进行严格批评：
 
@@ -770,7 +1187,7 @@ class DeepEvaluator:
 
         diag_str = json.dumps(diagnosis, ensure_ascii=False, indent=2)[:6000]
         crit_str = json.dumps(criticism, ensure_ascii=False, indent=2)[:6000]
-        content_preview = content[:5000]
+        content_preview = content[:10000]
 
         user_prompt = f"""请根据批评意见修订评估报告：
 

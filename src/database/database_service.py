@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from .models import (
     Student, Submission, MediaFile, EvaluationResult, DimensionScore,
-    HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+    HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit,
+    CourseFeedbackSurvey, CourseFeedbackResponse, CalibrationBenchmark, CalibrationReport
 )
 from datetime import datetime
 import uuid
@@ -51,7 +52,11 @@ class DatabaseService:
         student = self.get_student_by_id(student_id)
         if student:
             # 先删除与该学生关联的所有相关记录
-            from .models import HandwritingRecord, Submission, MediaFile, EvaluationResult, DimensionScore, ProgressReport, EvaluationReviewAudit
+            from .models import (
+                HandwritingRecord, Submission, MediaFile, EvaluationResult,
+                DimensionScore, ProgressReport, EvaluationReviewAudit,
+                CalibrationBenchmark, CalibrationReport
+            )
             
             # 1. 删除与学生关联的手写识别记录
             self.db.query(HandwritingRecord).filter(HandwritingRecord.student_id == student.id).delete()
@@ -65,6 +70,7 @@ class DatabaseService:
                 # 删除维度评分
                 self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation_result.id).delete()
                 self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation_result.id).delete()
+                self.db.query(CalibrationReport).filter(CalibrationReport.evaluation_id == evaluation_result.id).delete()
                 # 删除评估结果
                 self.db.delete(evaluation_result)
             
@@ -75,6 +81,10 @@ class DatabaseService:
                 self.db.query(MediaFile).filter(MediaFile.submission_id == submission.id).delete()
                 
                 # 删除提交记录
+                benchmarks = self.db.query(CalibrationBenchmark).filter(CalibrationBenchmark.submission_id == submission.id).all()
+                for benchmark in benchmarks:
+                    self.db.query(CalibrationReport).filter(CalibrationReport.benchmark_id == benchmark.id).delete()
+                    self.db.delete(benchmark)
                 self.db.delete(submission)
             
             # 5. 最后删除学生
@@ -143,6 +153,7 @@ class DatabaseService:
             # 删除维度评分
             self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation_result.id).delete()
             self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation_result.id).delete()
+            self.db.query(CalibrationReport).filter(CalibrationReport.evaluation_id == evaluation_result.id).delete()
             # 删除评估结果
             self.db.delete(evaluation_result)
         
@@ -160,6 +171,10 @@ class DatabaseService:
             self.db.delete(media_file)
         
         # 3. 删除提交记录
+        benchmarks = self.db.query(CalibrationBenchmark).filter(CalibrationBenchmark.submission_id == submission.id).all()
+        for benchmark in benchmarks:
+            self.db.query(CalibrationReport).filter(CalibrationReport.benchmark_id == benchmark.id).delete()
+            self.db.delete(benchmark)
         self.db.delete(submission)
         self.db.commit()
         return True
@@ -315,6 +330,7 @@ class DatabaseService:
         # 删除相关的维度评分
         self.db.query(DimensionScore).filter(DimensionScore.evaluation_id == evaluation.id).delete()
         self.db.query(EvaluationReviewAudit).filter(EvaluationReviewAudit.evaluation_id == evaluation.id).delete()
+        self.db.query(CalibrationReport).filter(CalibrationReport.evaluation_id == evaluation.id).delete()
         
         # 删除评估结果
         self.db.delete(evaluation)
@@ -461,6 +477,184 @@ class DatabaseService:
         self.db.commit()
         self.db.refresh(evaluation)
         return evaluation
+
+    # Course feedback operations
+    def create_feedback_survey(
+        self,
+        title: str,
+        course_name: Optional[str] = None,
+        syllabus_name: Optional[str] = None,
+        survey_type: str = "midterm",
+        status: str = "draft",
+        target_response_count: int = 0,
+        description: Optional[str] = None,
+        start_at: Optional[datetime] = None,
+        end_at: Optional[datetime] = None
+    ) -> CourseFeedbackSurvey:
+        survey = CourseFeedbackSurvey(
+            survey_id=f"SURVEY_{uuid.uuid4().hex[:10].upper()}",
+            title=title,
+            course_name=course_name,
+            syllabus_name=syllabus_name,
+            survey_type=survey_type,
+            status=status,
+            target_response_count=max(0, int(target_response_count or 0)),
+            description=description,
+            start_at=start_at,
+            end_at=end_at
+        )
+        self.db.add(survey)
+        self.db.commit()
+        self.db.refresh(survey)
+        return survey
+
+    def get_feedback_survey_by_id(self, survey_id: str) -> Optional[CourseFeedbackSurvey]:
+        return self.db.query(CourseFeedbackSurvey).filter(CourseFeedbackSurvey.survey_id == survey_id).first()
+
+    def get_feedback_surveys(self, skip: int = 0, limit: int = 100) -> List[CourseFeedbackSurvey]:
+        return (
+            self.db.query(CourseFeedbackSurvey)
+            .order_by(CourseFeedbackSurvey.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def update_feedback_survey(self, survey_id: str, **kwargs) -> Optional[CourseFeedbackSurvey]:
+        survey = self.get_feedback_survey_by_id(survey_id)
+        if not survey:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(survey, key) and value is not None:
+                setattr(survey, key, value)
+        survey.updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(survey)
+        return survey
+
+    def create_feedback_response(
+        self,
+        survey_id: str,
+        respondent_hash: Optional[str] = None,
+        rating_course: Optional[float] = None,
+        rating_teacher: Optional[float] = None,
+        rating_assignment_design: Optional[float] = None,
+        difficulty_level: Optional[float] = None,
+        workload_level: Optional[float] = None,
+        difficulty_text: Optional[str] = None,
+        feedback_text: Optional[str] = None,
+        task_design_text: Optional[str] = None,
+        linked_ability_points: Optional[List[str]] = None,
+        sentiment: Optional[str] = None
+    ) -> CourseFeedbackResponse:
+        survey = self.get_feedback_survey_by_id(survey_id)
+        if not survey:
+            raise ValueError(f"Feedback survey with ID {survey_id} not found")
+
+        response = CourseFeedbackResponse(
+            response_id=f"RESP_{uuid.uuid4().hex[:10].upper()}",
+            survey_id=survey.id,
+            respondent_hash=respondent_hash,
+            rating_course=rating_course,
+            rating_teacher=rating_teacher,
+            rating_assignment_design=rating_assignment_design,
+            difficulty_level=difficulty_level,
+            workload_level=workload_level,
+            difficulty_text=difficulty_text,
+            feedback_text=feedback_text,
+            task_design_text=task_design_text,
+            linked_ability_points=json.dumps(linked_ability_points or [], ensure_ascii=False),
+            sentiment=sentiment
+        )
+        self.db.add(response)
+        self.db.commit()
+        self.db.refresh(response)
+        return response
+
+    def get_feedback_responses(self, survey_id: str) -> List[CourseFeedbackResponse]:
+        survey = self.get_feedback_survey_by_id(survey_id)
+        if not survey:
+            return []
+        return (
+            self.db.query(CourseFeedbackResponse)
+            .filter(CourseFeedbackResponse.survey_id == survey.id)
+            .order_by(CourseFeedbackResponse.submitted_at.desc())
+            .all()
+        )
+
+    # Calibration benchmark operations
+    def create_calibration_benchmark(
+        self,
+        submission_id: str,
+        teacher_overall_score: float,
+        teacher_dimension_scores: Optional[List[Dict[str, Any]]] = None,
+        teacher_id: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> CalibrationBenchmark:
+        submission = self.get_submission_by_id(submission_id)
+        if not submission:
+            raise ValueError(f"Submission with ID {submission_id} not found")
+        benchmark = CalibrationBenchmark(
+            benchmark_id=f"BENCH_{uuid.uuid4().hex[:10].upper()}",
+            submission_id=submission.id,
+            teacher_id=teacher_id,
+            teacher_overall_score=teacher_overall_score,
+            teacher_dimension_scores=json.dumps(teacher_dimension_scores or [], ensure_ascii=False, sort_keys=True),
+            notes=notes
+        )
+        self.db.add(benchmark)
+        self.db.commit()
+        self.db.refresh(benchmark)
+        return benchmark
+
+    def get_calibration_benchmark_by_id(self, benchmark_id: str) -> Optional[CalibrationBenchmark]:
+        return self.db.query(CalibrationBenchmark).filter(CalibrationBenchmark.benchmark_id == benchmark_id).first()
+
+    def get_calibration_benchmarks(self, skip: int = 0, limit: int = 100) -> List[CalibrationBenchmark]:
+        return (
+            self.db.query(CalibrationBenchmark)
+            .order_by(CalibrationBenchmark.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def create_calibration_report(
+        self,
+        benchmark_id: str,
+        evaluation_id: str,
+        overall_bias: float,
+        dimension_biases: List[Dict[str, Any]],
+        summary: Optional[str] = None
+    ) -> CalibrationReport:
+        benchmark = self.get_calibration_benchmark_by_id(benchmark_id)
+        if not benchmark:
+            raise ValueError(f"Calibration benchmark with ID {benchmark_id} not found")
+        evaluation = self.get_evaluation_result_by_id(evaluation_id)
+        if not evaluation:
+            raise ValueError(f"Evaluation result with ID {evaluation_id} not found")
+
+        report = CalibrationReport(
+            report_id=f"CAL_{uuid.uuid4().hex[:10].upper()}",
+            benchmark_id=benchmark.id,
+            evaluation_id=evaluation.id,
+            overall_bias=overall_bias,
+            dimension_biases=json.dumps(dimension_biases, ensure_ascii=False, sort_keys=True),
+            summary=summary
+        )
+        self.db.add(report)
+        self.db.commit()
+        self.db.refresh(report)
+        return report
+
+    def get_calibration_reports(self, benchmark_id: Optional[str] = None) -> List[CalibrationReport]:
+        query = self.db.query(CalibrationReport)
+        if benchmark_id:
+            benchmark = self.get_calibration_benchmark_by_id(benchmark_id)
+            if not benchmark:
+                return []
+            query = query.filter(CalibrationReport.benchmark_id == benchmark.id)
+        return query.order_by(CalibrationReport.created_at.desc()).all()
     
     # ProgressReport operations
     def create_progress_report(self, student_id: str, report: str, total_evaluations: int, 

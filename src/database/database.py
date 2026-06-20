@@ -14,10 +14,13 @@ def ensure_sqlite_schema_compatibility():
     required_columns = {
         "submissions": {
             "submission_purpose": "VARCHAR(20) DEFAULT 'normal'",
+            "text_content": "TEXT",
             "course_type": "VARCHAR(50) DEFAULT '理论课'",
             "syllabus_name": "VARCHAR(255)"
         },
         "evaluation_results": {
+            "stage": "VARCHAR(100)",
+            "stage_progress": "FLOAT",
             "rubric_version_id": "VARCHAR(50)",
             "review_status": "VARCHAR(30) DEFAULT 'ai_draft'",
             "reviewed_by": "VARCHAR(100)",
@@ -90,7 +93,8 @@ def init_db():
     # 导入所有模型，确保它们被注册到 Base.metadata
     from .models import (
         Student, Submission, MediaFile, EvaluationResult, DimensionScore,
-        HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit
+        HandwritingRecord, ProgressReport, RubricVersion, EvaluationReviewAudit,
+        CourseFeedbackSurvey, CourseFeedbackResponse, CalibrationBenchmark, CalibrationReport
     )
     
     # 只创建表，不删除现有表
